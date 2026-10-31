@@ -1,0 +1,467 @@
+import {
+  GAME_CONFIG,
+  MISSION_1,
+  WEAPON_KINDS,
+  heroOf,
+  rankName,
+  type BossKind,
+  type PlayerSnapshot,
+  type SimEvent,
+  type Snapshot,
+  type StyleTag,
+} from '@strikesquad/shared';
+import type { Sfx } from '../audio/sfx';
+import type { Settings } from '../settings';
+import { $, el } from '../ui/dom';
+import { Renderer, type DrawOptions } from './renderer';
+
+/** Names and one-line tips for the boss intro card. */
+export const BOSS_INFO: Record<BossKind, { name: string; sub: string; tip: string }> = {
+  walker: {
+    name: 'WARHOUND',
+    sub: 'Assault walker',
+    tip: 'Red glow = charge! Double jump over it or dash through. Jump the shockwaves.',
+  },
+  gunship: {
+    name: 'VULTURE',
+    sub: 'Attack gunship',
+    tip: 'Keep moving under the bombs. Shoot or knife the missiles out of the air.',
+  },
+  boss: {
+    name: 'IRON FORTRESS',
+    sub: 'Final stronghold · 3 phases',
+    tip: 'Low laser: JUMP. High laser: DUCK or slide. Everyone, unleash your supers!',
+  },
+};
+
+const STYLE_TEXT: Record<StyleTag, string> = {
+  parry: 'PARRY!',
+  melee: 'KNIFE KILL',
+  slide: 'SLIDE KILL',
+  air: 'AIR KILL',
+  multi: 'MULTI KILL!',
+  shield: 'SHIELD BROKEN',
+};
+
+const RANK_COLORS = ['#a3e635', '#38bdf8', '#facc15', '#fb923c', '#f43f5e', '#e879f9'];
+
+/**
+ * Everything the player sees during a mission, shared by online and solo modes: canvas drawing, HUD (health,
+ * super meter, combo and style rank, boss bar, arena status), boss intro cards, notices, countdown, KO panel, and
+ * sound/particle reactions to sim events.
+ */
+export class MatchView {
+  readonly renderer: Renderer;
+  private names = new Map<string, string>();
+  private meId = '';
+  private lastCountdown = -1;
+  private fps = 0;
+  private frames = 0;
+  private fpsSince = 0;
+  private bannerTimer = 0;
+  private introTimer = 0;
+  private coachUntil = 0;
+  private nextFireSound = 0;
+  private lastHitSound = 0;
+  private lastZone = '';
+  private hpLag = 100;
+  private bossLag = 1;
+  private lastCombo = 0;
+  private comboAt = 0;
+  private lastRank = -1;
+  private ultReady = false;
+  /** Snapshot-confirmed counters for tests / the debug hook. */
+  stats = { kills: 0, ults: 0, bestCombo: 0, bossesDown: 0 };
+
+  constructor(
+    canvas: HTMLCanvasElement,
+    private readonly sfx: Sfx,
+    private readonly settings: () => Settings,
+  ) {
+    this.renderer = new Renderer(canvas);
+    window.addEventListener('resize', () => this.renderer.resize());
+    window.addEventListener('orientationchange', () => window.setTimeout(() => this.renderer.resize(), 150));
+  }
+
+  begin(meId: string, first: Snapshot): void {
+    this.meId = meId;
+    this.stats = { kills: 0, ults: 0, bestCombo: 0, bossesDown: 0 };
+    this.lastCountdown = -1;
+    this.lastZone = '';
+    this.hpLag = 100;
+    this.bossLag = 1;
+    this.lastCombo = 0;
+    this.lastRank = -1;
+    this.ultReady = false;
+    this.rememberNames(first);
+    const me = first.players.find((p) => p.id === meId);
+    if (me) {
+      const hero = heroOf(me.hr);
+      Renderer.drawIcon($('hud-portrait') as HTMLCanvasElement, hero.id);
+      $('hud-name').textContent = me.n;
+      $('hud').style.setProperty('--me', hero.color);
+      $('hud-ult-label').textContent = hero.ultName;
+      $('btn-touch-ult').textContent = hero.ultName.split(' ')[0] ?? 'SUPER';
+    }
+    $('killfeed').replaceChildren();
+    $('banner').classList.remove('show');
+    $('boss-bar').hidden = true;
+    $('boss-intro').hidden = true;
+    $('combo').hidden = true;
+    $('hud-arena').hidden = true;
+    this.renderer.reset();
+    this.renderer.resize();
+  }
+
+  resize(): void {
+    this.renderer.resize();
+  }
+
+  private rememberNames(s: Snapshot): void {
+    for (const p of s.players) this.names.set(p.id, p.n);
+  }
+
+  private nameOf(id: string): string {
+    return id === this.meId ? 'You' : (this.names.get(id) ?? 'A friend');
+  }
+
+  // ------------------------------------------------------------ events
+
+  onEvents(events: readonly SimEvent[]): void {
+    const reduce = this.settings().reduceMotion;
+    const r = this.renderer;
+    for (const ev of events) {
+      switch (ev.e) {
+        case 'ehit':
+          r.spark(ev.x, ev.y, '#fde68a', 4, reduce, 120);
+          if (performance.now() - this.lastHitSound > 70) {
+            this.lastHitSound = performance.now();
+            this.sfx.play('hit');
+          }
+          break;
+        case 'ekill': {
+          const boss = ev.kind === 'walker' || ev.kind === 'gunship' || ev.kind === 'boss';
+          r.explosion(ev.x, ev.y, boss, reduce);
+          this.sfx.play('explode');
+          if (ev.by === this.meId) {
+            this.stats.kills++;
+            r.floatText(ev.x, ev.y - 20, `+${ev.pts}`, '#fde047');
+          }
+          break;
+        }
+        case 'boom':
+          r.explosion(ev.x, ev.y, ev.r >= 60, reduce, ev.r);
+          if (ev.r >= 40) this.sfx.play('explode');
+          break;
+        case 'hurt':
+          if (ev.id === this.meId) {
+            r.flash('#ef4444', Math.min(0.4, 0.12 + ev.dmg / 60));
+            if (!reduce) r.shake(3 + ev.dmg / 4);
+            this.sfx.play('hit');
+          }
+          break;
+        case 'ko':
+          if (ev.id === this.meId) {
+            r.flash('#7f1d1d', 0.5);
+            this.sfx.play('defeat');
+          } else {
+            this.notice(`💥 ${this.nameOf(ev.id)} got knocked out`, 'bad');
+            this.sfx.play('beep');
+          }
+          break;
+        case 'respawn':
+          if (ev.id === this.meId) this.showBanner('Back in the fight!');
+          else this.notice(`${this.nameOf(ev.id)} is back`);
+          break;
+        case 'life':
+          this.notice(`♥ +1 squad life (${ev.lives})`);
+          break;
+        case 'pickup':
+          if (ev.kind === 'medkit') {
+            this.sfx.play('powerup');
+            const n = ev.healed.length;
+            if (ev.healed.includes(this.meId) || ev.by === this.meId)
+              this.showBanner(n > 1 ? `Med-kit healed ${n} soldiers!` : 'Healed!');
+          } else if (ev.by === this.meId) {
+            this.sfx.play('powerup');
+            this.showBanner(`${GAME_CONFIG.weapons[ev.kind].label}!`);
+          } else this.notice(`${this.nameOf(ev.by)} got the ${GAME_CONFIG.weapons[ev.kind].label}`);
+          break;
+        case 'arena': {
+          const a = MISSION_1.arenas[ev.id];
+          if (!a || a.boss) break;
+          this.sfx.play('beep');
+          this.showBanner(ev.wave === 1 ? `⚠ ${a.name}! Area locked` : `Wave ${ev.wave} of ${ev.of}`, true);
+          if (!reduce) r.shake(4);
+          break;
+        }
+        case 'clear': {
+          const a = MISSION_1.arenas[ev.id];
+          this.sfx.play('victory');
+          if (a && !a.boss) this.showBanner('AREA CLEAR — move up!');
+          break;
+        }
+        case 'gate':
+          r.gateOpened(ev.id, reduce);
+          break;
+        case 'checkpoint':
+          this.sfx.play('go');
+          this.notice('🚩 Checkpoint reached');
+          break;
+        case 'bossWake':
+          this.bossIntro(ev.kind);
+          break;
+        case 'bossPhase':
+          r.flash('#ffffff', 0.35);
+          if (!reduce) r.shake(10);
+          this.sfx.play('explode');
+          this.showBanner(
+            ev.kind === 'boss'
+              ? ev.phase === 2
+                ? 'PHASE 2 — drones and ground slams!'
+                : 'FINAL PHASE — it’s enraged!'
+              : `${BOSS_INFO[ev.kind].name} is enraged!`,
+            true,
+          );
+          break;
+        case 'bossDown': {
+          this.stats.bossesDown++;
+          for (let i = 0; i < 5; i++)
+            r.explosion(ev.x - 50 + i * 25, ev.y - 30 - ((i * 37) % 120), true, reduce);
+          r.flash('#ffffff', 0.6);
+          this.sfx.play('victory');
+          this.showBanner(`${BOSS_INFO[ev.kind].name} DESTROYED!`);
+          $('boss-bar').hidden = true;
+          break;
+        }
+        case 'ult': {
+          if (ev.id === this.meId) this.stats.ults++;
+          const hero = heroOf(this.heroOfPlayer(ev.id));
+          r.ultEffect(ev, hero.color, reduce);
+          this.sfx.play('powerup');
+          this.sfx.play('explode');
+          const who = ev.id === this.meId ? '' : `${this.nameOf(ev.id)}: `;
+          this.showBanner(`${who}${hero.ultName}!${ev.sync ? '  ⚡ SYNC ×1.5' : ''}`);
+          break;
+        }
+        case 'style':
+          r.styleText(ev.x, ev.y, STYLE_TEXT[ev.t], ev.id === this.meId);
+          if (ev.t === 'parry') this.sfx.play('beep');
+          break;
+        case 'start':
+          this.sfx.play('go');
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+  private heroIds = new Map<string, number>();
+  private heroOfPlayer(id: string): number {
+    return this.heroIds.get(id) ?? 0;
+  }
+
+  private bossIntro(kind: BossKind): void {
+    const info = BOSS_INFO[kind];
+    $('boss-intro-name').textContent = info.name;
+    $('boss-intro-sub').textContent = info.sub;
+    $('boss-intro-tip').textContent = info.tip;
+    $('boss-name').textContent = info.name;
+    const card = $('boss-intro');
+    card.hidden = false;
+    card.classList.remove('show');
+    void card.offsetWidth; // restart the animation
+    card.classList.add('show');
+    window.clearTimeout(this.introTimer);
+    this.introTimer = window.setTimeout(() => {
+      card.hidden = true;
+    }, 3200);
+    this.sfx.play('beep');
+    this.renderer.shake(8);
+    this.bossLag = 1;
+    $('boss-bar').hidden = false;
+  }
+
+  showBanner(text: string, bad = false): void {
+    const b = $('banner');
+    b.textContent = text;
+    b.classList.toggle('bad', bad);
+    b.classList.add('show');
+    window.clearTimeout(this.bannerTimer);
+    this.bannerTimer = window.setTimeout(() => b.classList.remove('show'), 2200);
+  }
+
+  showCoach(text: string, ms: number): void {
+    const c = $('coach');
+    c.textContent = text;
+    c.hidden = false;
+    this.coachUntil = performance.now() + ms;
+  }
+
+  hideCoach(): void {
+    $('coach').hidden = true;
+    this.coachUntil = 0;
+  }
+
+  /** One-line, non-interactive notice in the feed. */
+  notice(text: string, kind: 'info' | 'bad' = 'info'): void {
+    const row = el('div', { class: `notice${kind === 'bad' ? ' bad' : ''}`, text });
+    const feed = $('killfeed');
+    feed.append(row);
+    while (feed.childElementCount > 4) feed.firstElementChild?.remove();
+    window.setTimeout(() => row.remove(), 5000);
+  }
+
+  // ------------------------------------------------------------ per-frame
+
+  draw(
+    frame: Snapshot,
+    latest: Snapshot,
+    o: Omit<DrawOptions, 'meId'>,
+    net: { rtt: number } | null,
+    firing: boolean,
+  ): void {
+    this.rememberNames(latest);
+    for (const p of latest.players) this.heroIds.set(p.id, p.hr);
+    this.renderer.draw(frame, { ...o, reduceMotion: this.settings().reduceMotion, meId: this.meId });
+    const me = latest.players.find((p) => p.id === this.meId);
+    // Own gunfire sound follows the local trigger (no waiting for the server), at the weapon's real rate.
+    if (firing && me && me.st === 0 && latest.phase === 'playing' && o.nowMs >= this.nextFireSound) {
+      const w = GAME_CONFIG.weapons[WEAPON_KINDS[me.w] ?? 'blaster'];
+      const rate = me.od === 1 ? GAME_CONFIG.ult.overdrive.fireRate : 1;
+      this.nextFireSound = o.nowMs + Math.max(80, (w.cooldown * 1000) / rate);
+      this.sfx.play('fire');
+    }
+    this.updateHud(latest, me, net, o.nowMs);
+  }
+
+  private updateHud(
+    s: Snapshot,
+    me: PlayerSnapshot | undefined,
+    net: { rtt: number } | null,
+    nowMs: number,
+  ): void {
+    if (this.coachUntil && nowMs > this.coachUntil && s.phase !== 'countdown') this.hideCoach();
+    $('hud-lives').textContent = `♥ ${s.lives}`;
+    $('hud-lives').title = `${s.lives} squad lives left`;
+    $('hud-score').textContent = String(s.score);
+    if (me) {
+      // Health: the bar drops at once, a pale "damage taken" bar follows it down.
+      const hp = Math.max(0, Math.min(100, me.hp));
+      this.hpLag = hp > this.hpLag ? hp : this.hpLag + (hp - this.hpLag) * 0.06;
+      ($('hud-hp-fill') as HTMLElement).style.width = `${hp}%`;
+      ($('hud-hp-lag') as HTMLElement).style.width = `${this.hpLag}%`;
+      $('hud-hp-num').textContent = String(hp);
+      const hpBar = $('hud-hp');
+      hpBar.setAttribute('aria-valuenow', String(hp));
+      hpBar.classList.toggle('low', hp <= 30 && me.st === 0);
+      // Super meter.
+      const ready = me.ul >= GAME_CONFIG.ult.max && me.st === 0;
+      ($('hud-ult-fill') as HTMLElement).style.width = `${me.ul}%`;
+      $('hud-ult').classList.toggle('ready', ready);
+      $('btn-touch-ult').classList.toggle('ready', ready);
+      if (ready && !this.ultReady) {
+        this.sfx.play('powerup');
+        this.showBanner(`${heroOf(me.hr).ultName} READY — press Q`);
+      }
+      this.ultReady = ready;
+      const w = GAME_CONFIG.weapons[WEAPON_KINDS[me.w] ?? 'blaster'];
+      $('hud-weapon').textContent =
+        me.od === 1 ? 'OVERDRIVE' : w.letter ? `${w.letter} · ${w.label}` : w.label;
+      $('hud-weapon').classList.toggle('od', me.od === 1);
+      const zone = [...this.renderer.level.zones].reverse().find((z) => me.x >= z.x)?.name ?? '';
+      if (zone !== this.lastZone) {
+        this.lastZone = zone;
+        $('hud-zone').textContent = zone;
+      }
+      this.updateCombo(me, nowMs);
+    }
+    // Boss bar.
+    const bossBar = $('boss-bar');
+    if (s.boss && s.boss.hp > 0) {
+      bossBar.hidden = false;
+      $('boss-name').textContent = BOSS_INFO[s.boss.k].name;
+      const f = Math.max(0, s.boss.hp / s.boss.max);
+      this.bossLag = f > this.bossLag ? f : this.bossLag + (f - this.bossLag) * 0.05;
+      ($('boss-fill') as HTMLElement).style.width = `${f * 100}%`;
+      ($('boss-lag') as HTMLElement).style.width = `${this.bossLag * 100}%`;
+      const phases = s.boss.k === 'boss' ? 3 : 2;
+      $('boss-phase').textContent = `PHASE ${s.boss.ph}/${phases}`;
+      bossBar.classList.toggle('enraged', s.boss.ph >= phases);
+    } else if (!s.boss) bossBar.hidden = true;
+    // Arena lock.
+    const ar = $('hud-arena');
+    const a = s.arena ? MISSION_1.arenas[s.arena.id] : undefined;
+    if (s.arena && a && !a.boss) {
+      ar.hidden = false;
+      ar.textContent = `⚠ ${a.name} · WAVE ${s.arena.w}/${s.arena.n} · ${s.arena.left} LEFT`;
+    } else ar.hidden = true;
+    this.updateOverlays(s, me);
+
+    this.frames++;
+    if (nowMs - this.fpsSince >= 1000) {
+      this.fps = Math.round((this.frames * 1000) / (nowMs - this.fpsSince));
+      this.frames = 0;
+      this.fpsSince = nowMs;
+      $('hud-net').textContent = this.settings().showStats
+        ? `${this.fps} fps${net ? ` · ${net.rtt} ms` : ''}`
+        : '';
+    }
+  }
+
+  private updateCombo(me: PlayerSnapshot, nowMs: number): void {
+    const box = $('combo');
+    if (me.cb > this.lastCombo) this.comboAt = nowMs;
+    if (me.cb > this.stats.bestCombo) this.stats.bestCombo = me.cb;
+    this.lastCombo = me.cb;
+    if (me.cb < 3) {
+      box.hidden = true;
+      this.lastRank = -1;
+      return;
+    }
+    box.hidden = false;
+    $('combo-num').textContent = String(me.cb);
+    const rk = me.rk;
+    const rankEl = $('combo-rank');
+    rankEl.textContent = rk >= 0 ? rankName(rk) : '–';
+    box.style.setProperty('--rank', rk >= 0 ? (RANK_COLORS[rk] as string) : '#94a3b8');
+    if (rk > this.lastRank && rk >= 0) {
+      rankEl.classList.remove('pop');
+      void rankEl.offsetWidth;
+      rankEl.classList.add('pop');
+      if (rk >= 3) this.sfx.play('powerup');
+    }
+    this.lastRank = rk;
+    const left = Math.max(0, 1 - (nowMs - this.comboAt) / (GAME_CONFIG.combo.windowSec * 1000));
+    ($('combo-fill') as HTMLElement).style.width = `${left * 100}%`;
+    const mult = Math.min(GAME_CONFIG.combo.maxMultiplier, 1 + Math.floor(me.cb / 10) * 0.1);
+    $('combo-mult').textContent = `×${mult.toFixed(1)} score`;
+  }
+
+  private updateOverlays(s: Snapshot, me: PlayerSnapshot | undefined): void {
+    const cd = $('overlay-countdown');
+    if (s.phase === 'countdown') {
+      cd.hidden = false;
+      const n = Math.max(1, s.cd);
+      $('countdown-num').textContent = String(n);
+      if (n !== this.lastCountdown) {
+        this.lastCountdown = n;
+        this.sfx.play('beep');
+      }
+    } else cd.hidden = true;
+
+    const panel = $('down-panel');
+    const down = !!me && me.st === 1 && s.phase === 'playing';
+    panel.hidden = !down;
+    if (down && me) {
+      const friendsUp = s.players.some((p) => p.id !== this.meId && p.st === 0);
+      $('down-text').textContent =
+        me.dl >= 0
+          ? `KNOCKED OUT — back in ${Math.max(1, me.dl)}…`
+          : friendsUp
+            ? 'Out of squad lives. Hang on: beating a boss brings you back!'
+            : 'Mission failing…';
+    }
+  }
+}

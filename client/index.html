@@ -1,0 +1,775 @@
+<!doctype html>
+<html lang="en" translate="no">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- Game UI: stop browsers popping a "Translate this page?" bar over the touch controls. -->
+    <meta name="google" content="notranslate" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="theme-color" content="#1b211e" />
+    <meta
+      name="description"
+      content="STRIKE SQUAD - free co-op run-and-gun missions for up to 8 friends in your browser. Dash, slide, knife and unleash hero super moves against three giant bosses."
+    />
+    <meta property="og:title" content="STRIKE SQUAD: Co-op Missions" />
+    <meta
+      property="og:description"
+      content="Up to 8 friends, one mission. Free in your browser - no download, no sign-up."
+    />
+    <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <title>STRIKE SQUAD: Co-op Missions</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#app">Skip to game</a>
+    <div id="app">
+      <div id="conn-pill" class="pill" role="status" aria-live="polite" data-testid="conn-status">
+        Checking server…
+      </div>
+
+      <!-- MAIN MENU (the mission scrolls by behind it) -->
+      <main id="screen-menu" class="screen menu" data-screen="menu" aria-labelledby="title">
+        <canvas id="attract" class="attract" aria-hidden="true"></canvas>
+        <div class="menu-panel">
+          <h1 id="title" class="logo">
+            <span class="logo-line">Strike</span><span class="logo-line two">Squad</span>
+            <small>Co-op Missions · 1–8 friends</small>
+          </h1>
+          <p class="tagline">
+            Up to 8 friends, one mission, three giant bosses. Dash through bullets, knife through shields,
+            chain combos and unleash your hero's super move together.
+          </p>
+          <label class="field">
+            <span>Your callsign</span>
+            <input
+              id="name-input"
+              type="text"
+              maxlength="16"
+              autocomplete="nickname"
+              spellcheck="false"
+              placeholder="e.g. Rocket_07"
+              data-testid="name-input"
+            />
+          </label>
+          <div class="menu-actions">
+            <button id="btn-create" class="btn primary hazard" type="button" data-testid="btn-create">
+              Play with friends<small>Get an invite link · up to 8</small>
+            </button>
+            <button id="btn-play" class="btn" type="button" data-testid="btn-play">
+              Play now<small>Join a squad already on a mission</small>
+            </button>
+            <button id="btn-join" class="btn" type="button" data-testid="btn-join">
+              Join with code<small>6 letters from a friend</small>
+            </button>
+            <button id="btn-practice" class="btn" type="button" data-testid="btn-practice">
+              Solo training<small>Offline, learn the controls</small>
+            </button>
+          </div>
+          <nav class="menu-links" aria-label="More">
+            <button id="btn-howto" class="link" type="button" data-testid="btn-howto">How to play</button>
+            <button id="btn-settings" class="link" type="button" data-testid="btn-settings">Settings</button>
+            <button id="btn-install" class="link" type="button" hidden>Install app</button>
+            <a href="#" id="link-privacy" class="link">Privacy</a>
+          </nav>
+        </div>
+        <aside class="hero-stage" aria-label="Your hero">
+          <div class="hero-spot" aria-hidden="true"></div>
+          <canvas id="hero-canvas" width="168" height="175" aria-hidden="true"></canvas>
+          <div class="hero-pick">
+            <button id="btn-hero-prev" class="round-btn" type="button" aria-label="Previous hero">‹</button>
+            <div class="hero-meta">
+              <b id="hero-name" data-testid="hero-name">Blaze</b>
+              <span id="hero-tag"></span>
+            </div>
+            <button id="btn-hero-next" class="round-btn" type="button" aria-label="Next hero">›</button>
+          </div>
+        </aside>
+      </main>
+
+      <!-- CREATE SQUAD -->
+      <main id="screen-create" class="screen" data-screen="create" hidden aria-labelledby="h-create">
+        <div class="sheet">
+          <h2 id="h-create">Play with friends</h2>
+          <p class="lead">
+            You get a private squad and an invite link. Share it on WhatsApp; friends can join any time, even
+            in the middle of the mission.
+          </p>
+          <label class="field">
+            <span>Difficulty</span>
+            <select id="create-difficulty" data-testid="create-difficulty">
+              <option value="easy">Easy · 5 team lives + 1 per player</option>
+              <option value="normal" selected>Normal · 3 team lives + 1 per player</option>
+              <option value="hard">Hard · 1 team life + 1 per player</option>
+            </select>
+          </label>
+          <div class="row">
+            <button id="btn-create-go" class="btn primary" type="button" data-testid="btn-create-go">
+              Create squad
+            </button>
+            <button class="btn ghost" type="button" data-nav="menu">Back</button>
+          </div>
+        </div>
+      </main>
+
+      <!-- JOIN SQUAD -->
+      <main id="screen-join" class="screen" data-screen="join" hidden aria-labelledby="h-join">
+        <div class="sheet">
+          <h2 id="h-join">Join a squad</h2>
+          <label class="field">
+            <span>Squad code</span>
+            <input
+              id="join-code"
+              class="code-input"
+              type="text"
+              maxlength="8"
+              autocapitalize="characters"
+              autocomplete="off"
+              spellcheck="false"
+              inputmode="text"
+              placeholder="ABC123"
+              data-testid="join-code"
+            />
+          </label>
+          <label class="field">
+            <span>Your callsign</span>
+            <input
+              id="join-name"
+              type="text"
+              maxlength="16"
+              autocomplete="nickname"
+              spellcheck="false"
+              placeholder="e.g. Rocket_07"
+              data-testid="join-name"
+            />
+          </label>
+          <p id="join-error" class="error-text" role="alert" hidden></p>
+          <div class="row">
+            <button id="btn-join-go" class="btn primary" type="button" data-testid="btn-join-go">
+              Join squad
+            </button>
+            <button class="btn ghost" type="button" data-nav="menu">Back</button>
+          </div>
+        </div>
+      </main>
+
+      <!-- SOLO TRAINING -->
+      <main id="screen-practice" class="screen" data-screen="practice" hidden aria-labelledby="h-practice">
+        <div class="sheet">
+          <h2 id="h-practice">Solo training</h2>
+          <p class="lead">
+            The full mission on your own device (works offline once loaded). Computer buddies fight beside you
+            and fire their own super moves. Real friends are even better!
+          </p>
+          <label class="field">
+            <span>Squad-mates</span>
+            <select id="practice-buddies" data-testid="practice-buddies">
+              <option value="0">None - just me</option>
+              <option value="1" selected>1 computer buddy</option>
+              <option value="3">3 computer buddies</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Difficulty</span>
+            <select id="practice-diff" data-testid="practice-diff">
+              <option value="easy" selected>Easy</option>
+              <option value="normal">Normal</option>
+              <option value="hard">Hard</option>
+            </select>
+          </label>
+          <div class="row">
+            <button id="btn-practice-go" class="btn primary" type="button" data-testid="btn-practice-go">
+              Start training
+            </button>
+            <button class="btn ghost" type="button" data-nav="menu">Back</button>
+          </div>
+        </div>
+      </main>
+
+      <!-- SQUAD LOBBY -->
+      <main id="screen-lobby" class="screen" data-screen="lobby" hidden aria-labelledby="h-lobby">
+        <div class="sheet wide">
+          <header class="lobby-head">
+            <h2 id="h-lobby">Squad <span id="lobby-code" class="code" data-testid="lobby-code"></span></h2>
+            <div class="invite">
+              <button id="btn-copy-link" class="btn small" type="button" data-testid="btn-copy-link">
+                Copy invite link
+              </button>
+              <a
+                id="btn-whatsapp"
+                class="btn small whatsapp"
+                href="#"
+                target="_blank"
+                rel="noopener noreferrer"
+                data-testid="btn-whatsapp"
+                >Share on WhatsApp</a
+              >
+              <button id="btn-share" class="btn small" type="button" hidden>More…</button>
+            </div>
+            <p id="lobby-note" class="muted note" role="status" aria-live="polite"></p>
+          </header>
+
+          <section aria-labelledby="h-squad">
+            <h3 id="h-squad">Your squad <span id="squad-count" class="muted"></span></h3>
+            <ul id="squad-list" class="squad-list" data-testid="squad-list"></ul>
+          </section>
+
+          <section aria-labelledby="h-heroes">
+            <h3 id="h-heroes">Choose your hero</h3>
+            <div id="hero-grid" class="hero-grid" role="radiogroup" aria-labelledby="h-heroes"></div>
+          </section>
+
+          <section aria-labelledby="h-mission">
+            <h3 id="h-mission">Mission 1 · Operation Lifeline</h3>
+            <ol class="briefing">
+              <li><b>Ambush:</b> the way locks shut. Clear every wave to open the gate.</li>
+              <li><b>3 bosses:</b> WARHOUND the walking tank, VULTURE the gunship, the IRON FORTRESS.</li>
+              <li>
+                <b>Read the tells:</b> a red flash means an attack is coming. Jump, duck or dash through it.
+              </li>
+              <li><b>SYNC:</b> fire super moves within 2 seconds of a friend and both hit 50% harder.</li>
+            </ol>
+            <div class="opts">
+              <label class="field inline">
+                <span>Difficulty</span>
+                <select id="lobby-difficulty" data-testid="lobby-difficulty">
+                  <option value="easy">Easy</option>
+                  <option value="normal">Normal</option>
+                  <option value="hard">Hard</option>
+                </select>
+              </label>
+            </div>
+          </section>
+
+          <div class="dock">
+            <p id="lobby-hint" class="hint" role="status" aria-live="polite" data-testid="lobby-hint"></p>
+            <div class="row">
+              <button id="btn-start" class="btn primary hazard" type="button" data-testid="btn-start">
+                Start mission
+              </button>
+              <button id="btn-leave-room" class="btn ghost" type="button" data-testid="btn-leave-room">
+                Leave squad
+              </button>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <!-- MISSION + overlays -->
+      <section id="screen-game" class="screen game" data-screen="game" hidden aria-label="Mission">
+        <canvas id="game" data-testid="canvas" aria-label="Mission"></canvas>
+        <div id="hud" class="hud">
+          <div class="hud-top">
+            <div class="hud-left">
+              <div class="hud-card">
+                <canvas id="hud-portrait" width="44" height="44" aria-hidden="true"></canvas>
+                <div class="hud-card-body">
+                  <div class="hud-name-row">
+                    <b id="hud-name">You</b>
+                    <span id="hud-weapon" class="hud-weapon" data-testid="hud-weapon">Blaster</span>
+                  </div>
+                  <div
+                    id="hud-hp"
+                    class="hp-bar"
+                    role="progressbar"
+                    aria-label="Health"
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                    data-testid="hud-hp"
+                  >
+                    <div id="hud-hp-lag" class="hp-lag"></div>
+                    <div id="hud-hp-fill" class="hp-fill"></div>
+                    <span id="hud-hp-num">100</span>
+                  </div>
+                  <div
+                    id="hud-ult"
+                    class="ult-bar"
+                    role="progressbar"
+                    aria-label="Super move"
+                    data-testid="hud-ult"
+                  >
+                    <div id="hud-ult-fill" class="ult-fill"></div>
+                    <span id="hud-ult-label">SUPER</span>
+                  </div>
+                </div>
+              </div>
+              <div id="hud-lives" class="hud-chip lives" data-testid="hud-lives">♥ 0</div>
+            </div>
+            <div class="hud-mid">
+              <div id="hud-zone" class="hud-zone"></div>
+              <div id="hud-score" class="hud-score" data-testid="hud-score">0</div>
+              <div id="hud-arena" class="hud-arena" hidden data-testid="hud-arena"></div>
+            </div>
+            <button
+              id="btn-pause"
+              class="btn small icon"
+              type="button"
+              aria-label="Pause menu"
+              data-testid="btn-pause"
+            >
+              ❚❚
+            </button>
+          </div>
+          <div id="combo" class="combo" hidden data-testid="combo" aria-live="off">
+            <div id="combo-rank" class="combo-rank">C</div>
+            <div class="combo-body">
+              <div class="combo-count"><b id="combo-num">0</b><span>COMBO</span></div>
+              <div class="combo-track"><div id="combo-fill"></div></div>
+              <div id="combo-mult" class="combo-mult">×1.0 score</div>
+            </div>
+          </div>
+          <div id="boss-bar" class="boss-bar" hidden data-testid="boss-bar">
+            <div class="boss-head">
+              <span id="boss-name">BOSS</span>
+              <span id="boss-phase" class="boss-phase"></span>
+            </div>
+            <div class="boss-track">
+              <div id="boss-lag"></div>
+              <div id="boss-fill"></div>
+            </div>
+          </div>
+          <div id="boss-intro" class="boss-intro" hidden data-testid="boss-intro">
+            <div class="warn-stripe"></div>
+            <p class="warn-word">WARNING</p>
+            <h2 id="boss-intro-name">BOSS</h2>
+            <p id="boss-intro-sub"></p>
+            <p id="boss-intro-tip" class="boss-tip"></p>
+            <div class="warn-stripe"></div>
+          </div>
+          <div id="killfeed" class="killfeed" aria-live="polite"></div>
+          <div id="banner" class="banner" aria-live="assertive"></div>
+          <div id="down-panel" class="down-panel" hidden data-testid="down-panel">
+            <p id="down-text"></p>
+          </div>
+          <div class="hud-bottom"><div id="hud-net" class="hud-net"></div></div>
+        </div>
+        <!-- touch controls -->
+        <div id="touch" class="touch" hidden>
+          <div id="joy-zone" class="joy-zone" aria-hidden="true">
+            <div id="joy-base" class="joy-base"><div id="joy-knob" class="joy-knob"></div></div>
+            <span class="joy-hint">Drag: run · up/down to aim</span>
+          </div>
+          <div class="touch-pad">
+            <button
+              id="btn-touch-ult"
+              class="touch-btn ult"
+              type="button"
+              aria-label="Super move"
+              data-testid="touch-ult"
+            >
+              SUPER
+            </button>
+            <button
+              id="btn-touch-melee"
+              class="touch-btn melee"
+              type="button"
+              aria-label="Knife"
+              data-testid="touch-melee"
+            >
+              Knife
+            </button>
+            <button
+              id="btn-touch-dash"
+              class="touch-btn dash"
+              type="button"
+              aria-label="Dash (hold down on the stick to slide)"
+              data-testid="touch-dash"
+            >
+              Dash
+            </button>
+            <button
+              id="btn-touch-fire"
+              class="touch-btn fire"
+              type="button"
+              aria-label="Fire"
+              data-testid="touch-fire"
+            >
+              Fire
+            </button>
+            <button
+              id="btn-touch-jump"
+              class="touch-btn jump"
+              type="button"
+              aria-label="Jump (press again in the air to double jump)"
+              data-testid="touch-jump"
+            >
+              Jump
+            </button>
+          </div>
+        </div>
+        <div id="overlay-countdown" class="overlay clear" hidden data-testid="countdown">
+          <div class="big" id="countdown-num">3</div>
+          <p id="countdown-sub">Lock and load!</p>
+        </div>
+        <div id="coach" class="coach" hidden data-testid="coach"></div>
+        <div id="overlay-portrait" class="overlay" hidden>
+          <div class="big small-big" aria-hidden="true">⟳</div>
+          <p>Turn your phone sideways for a bigger view.</p>
+          <p id="portrait-tip" class="muted"></p>
+          <div class="row center">
+            <button
+              id="btn-portrait-rotate"
+              class="btn primary"
+              type="button"
+              data-testid="btn-portrait-rotate"
+              hidden
+            >
+              Rotate &amp; go fullscreen
+            </button>
+            <button id="btn-portrait-dismiss" class="btn small" type="button">Keep playing upright</button>
+          </div>
+        </div>
+        <div
+          id="overlay-pause"
+          class="overlay"
+          hidden
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="h-pause"
+          data-testid="pause"
+        >
+          <div class="card">
+            <h2 id="h-pause">Paused</h2>
+            <p id="pause-note" class="muted"></p>
+            <div class="stack">
+              <button id="btn-resume" class="btn primary" type="button" data-testid="btn-resume">
+                Resume
+              </button>
+              <button id="btn-pause-invite" class="btn" type="button" data-testid="btn-pause-invite" hidden>
+                Copy invite link
+              </button>
+              <button id="btn-pause-sound" class="btn" type="button" aria-pressed="false">Sound: on</button>
+              <button id="btn-fullscreen" class="btn" type="button">Fullscreen</button>
+              <button id="btn-pause-leave" class="btn danger" type="button" data-testid="btn-pause-leave">
+                Leave mission
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- RESULTS -->
+      <main id="screen-results" class="screen" data-screen="results" hidden aria-labelledby="h-results">
+        <div class="sheet wide">
+          <h2 id="h-results" class="result-title" data-testid="result-title">Mission over</h2>
+          <div id="result-stars" class="stars" data-testid="result-stars"></div>
+          <p id="result-sub" class="lead"></p>
+          <div id="result-awards" class="awards" data-testid="awards"></div>
+          <table class="board" data-testid="scoreboard">
+            <caption class="sr-only">
+              Squad results
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Soldier</th>
+                <th scope="col" title="Best style rank">Style</th>
+                <th scope="col" title="Longest combo">Combo</th>
+                <th scope="col">Enemies</th>
+                <th scope="col" title="Super moves unleashed">Supers</th>
+                <th scope="col">Boss dmg</th>
+                <th scope="col" title="Knocked out">KOs</th>
+              </tr>
+            </thead>
+            <tbody id="board-body"></tbody>
+          </table>
+          <p id="result-lesson" class="lesson"></p>
+          <p id="results-hint" class="hint" role="status" aria-live="polite"></p>
+          <div class="row">
+            <button id="btn-rematch" class="btn primary hazard" type="button" data-testid="btn-rematch">
+              Play again
+            </button>
+            <button id="btn-to-lobby" class="btn" type="button" data-testid="btn-to-lobby">
+              Back to lobby
+            </button>
+            <button id="btn-results-leave" class="btn ghost" type="button" data-testid="btn-results-leave">
+              Main menu
+            </button>
+          </div>
+        </div>
+      </main>
+
+      <!-- CONNECTION LOST / WAKING UP / ERRORS -->
+      <div
+        id="overlay-conn"
+        class="overlay modal-overlay"
+        hidden
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="h-conn"
+        data-testid="overlay-conn"
+      >
+        <div class="card">
+          <h2 id="h-conn">Connection lost</h2>
+          <div id="conn-spinner" class="radar small" aria-hidden="true"><span></span></div>
+          <p id="conn-text" aria-live="assertive">Trying to reconnect…</p>
+          <div class="row center">
+            <button id="btn-conn-retry" class="btn primary" type="button" data-testid="btn-conn-retry">
+              Retry now
+            </button>
+            <button id="btn-conn-menu" class="btn ghost" type="button" data-testid="btn-conn-menu">
+              Main menu
+            </button>
+          </div>
+        </div>
+      </div>
+      <div
+        id="overlay-wake"
+        class="overlay modal-overlay"
+        hidden
+        role="status"
+        aria-labelledby="h-wake"
+        data-testid="overlay-wake"
+      >
+        <div class="card">
+          <h2 id="h-wake">Starting the game server</h2>
+          <div class="radar small" aria-hidden="true"><span></span></div>
+          <p id="wake-text">
+            Free servers sleep when nobody is playing. Waking it up usually takes under a minute.
+          </p>
+          <div class="progress" aria-hidden="true"><div id="wake-bar"></div></div>
+          <p class="muted" id="wake-elapsed">0 s</p>
+          <div class="row center">
+            <button id="btn-wake-practice" class="btn" type="button">Solo training while waiting</button>
+            <button id="btn-wake-cancel" class="btn ghost" type="button">Cancel</button>
+          </div>
+        </div>
+      </div>
+      <div
+        id="overlay-error"
+        class="overlay modal-overlay"
+        hidden
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="h-error"
+        data-testid="overlay-error"
+      >
+        <div class="card">
+          <h2 id="h-error">Something went wrong</h2>
+          <p id="error-text" aria-live="assertive"></p>
+          <div class="row center">
+            <button id="btn-error-retry" class="btn primary" type="button" data-testid="btn-error-retry">
+              Try again
+            </button>
+            <button id="btn-error-menu" class="btn ghost" type="button" data-testid="btn-error-menu">
+              Main menu
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modals -->
+      <div
+        id="modal-howto"
+        class="overlay modal-overlay"
+        hidden
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="h-howto"
+      >
+        <div class="card scroll">
+          <h2 id="h-howto">How to play</h2>
+          <p>
+            Your squad (1 to 8 friends) fights through the jungle, across the river and into the enemy
+            fortress. Reach the end and destroy the <b>Iron Fortress</b> together to win.
+          </p>
+          <h3>Controls</h3>
+          <table class="keys">
+            <tr>
+              <th scope="row">Run</th>
+              <td><kbd>A</kbd><kbd>D</kbd> or <kbd>←</kbd><kbd>→</kbd></td>
+            </tr>
+            <tr>
+              <th scope="row">Aim up / down</th>
+              <td>
+                <kbd>W</kbd><kbd>S</kbd> or <kbd>↑</kbd><kbd>↓</kbd> (hold with left/right to aim diagonally)
+              </td>
+            </tr>
+            <tr>
+              <th scope="row">Jump</th>
+              <td><kbd id="key-jump-label">Space</kbd> (also <kbd>K</kbd>/<kbd>Z</kbd>) · hold for higher</td>
+            </tr>
+            <tr>
+              <th scope="row">Fire</th>
+              <td><kbd id="key-fire-label">J</kbd> (also <kbd>X</kbd>) · hold to keep shooting</td>
+            </tr>
+            <tr>
+              <th scope="row">Double jump</th>
+              <td>Jump again in the air</td>
+            </tr>
+            <tr>
+              <th scope="row">Dash</th>
+              <td>
+                <kbd>Shift</kbd> (also <kbd>L</kbd>/<kbd>C</kbd>) · bullets pass through you; one in the air
+              </td>
+            </tr>
+            <tr>
+              <th scope="row">Slide</th>
+              <td><kbd>↓</kbd> + Dash · slip under shots and knock troopers over</td>
+            </tr>
+            <tr>
+              <th scope="row">Knife</th>
+              <td>
+                <kbd>F</kbd> (also <kbd>V</kbd>/<kbd>I</kbd>) · hits 5× harder, breaks shields, swats bullets
+                away. Firing up close knifes automatically.
+              </td>
+            </tr>
+            <tr>
+              <th scope="row">Super move</th>
+              <td><kbd>Q</kbd> (also <kbd>E</kbd>/<kbd>O</kbd>) when the yellow bar is full</td>
+            </tr>
+            <tr>
+              <th scope="row">Drop down</th>
+              <td><kbd>↓</kbd> + Jump on a wooden platform</td>
+            </tr>
+            <tr>
+              <th scope="row">Phone</th>
+              <td>
+                Left thumb: run and aim (pull down + Dash to slide). Right thumb: Jump, Dash, Knife, SUPER.
+                Auto-fire is on (change it in Settings).
+              </td>
+            </tr>
+          </table>
+          <h3>Fight with style</h3>
+          <ul>
+            <li>
+              <b>Health bar:</b> 100 HP. A bullet takes about 10. Stay out of fire for a few seconds and it
+              refills.
+            </li>
+            <li>
+              <b>Combo:</b> keep hitting without getting hit. Ranks go C → B → A → S → SS → SSS, and a big
+              combo multiplies your score (up to ×3). Knife kills, slide kills, air kills and parries look
+              best.
+            </li>
+            <li>
+              <b>Super moves:</b> every hero has one. Blaze &amp; Kiki: Overdrive. Nova &amp; Sparky: a
+              shockwave that wipes enemy fire. Tusk &amp; Sarge: an airstrike. Viper &amp; Ghost: a phantom
+              strike that slashes the nearest enemies.
+            </li>
+            <li><b>SYNC:</b> two friends firing super moves together both hit 50% harder.</li>
+            <li>
+              <b>KO:</b> you are back beside your squad 3 seconds later, using one of the squad's shared
+              lives. Beating a boss gives a life back.
+            </li>
+          </ul>
+          <h3>Bosses</h3>
+          <ul>
+            <li>
+              <b>WARHOUND</b> (walking tank): double jump or dash through its charge, jump its shockwaves.
+            </li>
+            <li><b>VULTURE</b> (gunship): keep moving under the bombs, shoot or knife its missiles.</li>
+            <li><b>IRON FORTRESS</b>: jump the low laser, duck or slide under the high one. Three phases.</li>
+          </ul>
+          <h3>Weapons</h3>
+          <ul>
+            <li><b>S</b> Spread: five bullets in a fan</li>
+            <li><b>M</b> Machine gun: very fast fire</li>
+            <li><b>L</b> Laser: goes through every enemy in a line</li>
+            <li>A KO costs your special weapon, so dodge!</li>
+          </ul>
+          <h3>Joining late</h3>
+          <p>
+            Open an invite link any time, even mid-mission: you appear next to your friends and the squad gets
+            one more life.
+          </p>
+          <button class="btn primary" type="button" data-close>Got it</button>
+        </div>
+      </div>
+
+      <div
+        id="modal-settings"
+        class="overlay modal-overlay"
+        hidden
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="h-settings"
+      >
+        <div class="card scroll">
+          <h2 id="h-settings">Settings</h2>
+          <label class="field"
+            ><span>Sound volume</span
+            ><input id="set-volume" type="range" min="0" max="100" step="5" data-testid="set-volume"
+          /></label>
+          <label class="check"
+            ><input id="set-mute" type="checkbox" data-testid="set-mute" /> Mute all sound</label
+          >
+          <label class="check"
+            ><input id="set-autofire" type="checkbox" data-testid="set-autofire" /> Auto-fire on touch
+            screens</label
+          >
+          <label class="check"
+            ><input id="set-reduce" type="checkbox" data-testid="set-reduce" /> Reduce motion (no screen
+            shake, fewer particles)</label
+          >
+          <label class="check"><input id="set-fps" type="checkbox" /> Show frame rate and ping</label>
+          <label class="field"
+            ><span>Joystick sensitivity</span><input id="set-sens" type="range" min="50" max="150" step="10"
+          /></label>
+          <h3>Keyboard</h3>
+          <div class="row">
+            <button id="rebind-fire" class="btn small" type="button">Fire: J</button>
+            <button id="rebind-jump" class="btn small" type="button">Jump: Space</button>
+          </div>
+          <p class="muted" id="rebind-note">Running and aiming always work with WASD and the arrow keys.</p>
+          <button class="btn primary" type="button" data-close>Done</button>
+        </div>
+      </div>
+
+      <div
+        id="modal-privacy"
+        class="overlay modal-overlay"
+        hidden
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="h-privacy"
+      >
+        <div class="card scroll">
+          <h2 id="h-privacy">Privacy</h2>
+          <p>STRIKE SQUAD collects as little as possible:</p>
+          <ul>
+            <li>
+              Your callsign is shown to players in your squad and kept in the server's memory while you are
+              connected, plus a short reconnect window.
+            </li>
+            <li>
+              A random session code is kept in this browser tab so you can rejoin after a dropped connection.
+              It never appears in links.
+            </li>
+            <li>
+              Your settings and callsign are saved in this browser. No analytics, ads, accounts or emails.
+            </li>
+            <li>
+              Squads and scores live in server memory only and disappear when a squad ends. Your IP address is
+              used briefly for anti-spam limits and is not stored in a database.
+            </li>
+          </ul>
+          <button class="btn primary" type="button" data-close>Close</button>
+        </div>
+      </div>
+
+      <div
+        id="modal-confirm"
+        class="overlay modal-overlay"
+        hidden
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="h-confirm"
+      >
+        <div class="card">
+          <h2 id="h-confirm">Are you sure?</h2>
+          <p id="confirm-text"></p>
+          <div class="row center">
+            <button id="btn-confirm-yes" class="btn danger" type="button" data-testid="btn-confirm-yes">
+              Yes
+            </button>
+            <button id="btn-confirm-no" class="btn ghost" type="button">No</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="toasts" class="toasts" role="status" aria-live="polite"></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

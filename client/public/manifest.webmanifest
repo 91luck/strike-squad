@@ -1,0 +1,17 @@
+{
+  "name": "STRIKE SQUAD: Co-op Missions",
+  "short_name": "Strike Squad",
+  "description": "Run-and-gun co-op missions for up to 8 friends in your browser. Revive each other, open squad gates together, beat the boss.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#1b211e",
+  "theme_color": "#1b211e",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" },
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
