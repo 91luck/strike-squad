@@ -1,4 +1,4 @@
-import { GAME_CONFIG, Tile, tileAt, type LevelDef } from '@strikesquad/shared';
+import { GAME_CONFIG, Tile, artAt, tileAt, type ArtStyle, type LevelDef } from '@strikesquad/shared';
 import { tone } from './sprites';
 
 /**
@@ -8,7 +8,8 @@ import { tone } from './sprites';
 
 const T = GAME_CONFIG.tile;
 
-export type ZoneId = 'jungle' | 'river' | 'towers' | 'fortress';
+/** Art styles come from the level data (`LevelDef.art`); this file owns what each one looks like. */
+export type ZoneId = ArtStyle;
 
 export interface ZoneStyle {
   sky: [string, string, string];
@@ -21,7 +22,25 @@ export interface ZoneStyle {
   dirt: string;
   dirtDark: string;
   grade: string;
+  /** Ground texture, platform material and the middle backdrop layer (tinted with `mid`). */
+  ground: 'grass' | 'brick' | 'plate';
+  plat: 'wood' | 'metal';
+  layer: 'canopy' | 'industry' | 'dunes';
+  /** Floating particles: fireflies, embers, snowflakes, sand dust or rain. */
+  ambient: 'fireflies' | 'embers' | 'snow' | 'dust' | 'rain' | 'motes';
+  /** Prop set: jungle plants, a field camp, or a military base. Tufts: grass tufts in the camp set. */
+  props: 'jungle' | 'camp' | 'base';
+  tufts: boolean;
+  /** River/pit water (top, bottom). */
+  water: [string, string];
+  /** Blinking warning lights on the skyline; a cool moon instead of a warm sun. */
+  lights: boolean;
+  moon: boolean;
+  /** Deep space: a starfield and a planet instead of sky, sun and clouds. */
+  space?: boolean;
 }
+
+const BLUE_WATER: [string, string] = ['#1f6f8b', '#0a2533'];
 
 export const ZONES: Record<ZoneId, ZoneStyle> = {
   jungle: {
@@ -35,6 +54,15 @@ export const ZONES: Record<ZoneId, ZoneStyle> = {
     dirt: '#6b4a2e',
     dirtDark: '#4e3420',
     grade: 'rgba(255, 200, 120, 0.05)',
+    ground: 'grass',
+    plat: 'wood',
+    layer: 'canopy',
+    ambient: 'fireflies',
+    props: 'jungle',
+    tufts: true,
+    water: BLUE_WATER,
+    lights: false,
+    moon: false,
   },
   river: {
     sky: ['#2a5f9e', '#6aa6d6', '#f4c48f'],
@@ -47,6 +75,15 @@ export const ZONES: Record<ZoneId, ZoneStyle> = {
     dirt: '#6a4f36',
     dirtDark: '#4c3825',
     grade: 'rgba(120, 200, 255, 0.04)',
+    ground: 'grass',
+    plat: 'wood',
+    layer: 'canopy',
+    ambient: 'fireflies',
+    props: 'jungle',
+    tufts: true,
+    water: BLUE_WATER,
+    lights: false,
+    moon: false,
   },
   towers: {
     sky: ['#231b3b', '#5b3a63', '#e0784c'],
@@ -59,6 +96,15 @@ export const ZONES: Record<ZoneId, ZoneStyle> = {
     dirt: '#6e6a63',
     dirtDark: '#54514c',
     grade: 'rgba(255, 140, 90, 0.05)',
+    ground: 'brick',
+    plat: 'metal',
+    layer: 'canopy',
+    ambient: 'embers',
+    props: 'camp',
+    tufts: true,
+    water: BLUE_WATER,
+    lights: false,
+    moon: false,
   },
   fortress: {
     sky: ['#150e1c', '#3b1a24', '#a3392a'],
@@ -71,15 +117,127 @@ export const ZONES: Record<ZoneId, ZoneStyle> = {
     dirt: '#4a505a',
     dirtDark: '#383d45',
     grade: 'rgba(255, 60, 40, 0.06)',
+    ground: 'plate',
+    plat: 'metal',
+    layer: 'industry',
+    ambient: 'embers',
+    props: 'base',
+    tufts: false,
+    water: BLUE_WATER,
+    lights: true,
+    moon: false,
+  },
+  desert: {
+    sky: ['#3a6fb0', '#8cc1e6', '#f6deb0'],
+    sun: '#fff1c2',
+    far: '#b08a64',
+    mid: '#8a6a48',
+    fog: 'rgba(240, 200, 140, 0.28)',
+    top: '#e3c27a',
+    topLight: '#f5dc9c',
+    dirt: '#b98a52',
+    dirtDark: '#8f6638',
+    grade: 'rgba(255, 190, 110, 0.06)',
+    ground: 'grass',
+    plat: 'wood',
+    layer: 'dunes',
+    ambient: 'dust',
+    props: 'camp',
+    tufts: false,
+    water: ['#3f8fa0', '#173c47'],
+    lights: false,
+    moon: false,
+  },
+  snow: {
+    sky: ['#5d7fa8', '#a9c6df', '#e8eef5'],
+    sun: '#fffaf0',
+    far: '#9aaec4',
+    mid: '#3f5a6e',
+    fog: 'rgba(230, 240, 250, 0.35)',
+    top: '#eef4fa',
+    topLight: '#ffffff',
+    dirt: '#6d7c8a',
+    dirtDark: '#4f5c69',
+    grade: 'rgba(160, 200, 255, 0.06)',
+    ground: 'grass',
+    plat: 'wood',
+    layer: 'canopy',
+    ambient: 'snow',
+    props: 'camp',
+    tufts: false,
+    water: ['#7fb8d6', '#24465c'],
+    lights: false,
+    moon: false,
+  },
+  night: {
+    sky: ['#05070f', '#121a33', '#2a2346'],
+    sun: '#dfe8ff',
+    far: '#1c2238',
+    mid: '#10131f',
+    fog: 'rgba(60, 80, 140, 0.25)',
+    top: '#5b6472',
+    topLight: '#8a95a5',
+    dirt: '#30353f',
+    dirtDark: '#22262e',
+    grade: 'rgba(60, 90, 200, 0.08)',
+    ground: 'plate',
+    plat: 'metal',
+    layer: 'industry',
+    ambient: 'rain',
+    props: 'base',
+    tufts: false,
+    water: ['#1d3b4f', '#060d14'],
+    lights: true,
+    moon: true,
+  },
+  inferno: {
+    sky: ['#1a0505', '#4a0d0d', '#c2410c'],
+    sun: '#ff4d2e',
+    far: '#3b0a0a',
+    mid: '#1c0606',
+    fog: 'rgba(220, 60, 20, 0.3)',
+    top: '#5c2a22',
+    topLight: '#8a3b2c',
+    dirt: '#3a1f1c',
+    dirtDark: '#24120f',
+    grade: 'rgba(255, 60, 20, 0.08)',
+    ground: 'brick',
+    plat: 'metal',
+    layer: 'canopy',
+    ambient: 'embers',
+    props: 'base',
+    tufts: false,
+    water: ['#ff7a1a', '#7c1d06'],
+    lights: false,
+    moon: false,
+  },
+  space: {
+    sky: ['#02030a', '#0b0f2a', '#1e1b4b'],
+    sun: '#9be7ff',
+    far: '#2a2352',
+    mid: '#151233',
+    fog: 'rgba(90, 70, 200, 0.18)',
+    top: '#8b8fa8',
+    topLight: '#c7cbe0',
+    dirt: '#3d3f52',
+    dirtDark: '#2a2b3a',
+    grade: 'rgba(110, 80, 255, 0.07)',
+    ground: 'plate',
+    plat: 'metal',
+    layer: 'dunes',
+    ambient: 'motes',
+    props: 'base',
+    tufts: false,
+    water: ['#3b1d6e', '#05010f'],
+    lights: true,
+    moon: true,
+    space: true,
   },
 };
 
-export function zoneAt(x: number): ZoneId {
-  const c = x / T;
-  if (c >= 173) return 'fortress';
-  if (c >= 141) return 'towers';
-  if (c >= 93) return 'river';
-  return 'jungle';
+/** Art style of the level at world x. */
+export function zoneAt(level: LevelDef, x: number): ZoneId {
+  return artAt(level, x);
 }
 
 // ------------------------------------------------------------------ deterministic noise
@@ -121,7 +279,7 @@ export function groundTile(zone: ZoneId, top: boolean, v: number): HTMLCanvasEle
     g.fillStyle = col;
     g.fillRect(x, y, w, h);
   };
-  if (zone === 'fortress') {
+  if (z.ground === 'plate') {
     g.fillStyle = z.dirt;
     g.fillRect(0, 0, T, T);
     g.fillStyle = tone(z.dirt, 0.12);
@@ -148,7 +306,7 @@ export function groundTile(zone: ZoneId, top: boolean, v: number): HTMLCanvasEle
       for (let i = 0; i < 8; i++) px(i * 4, 0, i % 2 ? '#1d1d1d' : '#f4c430', 4, 4);
       px(0, 4, '#1d1d1d', T, 1);
     }
-  } else if (zone === 'towers') {
+  } else if (z.ground === 'brick') {
     g.fillStyle = z.dirt;
     g.fillRect(0, 0, T, T);
     // bricks
@@ -196,7 +354,7 @@ export function platformTile(zone: ZoneId, v: number): HTMLCanvasElement {
   let c = tileCache.get(key);
   if (c) return c;
   const [cv, g] = canvas(T, 16);
-  const metal = zone === 'fortress' || zone === 'towers';
+  const metal = ZONES[zone].plat === 'metal';
   const base = metal ? '#5d646f' : '#9a6634';
   g.fillStyle = base;
   g.fillRect(0, 0, T, 9);
@@ -428,20 +586,20 @@ export function buildProps(level: LevelDef): Prop[] {
       if (!isSurface(c, row)) continue;
       const x = c * T + T / 2;
       const y = row * T;
-      const zone = zoneAt(x);
+      const z = ZONES[zoneAt(level, x)];
       const roll = r();
-      if (zone === 'jungle' || zone === 'river') {
+      if (z.props === 'jungle') {
         if (c % 9 === 4 && row >= 13 && !busy.has(c)) out.push({ x, y, kind: 'palm', front: false, v: c });
         else if (roll < 0.22) out.push({ x: x + (r() - 0.5) * 12, y, kind: 'bush', front: false, v: c });
         else if (roll < 0.34) out.push({ x, y, kind: 'fern', front: false, v: c });
         else if (roll < 0.42) out.push({ x, y, kind: 'rock', front: false, v: c });
         else if (roll < 0.5) out.push({ x, y, kind: 'flower', front: false, v: c });
         if (r() < 0.35) out.push({ x: x + (r() - 0.5) * 20, y, kind: 'tuft', front: true, v: c });
-      } else if (zone === 'towers') {
+      } else if (z.props === 'camp') {
         if (roll < 0.12) out.push({ x, y, kind: 'rock', front: false, v: c });
         else if (roll < 0.2 && !busy.has(c)) out.push({ x, y, kind: 'crate', front: false, v: c });
         else if (roll < 0.26) out.push({ x, y, kind: 'sandbags', front: false, v: c });
-        if (r() < 0.25) out.push({ x, y, kind: 'tuft', front: true, v: c });
+        if (r() < 0.25 && z.tufts) out.push({ x, y, kind: 'tuft', front: true, v: c });
       } else {
         if (roll < 0.1) out.push({ x, y, kind: 'crate', front: false, v: c });
         else if (roll < 0.2) out.push({ x, y, kind: 'sandbags', front: false, v: c });

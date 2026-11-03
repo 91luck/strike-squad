@@ -1,11 +1,16 @@
 import { GAME_CONFIG, type BossKind, type PickupKind, type TrooperKind } from './config';
 
 /**
- * The mission map: a side-scrolling strip of 32 px tiles. The level is exactly one screen tall, so cameras only
- * scroll sideways (like the classic run-and-gun games), which keeps phone screens readable.
+ * Level data: a side-scrolling strip of 32 px tiles, exactly one screen tall, so cameras only scroll sideways
+ * (like the classic run-and-gun games), which keeps phone screens readable.
  *
- * The level is *built in code* from named pieces (ground, platforms, pits, arenas…) rather than typed as ASCII art,
- * so every coordinate is explicit and a typo cannot shift a whole row. `toAscii()` renders it for debugging/tests.
+ * Memory: a level is one byte per tile (`Uint8Array`, ~7 KB for a 400-column mission) plus short lists of
+ * spawns. Levels are immutable once built, so the server shares one copy between every room playing it, and
+ * missions are only built when somebody plays them (see `missions.ts`).
+ *
+ * Levels are built in code from named pieces (ground, platforms, arenas…) rather than typed as ASCII art, so every
+ * coordinate is explicit. `Builder` has the primitives; `course.ts` lays reusable sections out one after another.
+ * `toAscii()` renders a level for debugging/tests.
  */
 
 export const Tile = {
@@ -17,6 +22,16 @@ export const Tile = {
   Gate: 3,
 } as const;
 export type Tile = (typeof Tile)[keyof typeof Tile];
+
+/**
+ * Art style of a stretch of level (sky, ground texture, props, weather). Purely cosmetic: the client maps each to
+ * its palette, so adding a style never touches the simulation.
+ */
+export type ArtStyle =
+  'jungle' | 'river' | 'towers' | 'fortress' | 'desert' | 'snow' | 'night' | 'inferno' | 'space';
+
+/** Who the enemies are (cosmetic): soldiers, demons, or void creatures from deep space. */
+export type Faction = 'army' | 'demon' | 'void';
 
 export interface EnemySpawn {
   id: number;
@@ -31,6 +46,25 @@ export interface PickupSpawn {
   kind: PickupKind;
   x: number;
   y: number;
+  /** An altar: comes back a few seconds after it is taken (so a fire wall can never lock the squad out). */
+  respawn: boolean;
+}
+
+/**
+ * A region with its own physics. Players' movement uses the same rules on the server and in client prediction.
+ *  - lowg:   low gravity (×power): floaty, long jumps.
+ *  - lift:   anti-gravity beam: carries you up to its top and holds you there.
+ *  - well:   gravity well (a black hole): pulls soldiers sideways and all shots toward its centre (power px/s).
+ *  - magnet: magnetic storm: shots curve (power rad/s); drawn as an aurora.
+ */
+export type FieldKind = 'lowg' | 'lift' | 'well' | 'magnet';
+export interface FieldDef {
+  kind: FieldKind;
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
+  power: number;
 }
 
 export interface GateDef {
@@ -39,6 +73,8 @@ export interface GateDef {
   /** Rows covered by the gate (inclusive). */
   rowTop: number;
   rowBottom: number;
+  /** A wall of fire: not opened by clearing an arena but by the rain astra (varuna). */
+  fire: boolean;
 }
 
 export interface CheckpointDef {
@@ -56,7 +92,10 @@ export interface WaveSpawn {
 
 /**
  * A lock-down arena (the classic "screen locks, survive the ambush" moment). It starts when the first soldier
- * passes `trigger`: waves of enemies come in, or its boss wakes up. Clearing it opens its gate.
+ * passes `trigger`: waves of enemies come in, or its boss(es) wake up. Clearing it opens its gate.
+ *
+ * Boss arenas may have waves too: they are escorts. Wave 1 arrives with the boss; each later wave arrives a few
+ * seconds after the previous one is down, for as long as a boss still stands.
  */
 export interface ArenaDef {
   id: number;
@@ -67,9 +106,10 @@ export interface ArenaDef {
   right: number;
   /** Floor surface y. */
   floor: number;
-  /** Gate opened on clear (-1: none, the final arena). */
+  /** Gate opened on clear (-1: none, the final arena: clearing it wins the mission). */
   gate: number;
   waves: WaveSpawn[][];
+  /** The (first) boss of the arena, or null for an ambush. */
   boss: BossKind | null;
 }
 
@@ -79,7 +119,25 @@ export interface BossSpawn {
   x: number;
   y: number;
   arena: number;
+  /** Health multiplier (twin-boss fights use less than 1 so two bosses aren't twice the slog). */
+  hpMul: number;
 }
+
+/** How much tougher than the base rules a mission is. 1 = the numbers in `GAME_CONFIG`. */
+export interface MissionMods {
+  /** Trooper health. */
+  enemyHp: number;
+  /** Enemy fire rate. */
+  enemyFire: number;
+  /** Damage soldiers take. */
+  enemyDamage: number;
+  /** Boss health. */
+  bossHp: number;
+  /** Boss pace: shorter rests between attacks (wind-up tells keep their length, so they stay fair). */
+  bossTempo: number;
+}
+
+export const BASE_MODS: MissionMods = { enemyHp: 1, enemyFire: 1, enemyDamage: 1, bossHp: 1, bossTempo: 1 };
 
 export interface LevelDef {
   id: string;
@@ -87,8 +145,6 @@ export interface LevelDef {
   cols: number;
   rows: number;
   tiles: Uint8Array;
-  /** Gate id per tile (only meaningful where tile === Gate). */
-  gateOf: Int16Array;
   start: { x: number; y: number };
   enemies: EnemySpawn[];
   pickups: PickupSpawn[];
@@ -96,15 +152,25 @@ export interface LevelDef {
   arenas: ArenaDef[];
   bosses: BossSpawn[];
   checkpoints: CheckpointDef[];
-  /** Areas the renderer labels (e.g. "Jungle", "Bridge"). Purely cosmetic. */
+  /** Areas the HUD names (e.g. "Jungle", "Bridge"). Purely cosmetic. */
   zones: { x: number; name: string }[];
+  /** Art style from each x onwards (sorted). Purely cosmetic. */
+  art: { x: number; style: ArtStyle }[];
+  mods: MissionMods;
+  fields: FieldDef[];
+  faction: Faction;
+  /** The squad charges a shared brahmastra in this mission. */
+  brahma: boolean;
 }
 
 const T = GAME_CONFIG.tile;
 
-class Builder {
+/** Snapshots pack open gates and taken pickups into 32-bit masks, which caps both lists. */
+export const MAX_GATES = 31;
+export const MAX_PICKUPS = 31;
+
+export class Builder {
   readonly tiles: Uint8Array;
-  readonly gateOf: Int16Array;
   enemies: EnemySpawn[] = [];
   pickups: PickupSpawn[] = [];
   gates: GateDef[] = [];
@@ -112,17 +178,22 @@ class Builder {
   bosses: BossSpawn[] = [];
   checkpoints: CheckpointDef[] = [];
   zones: { x: number; name: string }[] = [];
+  art: { x: number; style: ArtStyle }[] = [];
+  fields: FieldDef[] = [];
 
   constructor(
     readonly cols: number,
     readonly rows: number,
   ) {
     this.tiles = new Uint8Array(cols * rows);
-    this.gateOf = new Int16Array(cols * rows).fill(-1);
   }
 
   set(c: number, r: number, t: Tile): void {
     if (c >= 0 && c < this.cols && r >= 0 && r < this.rows) this.tiles[r * this.cols + c] = t;
+  }
+
+  get(c: number, r: number): Tile {
+    return c >= 0 && c < this.cols && r >= 0 && r < this.rows ? (this.tiles[r * this.cols + c] as Tile) : 0;
   }
 
   /** Solid ground from column c0 to c1 (inclusive) with its surface at `top`, filled to the bottom. */
@@ -141,7 +212,16 @@ class Builder {
     return this;
   }
 
-  /** Enemy standing on the surface at row `surface` (the first solid/platform row under it). */
+  /** First row (from the top) you can stand on in column c: solid ground, or also platforms when `any`. */
+  surface(c: number, any = false): number {
+    for (let r = 1; r < this.rows; r++) {
+      const t = this.get(c, r);
+      if ((t === Tile.Solid || (any && t === Tile.OneWay)) && this.get(c, r - 1) === Tile.Empty) return r;
+    }
+    return any ? this.rows : this.surface(c, true);
+  }
+
+  /** Enemy standing on the surface at row `surface` (flyers hover 4 rows above it). */
   enemy(kind: TrooperKind, col: number, surface: number): this {
     const flying = kind === 'drone' || kind === 'jetpack';
     const y = flying ? (surface - 4) * T : surface * T;
@@ -149,8 +229,14 @@ class Builder {
     return this;
   }
 
-  pickup(kind: PickupKind, col: number, surface: number): this {
-    this.pickups.push({ id: this.pickups.length, kind, x: col * T + T / 2, y: surface * T - 22 });
+  pickup(kind: PickupKind, col: number, surface: number, respawn = false): this {
+    this.pickups.push({ id: this.pickups.length, kind, x: col * T + T / 2, y: surface * T - 22, respawn });
+    return this;
+  }
+
+  /** A physics field over columns c0..c1 and rows r0..r1 (inclusive). */
+  field(kind: FieldKind, c0: number, c1: number, r0: number, r1: number, power: number): this {
+    this.fields.push({ kind, x0: c0 * T, x1: (c1 + 1) * T, y0: r0 * T, y1: (r1 + 1) * T, power });
     return this;
   }
 
@@ -160,13 +246,10 @@ class Builder {
   }
 
   /** A gate column from the top of the screen down to `bottom`. Returns its id. */
-  gate(col: number, bottom: number): number {
+  gate(col: number, bottom: number, fire = false): number {
     const id = this.gates.length;
-    this.gates.push({ id, col, rowTop: 0, rowBottom: bottom });
-    for (let r = 0; r <= bottom; r++) {
-      this.set(col, r, Tile.Gate);
-      this.gateOf[r * this.cols + col] = id;
-    }
+    this.gates.push({ id, col, rowTop: 0, rowBottom: bottom, fire });
+    for (let r = 0; r <= bottom; r++) this.set(col, r, Tile.Gate);
     return id;
   }
 
@@ -191,8 +274,8 @@ class Builder {
     return id;
   }
 
-  boss(kind: BossKind, col: number, y: number, arena: number): this {
-    this.bosses.push({ kind, x: col * T + T / 2, y, arena });
+  boss(kind: BossKind, col: number, y: number, arena: number, hpMul = 1): this {
+    this.bosses.push({ kind, x: col * T + T / 2, y, arena, hpMul });
     return this;
   }
 
@@ -200,140 +283,51 @@ class Builder {
     this.zones.push({ x: col * T, name });
     return this;
   }
+
+  /** Art style from column `col` onwards (consecutive repeats are merged). */
+  style(col: number, style: ArtStyle): this {
+    if (this.art[this.art.length - 1]?.style !== style) this.art.push({ x: col * T, style });
+    return this;
+  }
+
+  build(meta: {
+    id: string;
+    name: string;
+    start: { x: number; y: number };
+    mods?: MissionMods;
+    faction?: Faction;
+    brahma?: boolean;
+  }): LevelDef {
+    if (this.gates.length > MAX_GATES) throw new Error(`${meta.id}: more than ${MAX_GATES} gates`);
+    if (this.pickups.length > MAX_PICKUPS) throw new Error(`${meta.id}: more than ${MAX_PICKUPS} pickups`);
+    if (!this.arenas.some((a) => a.gate === -1)) throw new Error(`${meta.id}: no final arena`);
+    return {
+      id: meta.id,
+      name: meta.name,
+      cols: this.cols,
+      rows: this.rows,
+      tiles: this.tiles,
+      start: meta.start,
+      enemies: this.enemies,
+      pickups: this.pickups,
+      gates: this.gates,
+      arenas: this.arenas,
+      bosses: this.bosses,
+      checkpoints: this.checkpoints,
+      zones: this.zones,
+      art: this.art.length ? this.art : [{ x: 0, style: 'jungle' }],
+      mods: meta.mods ?? BASE_MODS,
+      fields: this.fields,
+      faction: meta.faction ?? 'army',
+      brahma: meta.brahma ?? false,
+    };
+  }
 }
 
-/** Ground surface row for most of the mission (rows below are solid). */
-const G = 14;
-
-const w = (kind: TrooperKind, side: WaveSpawn['side'], n = 1): WaveSpawn[] =>
-  Array.from({ length: n }, () => ({ kind, side }));
-
-/** Mission 1, "Operation Lifeline": jungle, ambush, river, WARHOUND, towers, VULTURE, the Iron Fortress. */
-export function buildMission1(): LevelDef {
-  const b = new Builder(276, 18);
-
-  // ---- 1. Landing zone: learn to run, jump, double jump and shoot.
-  b.zone(0, 'Landing Zone');
-  b.ground(0, 30, G);
-  b.platform(10, 13, 11);
-  b.platform(17, 21, 8);
-  b.pickup('spread', 19, 8);
-  b.enemy('soldier', 16, G).enemy('soldier', 25, G).enemy('soldier', 28, G);
-
-  // ---- 2. Jungle: pits and platforms, a turret on a ledge, the first shield trooper.
-  b.zone(31, 'Jungle');
-  b.ground(34, 44, G); // pit at 31-33
-  b.platform(30, 35, 11);
-  b.block(40, 44, 12, 13); // raised ledge
-  b.enemy('turret', 42, 12);
-  b.ground(48, 66, G); // pit at 45-47
-  b.platform(45, 48, 10);
-  b.platform(52, 56, 11);
-  b.platform(58, 62, 8);
-  b.pickup('medkit', 60, 8);
-  b.enemy('soldier', 50, G).enemy('shield', 55, G).enemy('soldier', 64, G);
-  b.enemy('drone', 59, G).enemy('grenadier', 63, G);
-  b.checkpoint(66, G);
-
-  // ---- 3. Ambush: the way locks behind a gate; survive three waves coming from both sides and the sky.
-  b.zone(67, 'Ambush');
-  b.ground(67, 92, G);
-  b.platform(74, 78, 11);
-  b.platform(82, 85, 10);
-  const g1 = b.gate(90, G - 1);
-  b.arena('AMBUSH', { trigger: 73, left: 67, right: 89, floor: G, gate: g1 }, [
-    [...w('soldier', 'R', 3), ...w('soldier', 'L', 1)],
-    [...w('shield', 'R', 1), ...w('grenadier', 'R', 1), ...w('jetpack', 'sky', 2)],
-    [...w('soldier', 'L', 2), ...w('shield', 'R', 1), ...w('jetpack', 'sky', 1), ...w('grenadier', 'L', 1)],
-  ]);
-
-  // ---- 4. River bridge: drones and jetpacks from the sky, a gap to jump.
-  b.zone(93, 'River Bridge');
-  b.ground(91, 99, G);
-  b.platform(100, 125, 12); // the bridge (one-way, river below)
-  b.block(100, 100, 13, 17);
-  b.block(113, 113, 13, 17);
-  b.block(125, 125, 13, 17);
-  b.enemy('drone', 104, 12).enemy('jetpack', 112, 12).enemy('drone', 120, 12);
-  b.enemy('soldier', 108, 12).enemy('shield', 118, 12);
-  b.pickup('rapid', 113, 12);
-
-  // ---- 5. WARHOUND: boss 1, a walking assault tank, in a walled yard.
-  b.zone(126, 'Tank Yard');
-  b.ground(126, 160, G);
-  b.checkpoint(128, G);
-  b.platform(137, 140, 10);
-  b.pickup('medkit', 130, G);
-  const g2 = b.gate(158, G - 1);
-  const a2 = b.arena('WARHOUND', { trigger: 134, left: 126, right: 157, floor: G, gate: g2 }, [], 'walker');
-  b.boss('walker', 153, G * T, a2);
-
-  // ---- 6. Watchtowers: climbing, turrets above.
-  b.zone(161, 'Watchtowers');
-  b.ground(159, 192, G);
-  b.block(166, 168, 11, 13);
-  b.platform(170, 174, 9);
-  b.block(176, 178, 9, 13);
-  b.enemy('turret', 177, 9);
-  b.platform(180, 185, 7);
-  b.pickup('laser', 182, 7);
-  b.enemy('soldier', 172, G).enemy('grenadier', 183, G).enemy('drone', 188, G).enemy('shield', 189, G);
-  b.enemy('jetpack', 164, G);
-  b.pickup('medkit', 191, G);
-
-  // ---- 7. VULTURE: boss 2, an attack gunship over the fortress wall.
-  b.zone(193, 'Fortress Wall');
-  b.ground(193, 224, G);
-  b.checkpoint(194, G);
-  b.platform(201, 204, 11);
-  b.platform(207, 211, 8);
-  b.platform(214, 217, 11);
-  const g3 = b.gate(222, G - 1);
-  const a3 = b.arena('VULTURE', { trigger: 199, left: 193, right: 221, floor: G, gate: g3 }, [], 'gunship');
-  b.boss('gunship', 214, GAME_CONFIG.enemies.gunship.hoverY, a3);
-
-  // ---- 8. The Iron Fortress: the final boss.
-  b.zone(225, 'Iron Fortress');
-  b.ground(223, 275, G);
-  b.checkpoint(226, G);
-  b.platform(238, 242, 11);
-  b.platform(247, 251, 8);
-  b.platform(254, 258, 11);
-  b.pickup('medkit', 249, 8);
-  b.pickup('spread', 240, 11);
-  b.block(274, 275, 0, G - 1); // back wall behind the boss
-  const a4 = b.arena(
-    'IRON FORTRESS',
-    { trigger: 233, left: 223, right: 263, floor: G, gate: -1 },
-    [],
-    'boss',
-  );
-  b.boss('boss', 268, G * T, a4);
-
-  return {
-    id: 'mission-1',
-    name: 'Operation Lifeline',
-    cols: b.cols,
-    rows: b.rows,
-    tiles: b.tiles,
-    gateOf: b.gateOf,
-    start: { x: 3 * T, y: G * T },
-    enemies: b.enemies,
-    pickups: b.pickups,
-    gates: b.gates,
-    arenas: b.arenas,
-    bosses: b.bosses,
-    checkpoints: b.checkpoints,
-    zones: b.zones,
-  };
+/** The final arena (clearing it wins the mission). */
+export function finalArena(level: LevelDef): ArenaDef {
+  return level.arenas.find((a) => a.gate === -1) as ArenaDef;
 }
-
-/** The final boss (the mission is won when it falls). */
-export function finalBoss(level: LevelDef): BossSpawn {
-  return level.bosses.find((x) => x.kind === 'boss') as BossSpawn;
-}
-
-export const MISSION_1 = buildMission1();
 
 // ---------------------------------------------------------------- queries shared by the sim and the client
 
@@ -344,9 +338,26 @@ export function tileAt(level: LevelDef, c: number, r: number): Tile {
   return level.tiles[r * level.cols + c] as Tile;
 }
 
+/** Which gate a gate tile belongs to. A handful of gates per level, so a scan beats a per-tile lookup table. */
 export function gateIdAt(level: LevelDef, c: number, r: number): number {
-  if (c < 0 || c >= level.cols || r < 0 || r >= level.rows) return -1;
-  return level.gateOf[r * level.cols + c] ?? -1;
+  for (const g of level.gates) if (g.col === c && r >= g.rowTop && r <= g.rowBottom) return g.id;
+  return -1;
+}
+
+/** The field covering a point, if any (fields don't overlap; the first match wins). */
+export function fieldAt(level: LevelDef, x: number, y: number): FieldDef | null {
+  for (const f of level.fields) if (x >= f.x0 && x < f.x1 && y >= f.y0 && y < f.y1) return f;
+  return null;
+}
+
+/** Art style at world x. */
+export function artAt(level: LevelDef, x: number): ArtStyle {
+  let style = level.art[0]?.style ?? 'jungle';
+  for (const a of level.art) {
+    if (a.x > x) break;
+    style = a.style;
+  }
+  return style;
 }
 
 /** Debug/test view: '#' solid, '=' platform, '|' gate, '.' empty. */

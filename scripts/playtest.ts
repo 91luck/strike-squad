@@ -6,13 +6,15 @@
  *   npm run playtest                 (20 runs per squad size, normal difficulty)
  *   npm run playtest -- 50 hard      (runs, difficulty)
  *   npm run playtest -- 10 normal 0.8   (bot reaction skill 0..1, default 1)
+ *   npm run playtest -- 10 normal 0.6 1,2,4 mission-3   (squad sizes, mission id)
  */
-import { Autopilot, GAME_CONFIG, Sim, type Difficulty } from '../shared/src/index';
+import { Autopilot, GAME_CONFIG, Sim, isMissionId, type Difficulty } from '../shared/src/index';
 
 const runs = Number(process.argv[2] ?? 20);
 const difficulty = (process.argv[3] ?? 'normal') as Difficulty;
 const skill = Number(process.argv[4] ?? 1);
 const sizes = (process.argv[5] ?? '1,2,4,8').split(',').map(Number);
+const mission = process.argv[6] ?? 'mission-1';
 
 interface Outcome {
   won: boolean;
@@ -26,7 +28,8 @@ interface Outcome {
 }
 
 function play(n: number, seed: number): Outcome {
-  const sim = new Sim({ seed, settings: { difficulty } });
+  if (!isMissionId(mission)) throw new Error(`unknown mission ${mission}`);
+  const sim = new Sim({ seed, settings: { difficulty, mission } });
   const bots = new Autopilot(skill);
   for (let i = 0; i < n; i++) sim.addPlayer({ id: `p${i}`, name: `P${i}`, slot: i, hero: i });
   let maxX = 0;
@@ -59,7 +62,9 @@ function play(n: number, seed: number): Outcome {
   };
 }
 
-console.log(`Playtest: ${runs} runs per squad size, difficulty ${difficulty}, bot skill ${skill}\n`);
+console.log(
+  `Playtest ${mission}: ${runs} runs per squad size, difficulty ${difficulty}, bot skill ${skill}\n`,
+);
 console.log(
   'players | won    | avg time (won) | lives left | KOs/run | ults/run | best combo | arenas cleared | furthest col (median)',
 );

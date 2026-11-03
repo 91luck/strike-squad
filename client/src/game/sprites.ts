@@ -28,7 +28,7 @@ export interface Look {
   hair: string;
   pants: string;
   accent: string;
-  headgear: HeroDef['headgear'] | 'gasmask';
+  headgear: HeroDef['headgear'] | 'gasmask' | 'horns' | 'dome';
   beard?: boolean;
   vest: string;
 }
@@ -65,6 +65,47 @@ export const GRENADIER_LOOK: Look = {
   shade: '#3d4d22',
   vest: '#2f3a1c',
   accent: '#a3e635',
+};
+
+/** Demon army (advanced mission): red-black skin, horns, glowing eyes in the accent colour. */
+const DEMON_BASE: Look = {
+  color: '#3b0d14',
+  shade: '#260709',
+  skin: '#9f2a2a',
+  hair: '#120507',
+  pants: '#1c0a0c',
+  accent: '#ffb703',
+  headgear: 'horns',
+  vest: '#2a0a0e',
+};
+/** Void creatures from deep space: pale violet, glass dome helmets. */
+const VOID_BASE: Look = {
+  color: '#2e2a4f',
+  shade: '#1d1a36',
+  skin: '#8b7fd6',
+  hair: '#1b1630',
+  pants: '#1a1830',
+  accent: '#67e8f9',
+  headgear: 'dome',
+  vest: '#232042',
+};
+
+export type TrooperLook = 'soldier' | 'shield' | 'jet' | 'gren';
+/** Trooper looks per faction (soldier, shield, jetpack, grenadier). */
+export const FACTION_LOOKS: Record<'army' | 'demon' | 'void', Record<TrooperLook, Look>> = {
+  army: { soldier: ENEMY_LOOK, shield: SHIELD_LOOK, jet: JET_LOOK, gren: GRENADIER_LOOK },
+  demon: {
+    soldier: DEMON_BASE,
+    shield: { ...DEMON_BASE, color: '#1f1f2e', accent: '#f97316' },
+    jet: { ...DEMON_BASE, skin: '#7c2d12', accent: '#fde047' },
+    gren: { ...DEMON_BASE, skin: '#4d7c0f', color: '#1a2e05', accent: '#bef264' },
+  },
+  void: {
+    soldier: VOID_BASE,
+    shield: { ...VOID_BASE, color: '#1e293b', accent: '#38bdf8' },
+    jet: { ...VOID_BASE, skin: '#c084fc', accent: '#f0abfc' },
+    gren: { ...VOID_BASE, skin: '#34d399', accent: '#a7f3d0' },
+  },
 };
 
 export function heroLook(id: number): Look {
@@ -325,6 +366,26 @@ function drawHead(p: Px, L: Look, hx: number, hy: number): void {
       p.r(hx + 3, hy - 1, 3, 2, '#3d3d3d');
       p.r(hx - 1, hy + 2, 2, 4, L.hair);
       break;
+    case 'horns':
+      // curved horns, a heavy brow and glowing eyes
+      p.r(hx - 1, hy - 4, 3, 4, '#e7e5e4');
+      p.r(hx - 2, hy - 6, 2, 3, '#f5f5f4');
+      p.r(hx + 8, hy - 4, 3, 4, '#e7e5e4');
+      p.r(hx + 10, hy - 6, 2, 3, '#f5f5f4');
+      p.r(hx, hy, 11, 2, L.hair);
+      p.r(hx + 6, hy + 4, 4, 2, L.accent);
+      p.dot(hx + 8, hy + 4, '#ffffff');
+      p.r(hx + 7, hy + 8, 4, 2, '#1a0505'); // fanged mouth
+      p.dot(hx + 8, hy + 9, '#f5f5f4');
+      break;
+    case 'dome':
+      // glass dome helmet with a visor glow
+      p.r(hx - 2, hy - 3, 15, 13, 'rgba(165,243,252,0.35)');
+      p.r(hx - 1, hy - 4, 13, 1, 'rgba(224,242,254,0.8)');
+      p.r(hx + 1, hy - 2, 2, 4, 'rgba(255,255,255,0.7)');
+      p.r(hx + 6, hy + 4, 5, 2, L.accent);
+      p.r(hx - 2, hy + 10, 15, 2, '#475569');
+      break;
     case 'gasmask':
       p.r(hx - 2, hy - 3, 14, 7, '#4b525c');
       p.r(hx - 2, hy - 3, 14, 2, '#6d7580');
@@ -391,7 +452,7 @@ function drawTorso(p: Px, L: Look, x: number, top: number, hipY: number): void {
 
 function drawCharacter(L: Look, pose: Pose, frame: number, aim: Aim): CharFrame {
   const p = new Px(SPRITE_W, SPRITE_H);
-  const enemy = L.headgear === 'gasmask';
+  const enemy = L.headgear === 'gasmask' || L.headgear === 'horns' || L.headgear === 'dome';
   if (pose === 'down') {
     // Lying on the ground, face up, an arm reaching out.
     const y = FEET_Y;

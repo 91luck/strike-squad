@@ -98,11 +98,15 @@
             in the middle of the mission.
           </p>
           <label class="field">
+            <span>Mission</span>
+            <select id="create-mission" class="mission-select" data-testid="create-mission"></select>
+          </label>
+          <label class="field">
             <span>Difficulty</span>
             <select id="create-difficulty" data-testid="create-difficulty">
-              <option value="easy">Easy · 5 team lives + 1 per player</option>
-              <option value="normal" selected>Normal · 3 team lives + 1 per player</option>
-              <option value="hard">Hard · 1 team life + 1 per player</option>
+              <option value="easy">Easy · 6 team lives + 1 per player</option>
+              <option value="normal" selected>Normal · 4 team lives + 1 per player</option>
+              <option value="hard">Hard · 2 team lives + 1 per player</option>
             </select>
           </label>
           <div class="row">
@@ -160,9 +164,13 @@
         <div class="sheet">
           <h2 id="h-practice">Solo training</h2>
           <p class="lead">
-            The full mission on your own device (works offline once loaded). Computer buddies fight beside you
-            and fire their own super moves. Real friends are even better!
+            Any mission on your own device (works offline once loaded). Computer buddies fight beside you and
+            fire their own super moves. Real friends are even better!
           </p>
+          <label class="field">
+            <span>Mission</span>
+            <select id="practice-mission" class="mission-select" data-testid="practice-mission"></select>
+          </label>
           <label class="field">
             <span>Squad-mates</span>
             <select id="practice-buddies" data-testid="practice-buddies">
@@ -224,14 +232,22 @@
           <section aria-labelledby="h-mission">
             <h3 id="h-mission">Mission 1 · Operation Lifeline</h3>
             <ol class="briefing">
-              <li><b>Ambush:</b> the way locks shut. Clear every wave to open the gate.</li>
-              <li><b>3 bosses:</b> WARHOUND the walking tank, VULTURE the gunship, the IRON FORTRESS.</li>
+              <li class="brief-line">
+                <b>Ambush:</b> the way locks shut. Clear every wave to open the gate.
+              </li>
+              <li class="brief-line">
+                <b>3 bosses:</b> WARHOUND the walking tank, VULTURE the gunship, the IRON FORTRESS.
+              </li>
               <li>
                 <b>Read the tells:</b> a red flash means an attack is coming. Jump, duck or dash through it.
               </li>
               <li><b>SYNC:</b> fire super moves within 2 seconds of a friend and both hit 50% harder.</li>
             </ol>
             <div class="opts">
+              <label class="field inline">
+                <span>Mission</span>
+                <select id="lobby-mission" class="mission-select" data-testid="lobby-mission"></select>
+              </label>
               <label class="field inline">
                 <span>Difficulty</span>
                 <select id="lobby-difficulty" data-testid="lobby-difficulty">
@@ -296,6 +312,7 @@
                 </div>
               </div>
               <div id="hud-lives" class="hud-chip lives" data-testid="hud-lives">♥ 0</div>
+              <div id="hud-power" class="hud-chip power" hidden data-testid="hud-power"></div>
             </div>
             <div class="hud-mid">
               <div id="hud-zone" class="hud-zone"></div>
@@ -311,6 +328,10 @@
             >
               ❚❚
             </button>
+          </div>
+          <div id="hud-brahma" class="brahma-bar" hidden data-testid="hud-brahma">
+            <div id="hud-brahma-fill" class="brahma-fill"></div>
+            <span id="hud-brahma-label">BRAHMASTRA</span>
           </div>
           <div id="combo" class="combo" hidden data-testid="combo" aria-live="off">
             <div id="combo-rank" class="combo-rank">C</div>
@@ -351,7 +372,25 @@
             <div id="joy-base" class="joy-base"><div id="joy-knob" class="joy-knob"></div></div>
             <span class="joy-hint">Drag: run · up/down to aim</span>
           </div>
+          <button
+            id="btn-touch-auto"
+            class="touch-toggle"
+            type="button"
+            aria-label="Auto-fire on or off"
+            data-testid="touch-auto"
+          >
+            AUTO FIRE: OFF
+          </button>
           <div class="touch-pad">
+            <button
+              id="btn-touch-astra"
+              class="touch-btn astra"
+              type="button"
+              aria-label="Astra: fire your power, or the team brahmastra"
+              data-testid="touch-astra"
+            >
+              ASTRA
+            </button>
             <button
               id="btn-touch-ult"
               class="touch-btn ult"
@@ -479,6 +518,15 @@
           <div class="row">
             <button id="btn-rematch" class="btn primary hazard" type="button" data-testid="btn-rematch">
               Play again
+            </button>
+            <button
+              id="btn-next-mission"
+              class="btn primary"
+              type="button"
+              data-testid="btn-next-mission"
+              hidden
+            >
+              Next mission ▶
             </button>
             <button id="btn-to-lobby" class="btn" type="button" data-testid="btn-to-lobby">
               Back to lobby
@@ -620,14 +668,26 @@
               <td><kbd>Q</kbd> (also <kbd>E</kbd>/<kbd>O</kbd>) when the yellow bar is full</td>
             </tr>
             <tr>
+              <th scope="row">Astra / power</th>
+              <td>
+                <kbd>R</kbd> (also <kbd>G</kbd>/<kbd>U</kbd>) · missions 5–6: fire the astra you picked up;
+                with none, call down the squad BRAHMASTRA when its bar is full
+              </td>
+            </tr>
+            <tr>
+              <th scope="row">Auto-fire</th>
+              <td><kbd>T</kbd> or the AUTO FIRE button · advanced missions start with it off</td>
+            </tr>
+            <tr>
               <th scope="row">Drop down</th>
               <td><kbd>↓</kbd> + Jump on a wooden platform</td>
             </tr>
             <tr>
               <th scope="row">Phone</th>
               <td>
-                Left thumb: run and aim (pull down + Dash to slide). Right thumb: Jump, Dash, Knife, SUPER.
-                Auto-fire is on (change it in Settings).
+                Left thumb: run and aim (pull down + Dash to slide). Right thumb: Jump, Dash, Knife, SUPER,
+                ASTRA. Tap AUTO FIRE (top right) to switch auto-fire; advanced missions start with it off.
+                Settings can swap the sides for left-handers.
               </td>
             </tr>
           </table>
@@ -703,6 +763,13 @@
             shake, fewer particles)</label
           >
           <label class="check"><input id="set-fps" type="checkbox" /> Show frame rate and ping</label>
+          <label class="field"
+            ><span>Touch controls</span
+            ><select id="set-hand" data-testid="set-hand">
+              <option value="right">Right-handed: joystick left, buttons right</option>
+              <option value="left">Left-handed: buttons left, joystick right</option>
+            </select></label
+          >
           <label class="field"
             ><span>Joystick sensitivity</span><input id="set-sens" type="range" min="50" max="150" step="10"
           /></label>

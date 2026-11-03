@@ -1,8 +1,8 @@
-import type { Difficulty, MissionSettings } from './config';
+import type { Difficulty, MissionId, MissionSettings } from './config';
 import type { FailReason, MissionResult, SimEvent, Snapshot } from './sim';
 
 /** Bumped whenever the wire protocol changes incompatibly. */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 4;
 
 /** Unambiguous alphabet (no I, L, O, 0, 1). */
 export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -13,13 +13,19 @@ export const NAME_REGEX = /^[\p{L}\p{N} _.-]+$/u;
 
 // ---------------------------------------------------------------- client -> server
 
+/** Mission options the host can change in the lobby. */
+export interface SettingsPatch {
+  difficulty?: Difficulty;
+  mission?: MissionId;
+}
+
 export type ClientMessage =
   | { t: 'hello'; v: typeof PROTOCOL_VERSION; name: string; resume?: string }
   /** `open`: a public squad that "Play now" players can drop into. */
-  | { t: 'createRoom'; settings?: { difficulty?: Difficulty }; open?: boolean }
+  | { t: 'createRoom'; settings?: SettingsPatch; open?: boolean }
   | { t: 'joinRoom'; code: string }
   | { t: 'leaveRoom' }
-  | { t: 'setSettings'; settings: { difficulty?: Difficulty } }
+  | { t: 'setSettings'; settings: SettingsPatch }
   /** Pick a hero (look + colour). Lobby or results screen. */
   | { t: 'setHero'; hero: number }
   | { t: 'startMatch' }
@@ -35,6 +41,8 @@ export type ClientMessage =
       dash?: boolean;
       melee?: boolean;
       ult?: boolean;
+      /** Fire the held power (astra) or the team brahmastra. Optional. */
+      astra?: boolean;
       /** Server tick the client is displaying when it sampled this input (lag compensation). Optional. */
       vt?: number;
     }

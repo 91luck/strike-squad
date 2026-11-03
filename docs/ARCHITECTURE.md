@@ -13,22 +13,24 @@ shared  ──►  server   (Node 20+, ws, zod)
 
 `shared` has no DOM or Node dependency, so the exact same code runs in the server process, in browser solo training, in the client's movement prediction, and in headless tests and balance runs.
 
-| Module                                          | Responsibility                                                                                                                        |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `shared/config.ts`                              | Every tunable number (soldier, moves, supers, combo, weapons, enemies, bosses, lives, limits). Single source of truth.                |
-| `shared/level.ts`                               | Mission 1, built in code from named pieces (ground, platforms, lock gates, arenas, bosses, checkpoints). `toAscii()` for debugging.   |
-| `shared/physics.ts`                             | Platformer movement (gravity, one-way platforms, coyote time, double jump, dash, slide) shared by server and prediction.              |
-| `shared/sim.ts`                                 | `Sim`: fixed-timestep mission: players, knife/super/combo, enemy and boss AI, bullets, arenas, lives, result.                         |
-| `shared/autopilot.ts`                           | Computer player (solo buddies, playtest, tests). Plays only through `setInput`, like a human.                                         |
-| `shared/protocol.ts` / `schemas.ts`             | Wire types; strict zod schemas for client→server messages (server-only entry point).                                                  |
-| `server/room.ts`                                | `Room`: lobby → mission → results for one squad; seats/colours; drop-in. No sockets, unit-testable.                                   |
-| `server/core.ts`                                | Runtime-independent sessions, rate limits, dispatch, "Play now", sweeping.                                                            |
-| `server/game-server.ts`, `cloudflare/worker.ts` | Node (`ws`) and Cloudflare (Durable Object) adapters.                                                                                 |
-| `client/main.ts`                                | Screen state machine and wiring.                                                                                                      |
-| `shared/heroes.ts`                              | The 8-hero roster (names, colours, looks). The server only validates the id.                                                          |
-| `client/game/sprites.ts`                        | Pixel-art factory: characters drawn by code, auto 1-px outline, cached per hero/pose/frame/aim; enemies, crates, portraits.           |
-| `client/game/world-art.ts`                      | Tile textures, props, parallax layers and zone palettes, generated from a fixed seed.                                                 |
-| `client/game/*`                                 | `OnlineMatch` (input loop, interpolation, prediction), `SoloMatch`, `MatchView` (HUD/events), `Renderer` (side view, procedural art). |
+| Module                                          | Responsibility                                                                                                                                                                                                                                                                              |
+| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `shared/config.ts`                              | Every tunable number (soldier, moves, supers, combo, weapons, enemies, bosses, lives, limits). Single source of truth.                                                                                                                                                                      |
+| `shared/level.ts`                               | Level data types and the `Builder` primitives (ground, platforms, lock gates, arenas, bosses, checkpoints). One byte per tile; `toAscii()` for debugging.                                                                                                                                   |
+| `shared/course.ts`                              | Missions as data: reusable terrain templates (flat, pits, bridge, steps, towers, catwalks, arena rooms) plus a tiny text format for enemies, pickups and waves, columns relative to each section. Bad placements throw at build time.                                                       |
+| `shared/missions.ts`                            | The campaign: menu metadata (`MISSIONS`), mission 1 (hand-placed) and missions 2–4 (section data with tougher `mods`). `getMission(id)` builds a mission on first use and caches it, so the server shares one immutable copy between rooms and a phone never builds missions nobody picked. |
+| `shared/physics.ts`                             | Platformer movement (gravity, one-way platforms, coyote time, double jump, dash, slide) shared by server and prediction.                                                                                                                                                                    |
+| `shared/sim.ts`                                 | `Sim`: fixed-timestep mission: players, knife/super/combo, enemy and boss AI, bullets, arenas, lives, result.                                                                                                                                                                               |
+| `shared/autopilot.ts`                           | Computer player (solo buddies, playtest, tests). Plays only through `setInput`, like a human.                                                                                                                                                                                               |
+| `shared/protocol.ts` / `schemas.ts`             | Wire types; strict zod schemas for client→server messages (server-only entry point).                                                                                                                                                                                                        |
+| `server/room.ts`                                | `Room`: lobby → mission → results for one squad; seats/colours; drop-in. No sockets, unit-testable.                                                                                                                                                                                         |
+| `server/core.ts`                                | Runtime-independent sessions, rate limits, dispatch, "Play now", sweeping.                                                                                                                                                                                                                  |
+| `server/game-server.ts`, `cloudflare/worker.ts` | Node (`ws`) and Cloudflare (Durable Object) adapters.                                                                                                                                                                                                                                       |
+| `client/main.ts`                                | Screen state machine and wiring.                                                                                                                                                                                                                                                            |
+| `shared/heroes.ts`                              | The 8-hero roster (names, colours, looks). The server only validates the id.                                                                                                                                                                                                                |
+| `client/game/sprites.ts`                        | Pixel-art factory: characters drawn by code, auto 1-px outline, cached per hero/pose/frame/aim; enemies, crates, portraits.                                                                                                                                                                 |
+| `client/game/world-art.ts`                      | Tile textures, props, parallax layers and zone palettes, generated from a fixed seed.                                                                                                                                                                                                       |
+| `client/game/*`                                 | `OnlineMatch` (input loop, interpolation, prediction), `SoloMatch`, `MatchView` (HUD/events), `Renderer` (side view, procedural art).                                                                                                                                                       |
 
 ## Simulation
 
@@ -91,3 +93,17 @@ On Cloudflare a single Durable Object (`idFromName('global')`) hosts every room,
 - **Socket.IO / frameworks:** raw `ws` + a 20-line protocol is smaller, easier to audit and cheaper on free tiers.
 - **A database:** nothing needs to outlive a match; rooms are memory-only by design (and say so in the privacy notice).
 - **Lockstep / client-authoritative:** trivially cheatable. Server authority was a hard requirement.
+
+## Missions and memory
+
+- A mission is ~5–7 KB of tiles plus short spawn lists, built lazily and shared (`getMission`). Snapshots never carry level data, only the mission id at `matchStart`.
+- Art styles (`jungle`, `desert`, `snow`, `night`…) are a cosmetic list in the level (`LevelDef.art`); the client maps each to a palette, prop set and weather in `world-art.ts`. Tile art is cached per style; full-screen backdrop tints are kept in a 6-entry LRU so switching missions does not pile up canvases.
+- Mission toughness is data (`LevelDef.mods`): the sim multiplies trooper health, fire rate, damage taken, boss health and boss rest time by it. Wind-up tells never get shorter.
+
+## Powers and fields (advanced missions)
+
+- **Powers** (`POWER_KINDS` in `config.ts`, numbers in `GAME_CONFIG.powers`) live in the sim (`useAstra`, `stepPowers`, `bendBullet`): burning ground and black holes are short lists sent to clients as `Snapshot.fx`; the team brahmastra is `Snapshot.bm`. The input carries one optional `astra` flag (protocol v4).
+- **Walls of fire** are ordinary gates with `fire: true`: solid until the rain power opens them, so physics, prediction and the snapshot gate mask need nothing new. Their altars are pickups with `respawn: true`.
+- **Fields** (`LevelDef.fields`: low gravity, lift, gravity well, magnetic storm) are applied inside `stepPlayerMovement`, so the server and the client's prediction stay identical. Wells and storms also bend bullets in the sim.
+- **Looks:** `LevelDef.faction` picks demon or void troopers (`FACTION_LOOKS` in `sprites.ts`); bosses are drawn offscreen and tinted. All power and field drawing is in `client/src/game/power-fx.ts`.
+- **Bots** use powers too (`Autopilot`): rain on a wall of fire (fetching it from the altar if needed), the others on a crowd or a boss, and the brahmastra near a boss.

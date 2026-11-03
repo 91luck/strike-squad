@@ -4,7 +4,7 @@ import {
   PROTOCOL_VERSION,
   type ClientMessage,
   type ErrorCode,
-  type Difficulty,
+  type SettingsPatch,
   type ServerMessage,
 } from '@strikesquad/shared';
 import type { ServerConfig } from './config';
@@ -479,7 +479,7 @@ export class GameCore {
   private onCreateRoom(
     client: Client,
     s: Session,
-    settings: { difficulty?: Difficulty } | undefined,
+    settings: SettingsPatch | undefined,
     now: number,
     open = false,
   ): void {

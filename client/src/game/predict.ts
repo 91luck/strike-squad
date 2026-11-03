@@ -1,12 +1,12 @@
 import {
   GAME_CONFIG,
-  MISSION_1,
   levelWidth,
   newMover,
   stepPlayerMovement,
   type Mover,
   type PlayerInput,
   type PlayerSnapshot,
+  type LevelDef,
   type World,
 } from '@strikesquad/shared';
 
@@ -48,13 +48,13 @@ export class Predictor {
   private alive = false;
   private readonly dt: number;
 
-  constructor(tickRate: number) {
+  constructor(tickRate: number, level: LevelDef) {
     this.dt = 1 / tickRate;
     this.body = newMover(0, 0, GAME_CONFIG.player.width, GAME_CONFIG.player.height);
     this.world = {
-      level: MISSION_1,
+      level,
       isGateOpen: (id) => (this.gates & (1 << id)) !== 0,
-      limitX: levelWidth(MISSION_1),
+      limitX: levelWidth(level),
     };
   }
 

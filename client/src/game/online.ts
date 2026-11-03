@@ -1,4 +1,4 @@
-import { NEUTRAL_INPUT, type PlayerInput, type ServerMessage } from '@strikesquad/shared';
+import { NEUTRAL_INPUT, getMission, type PlayerInput, type ServerMessage } from '@strikesquad/shared';
 import type { InputController } from '../input/input';
 import type { Connection } from '../net/connection';
 import { Predictor } from './predict';
@@ -32,11 +32,12 @@ export class OnlineMatch {
     private readonly conn: Connection,
     private readonly input: InputController,
   ) {
-    this.predictor = new Predictor(start.tickRate);
+    const level = getMission(start.levelId);
+    this.predictor = new Predictor(start.tickRate, level);
     this.tickMs = 1000 / start.tickRate;
     // Render two snapshot intervals in the past so we nearly always have two snapshots to blend.
     this.interpDelay = (2 * start.snapshotEvery) / start.tickRate;
-    view.begin(start.you, start.snap);
+    view.begin(start.you, start.snap, level);
     this.ingest(start.snap, 0);
   }
 
@@ -133,7 +134,7 @@ export class OnlineMatch {
     const input = this.input.read();
     this.firing = input.fire;
     const idleOf = (i: PlayerInput): boolean =>
-      !i.mx && !i.my && !i.jump && !i.fire && !i.dash && !i.melee && !i.ult;
+      !i.mx && !i.my && !i.jump && !i.fire && !i.dash && !i.melee && !i.ult && !i.astra;
     const idle = idleOf(input);
     const wasIdle = idleOf(this.lastSent);
     const playing = this.timeline.latest()?.phase === 'playing';

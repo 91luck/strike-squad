@@ -26,6 +26,10 @@ const EXTRA_FIRE = new Set(['KeyJ', 'KeyX']);
 export const DASH_KEYS = new Set(['ShiftLeft', 'ShiftRight', 'KeyL', 'KeyC']);
 export const MELEE_KEYS = new Set(['KeyF', 'KeyV', 'KeyI']);
 export const ULT_KEYS = new Set(['KeyQ', 'KeyE', 'KeyO']);
+/** Fire the held power (astra), or the team brahmastra. */
+export const ASTRA_KEYS = new Set(['KeyR', 'KeyG', 'KeyU']);
+/** Toggle auto-fire during a mission. */
+export const AUTOFIRE_KEY = 'KeyT';
 const GAME_KEYS = new Set([
   ...LEFT,
   ...RIGHT,
@@ -36,6 +40,8 @@ const GAME_KEYS = new Set([
   ...DASH_KEYS,
   ...MELEE_KEYS,
   ...ULT_KEYS,
+  ...ASTRA_KEYS,
+  AUTOFIRE_KEY,
 ]);
 
 export function isFormField(target: EventTarget | null): boolean {
@@ -58,6 +64,15 @@ export class InputController {
   private touchDash = new Set<number>();
   private touchMelee = new Set<number>();
   private touchUlt = new Set<number>();
+  private touchAstra = new Set<number>();
+  private astraLatch = false;
+  /**
+   * Auto-fire for this mission: null follows the setting; advanced missions start with it off, and the AUTO button
+   * (or T) flips it.
+   */
+  autoFireOverride: boolean | null = null;
+  /** Called when the AUTO toggle flips (to refresh the button). */
+  onAutoFireChange: (on: boolean) => void = () => undefined;
   /** A button pressed and released between two samples still counts once. */
   private jumpLatch = false;
   private dashLatch = false;
@@ -90,10 +105,11 @@ export class InputController {
     this.touchDash.clear();
     this.touchMelee.clear();
     this.touchUlt.clear();
-    this.jumpLatch = this.dashLatch = this.meleeLatch = this.ultLatch = false;
+    this.touchAstra.clear();
+    this.jumpLatch = this.dashLatch = this.meleeLatch = this.ultLatch = this.astraLatch = false;
     this.joy = null;
     document.getElementById('joy-base')?.classList.remove('active');
-    for (const id of ['fire', 'jump', 'dash', 'melee', 'ult'])
+    for (const id of ['fire', 'jump', 'dash', 'melee', 'ult', 'astra'])
       document.getElementById(`btn-touch-${id}`)?.classList.remove('down');
   }
 
@@ -127,6 +143,8 @@ export class InputController {
         if (DASH_KEYS.has(e.code)) this.dashLatch = true;
         if (MELEE_KEYS.has(e.code)) this.meleeLatch = true;
         if (ULT_KEYS.has(e.code)) this.ultLatch = true;
+        if (ASTRA_KEYS.has(e.code)) this.astraLatch = true;
+        if (e.code === AUTOFIRE_KEY) this.toggleAutoFire();
       }
       this.keys.add(e.code);
     } else this.keys.delete(e.code);
@@ -140,7 +158,7 @@ export class InputController {
   /** Current intention, sampled once per client tick. */
   read(): PlayerInput {
     if (!this.opts.isActive()) {
-      this.jumpLatch = this.dashLatch = this.meleeLatch = this.ultLatch = false;
+      this.jumpLatch = this.dashLatch = this.meleeLatch = this.ultLatch = this.astraLatch = false;
       return { ...NEUTRAL_INPUT };
     }
     const s = this.opts.settings();
@@ -160,12 +178,23 @@ export class InputController {
       this.any(EXTRA_FIRE) ||
       this.keys.has(s.keyFire) ||
       this.touchFire.size > 0 ||
-      (s.autoFire && this.usedTouch);
+      (this.autoFire() && this.usedTouch);
     const dash = this.any(DASH_KEYS) || this.touchDash.size > 0 || this.dashLatch;
     const melee = this.any(MELEE_KEYS) || this.touchMelee.size > 0 || this.meleeLatch;
     const ult = this.any(ULT_KEYS) || this.touchUlt.size > 0 || this.ultLatch;
-    this.dashLatch = this.meleeLatch = this.ultLatch = false;
-    return { mx, my, jump, fire, dash, melee, ult };
+    const astra = this.any(ASTRA_KEYS) || this.touchAstra.size > 0 || this.astraLatch;
+    this.dashLatch = this.meleeLatch = this.ultLatch = this.astraLatch = false;
+    return { mx, my, jump, fire, dash, melee, ult, astra };
+  }
+
+  /** Is auto-fire on right now (this mission's choice, else the setting)? */
+  autoFire(): boolean {
+    return this.autoFireOverride ?? this.opts.settings().autoFire;
+  }
+
+  toggleAutoFire(): void {
+    this.autoFireOverride = !this.autoFire();
+    this.onAutoFireChange(this.autoFireOverride);
   }
 
   // ------------------------------------------------------------ touch
@@ -244,6 +273,15 @@ export class InputController {
     });
     bindButton('btn-touch-ult', this.touchUlt, () => {
       this.ultLatch = true;
+    });
+    bindButton('btn-touch-astra', this.touchAstra, () => {
+      this.astraLatch = true;
+    });
+    const auto = document.getElementById('btn-touch-auto');
+    auto?.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      this.usedTouch = true;
+      this.toggleAutoFire();
     });
   }
 }

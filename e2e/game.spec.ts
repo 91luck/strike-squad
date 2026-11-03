@@ -403,7 +403,18 @@ async function thumbs(page: Page, ms: number): Promise<void> {
   for (let r = 0; r < rounds; r++) {
     await page.waitForTimeout(300);
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [stick(50), jumpTouch] });
-    await page.waitForTimeout(250);
+    // Hold Jump until the soldier is clearly up (server-confirmed when a tracker runs), so a slow emulated phone
+    // that renders few frames still sends a held jump rather than a one-tick tap.
+    await page
+      .waitForFunction(
+        () => {
+          const t = (window as unknown as { __track?: { y0: number; minY: number } }).__track;
+          return t ? t.y0 - t.minY > 60 : false;
+        },
+        undefined,
+        { timeout: 1500, polling: 20 },
+      )
+      .catch(() => undefined);
     await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [stick(50)] });
   }
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
@@ -486,7 +497,15 @@ test('@mobile every move works with real multi-touch: dash, slide, double jump, 
   // Record the most extreme state our soldier reaches after every simulation tick (exact even when the
   // emulated phone drops frames and runs several ticks in one frame).
   await page.evaluate(() => {
-    type Me = { x: number; y: number; dashTicks: number; slideTicks: number; meleeUntil: number };
+    type Me = {
+      x: number;
+      y: number;
+      dashTicks: number;
+      slideTicks: number;
+      meleeUntil: number;
+      airJumps: number;
+      onGround: boolean;
+    };
     const w = window as unknown as {
       __seen: Record<string, number>;
       __strikesquad: { soloSim: { tick: number; step: () => void; players: Map<string, Me> } };
@@ -494,7 +513,7 @@ test('@mobile every move works with real multi-touch: dash, slide, double jump, 
     const sim = w.__strikesquad.soloSim;
     const me = sim.players.get('me')!;
     const y0 = me.y;
-    w.__seen = { dsh: 0, sld: 0, ml: 0, rose: 0, x0: me.x, x: me.x };
+    w.__seen = { dsh: 0, sld: 0, ml: 0, rose: 0, aj: 0, x0: me.x, x: me.x };
     const step = sim.step.bind(sim);
     sim.step = () => {
       step();
@@ -502,6 +521,7 @@ test('@mobile every move works with real multi-touch: dash, slide, double jump, 
       w.__seen.sld = Math.max(w.__seen.sld!, me.slideTicks);
       w.__seen.ml = Math.max(w.__seen.ml!, me.meleeUntil > sim.tick ? 1 : 0);
       w.__seen.rose = Math.max(w.__seen.rose!, y0 - me.y);
+      if (!me.onGround && me.airJumps === 0) w.__seen.aj = 1; // the one air jump was spent: a double jump
       w.__seen.x = me.x;
     };
   });
@@ -542,18 +562,25 @@ test('@mobile every move works with real multi-touch: dash, slide, double jump, 
   await expect.poll(async () => (await seen()).sld, { timeout: 3000 }).toBeGreaterThan(0);
   await touch('touchEnd', []);
 
-  // Double jump: two separate taps of Jump, higher than any single jump can reach.
-  const P = { jumpSpeed: 680, gravity: 1900 };
-  const single = (P.jumpSpeed * P.jumpSpeed) / (2 * P.gravity);
+  // Double jump: a second, separate tap of Jump in mid-air. Timed off the simulation, not the wall clock (a slow
+  // emulated phone can run several ticks per frame), and checked directly: the air jump gets spent.
+  const meState = () =>
+    page.evaluate(() => {
+      const w = window as unknown as {
+        __strikesquad: { soloSim: { players: Map<string, { onGround: boolean; prevJump: boolean }> } };
+      };
+      const m = w.__strikesquad.soloSim.players.get('me')!;
+      return { onGround: m.onGround, prevJump: m.prevJump };
+    });
   const j = await centre(page, 'touch-jump');
   await touch('touchStart', [{ ...j, id: 3 }]);
-  await page.waitForTimeout(200);
+  await expect.poll(async () => (await meState()).onGround, { timeout: 3000 }).toBe(false);
   await touch('touchEnd', []);
-  await page.waitForTimeout(60);
+  await expect.poll(async () => (await meState()).prevJump, { timeout: 3000 }).toBe(false);
   await touch('touchStart', [{ ...j, id: 4 }]);
-  await page.waitForTimeout(200);
+  await expect.poll(async () => (await seen()).aj, { timeout: 3000 }).toBe(1);
   await touch('touchEnd', []);
-  await expect.poll(async () => (await seen()).rose, { timeout: 3000 }).toBeGreaterThan(single + 20);
+  expect((await seen()).rose).toBeGreaterThan(40);
 
   // Knife.
   await page.waitForTimeout(600);
@@ -618,6 +645,54 @@ test('@mobile online mission from a phone: touch input reaches the server', asyn
   });
   expect(t.dx, `server moved soldier ${t.dx.toFixed(0)} px`).toBeGreaterThan(150);
   expect(t.rose).toBeGreaterThan(40);
+});
+
+test('@mobile advanced missions start with auto-fire off; the AUTO button and the ASTRA button work', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 915, height: 412 });
+  await gotoMenu(page, 'Astra');
+  await page.getByTestId('btn-practice').click();
+  await page.getByTestId('practice-mission').selectOption('mission-5');
+  await page.getByTestId('practice-buddies').selectOption('0');
+  await page.getByTestId('btn-practice-go').click();
+  await waitForMission(page);
+  const auto = page.getByTestId('touch-auto');
+  await expect(auto).toHaveText(/OFF/);
+  await expect(page.getByTestId('touch-astra')).toBeVisible();
+  // Standing still with auto-fire off: no shots.
+  const fired = () =>
+    page.evaluate(() => {
+      const w = window as unknown as {
+        __strikesquad: { soloSim: { players: Map<string, { input: { fire: boolean } }> } };
+      };
+      return w.__strikesquad.soloSim.players.get('me')!.input.fire;
+    });
+  await page.getByTestId('touch-jump').tap();
+  await page.waitForTimeout(300);
+  expect(await fired()).toBe(false);
+  await auto.tap();
+  await expect(auto).toHaveText(/ON/);
+  await expect.poll(fired, { timeout: 3000 }).toBe(true);
+  // The ASTRA button fires a held power.
+  await page.evaluate(() => {
+    const w = window as unknown as {
+      __strikesquad: { soloSim: { players: Map<string, { power: string | null; powerN: number }> } };
+    };
+    const me = w.__strikesquad.soloSim.players.get('me')!;
+    me.power = 'agni';
+    me.powerN = 1;
+  });
+  await page.getByTestId('touch-astra').tap();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as unknown as { __strikesquad: { soloSim: { burns: unknown[] } } }).__strikesquad.soloSim
+            .burns.length,
+      ),
+    )
+    .toBe(1);
 });
 
 test('@mobile portrait phone gets a rotate prompt that can be dismissed', async ({ page }) => {

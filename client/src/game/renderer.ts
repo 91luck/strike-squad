@@ -19,15 +19,22 @@ import {
   type SimEvent,
   type Snapshot,
 } from '@strikesquad/shared';
+import {
+  POWER_COLOR,
+  drawAltar,
+  drawFields,
+  drawFireWall,
+  drawFlame,
+  drawFx,
+  drawPowerPickup,
+  isPowerKind,
+} from './power-fx';
 import type { Pose as PredictedPose } from './predict';
 import {
   CENTER_X,
-  ENEMY_LOOK,
+  FACTION_LOOKS,
   FEET_Y,
-  GRENADIER_LOOK,
-  JET_LOOK,
   RUN_FRAMES,
-  SHIELD_LOOK,
   aimFrom,
   charFrame,
   droneSprite,
@@ -54,6 +61,7 @@ import {
   zoneAt,
   type Prop,
   type ZoneId,
+  type ZoneStyle,
 } from './world-art';
 
 /**
@@ -128,9 +136,109 @@ export interface DrawOptions {
   mine: PredictedPose | null;
 }
 
+/** One line per weather: how many particles, how they move and look. Data, not code paths. */
+const AMBIENT: Record<
+  ZoneStyle['ambient'],
+  {
+    count: number;
+    vx: number;
+    vy: number;
+    spread: number;
+    sway: number;
+    w: number;
+    h: number;
+    color: string;
+    alpha: number;
+    glow: boolean;
+    /** Hover low over the ground (fireflies) instead of filling the screen. */
+    low: boolean;
+  }
+> = {
+  fireflies: {
+    count: 14,
+    vx: 0,
+    vy: 0,
+    spread: 20,
+    sway: 8,
+    w: 2,
+    h: 2,
+    color: '#c6f36b',
+    alpha: 0.8,
+    glow: true,
+    low: true,
+  },
+  embers: {
+    count: 14,
+    vx: 0,
+    vy: -35,
+    spread: 20,
+    sway: 8,
+    w: 2,
+    h: 2,
+    color: '#ff8c42',
+    alpha: 0.8,
+    glow: true,
+    low: false,
+  },
+  snow: {
+    count: 40,
+    vx: -12,
+    vy: 45,
+    spread: 24,
+    sway: 14,
+    w: 3,
+    h: 3,
+    color: '#ffffff',
+    alpha: 0.85,
+    glow: false,
+    low: false,
+  },
+  dust: {
+    count: 26,
+    vx: -70,
+    vy: 6,
+    spread: 30,
+    sway: 6,
+    w: 3,
+    h: 2,
+    color: '#f1d7a6',
+    alpha: 0.55,
+    glow: false,
+    low: false,
+  },
+  rain: {
+    count: 46,
+    vx: -40,
+    vy: 520,
+    spread: 10,
+    sway: 0,
+    w: 1,
+    h: 9,
+    color: '#9fb6e8',
+    alpha: 0.45,
+    glow: false,
+    low: false,
+  },
+  motes: {
+    count: 22,
+    vx: 0,
+    vy: -8,
+    spread: 16,
+    sway: 10,
+    w: 2,
+    h: 2,
+    color: '#a5b4fc',
+    alpha: 0.7,
+    glow: true,
+    low: false,
+  },
+};
+
 export class Renderer {
-  private readonly ctx: CanvasRenderingContext2D;
-  readonly level: LevelDef;
+  /** Swapped for an offscreen context while a boss is drawn for tinting (demon / void missions). */
+  private ctx: CanvasRenderingContext2D;
+  private bossLayer: HTMLCanvasElement | null = null;
+  private lvl: LevelDef = MISSION_1;
   private particles: Particle[] = [];
   private rings: Ring[] = [];
   private floats: FloatText[] = [];
@@ -147,11 +255,12 @@ export class Renderer {
   private camReady = false;
   private lastDraw = 0;
   private reduce = false;
-  private readonly props: Prop[];
+  private props: Prop[];
   private readonly far: HTMLCanvasElement;
   private readonly far2: HTMLCanvasElement;
   private readonly canopy: HTMLCanvasElement;
   private readonly industry: HTMLCanvasElement;
+  private dunes: HTMLCanvasElement | null = null;
   private readonly tint = new Map<string, HTMLCanvasElement>();
   private readonly white = new WeakMap<HTMLCanvasElement, HTMLCanvasElement>();
   private seenBullets = new Set<number>();
@@ -161,6 +270,12 @@ export class Renderer {
   private lastTrail = new Map<string, number>();
   private airJumpsSeen = new Map<string, number>();
   private styleFloats: { x: number; y: number; text: string; life: number; mine: boolean }[] = [];
+  /** Astra effects that play out over time: rain curtains, wind gusts, the brahmastra pillar and dark sky. */
+  private rains: { x0: number; x1: number; ground: number; life: number }[] = [];
+  private winds: { x: number; y: number; f: 1 | -1; life: number }[] = [];
+  private pillar: { x: number; ground: number; life: number; strike: boolean } | null = null;
+  private dark = 0;
+  private darkTarget = 0;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -169,13 +284,25 @@ export class Renderer {
     const ctx = canvas.getContext('2d', { alpha: false });
     if (!ctx) throw new Error('Canvas 2D is not supported in this browser.');
     this.ctx = ctx;
-    this.level = MISSION_1;
-    this.props = buildProps(this.level);
+    this.props = buildProps(this.lvl);
     this.far = ridgeLayer(1, 0.5, 120, true);
     this.far2 = ridgeLayer(4, 0.62, 80, false);
     this.canopy = canopyLayer(7);
     this.industry = industryLayer(3);
     this.resize();
+  }
+
+  get level(): LevelDef {
+    return this.lvl;
+  }
+
+  /** Switch to another mission's map (props are rebuilt; tile and backdrop art is shared and cached). */
+  setLevel(level: LevelDef): void {
+    if (level === this.lvl) return;
+    this.lvl = level;
+    this.props = buildProps(level);
+    this.ambient = [];
+    this.reset();
   }
 
   // ------------------------------------------------------------ effects (driven by sim events)
@@ -192,6 +319,10 @@ export class Renderer {
     this.trails = [];
     this.slashes = [];
     this.styleFloats = [];
+    this.rains = [];
+    this.winds = [];
+    this.pillar = null;
+    this.dark = this.darkTarget = 0;
     this.lastTrail.clear();
     this.airJumpsSeen.clear();
   }
@@ -370,10 +501,17 @@ export class Renderer {
       Math.round((-this.camY + sy) * this.scale),
     );
     this.drawWater(o.nowMs);
+    if (this.lvl.fields.length) drawFields(ctx, this.lvl.fields, this.camX, this.viewW, o.nowMs);
     this.drawProps(false);
     this.drawTiles(s, o.nowMs);
     this.drawCheckpoints(s, o.nowMs);
     this.drawPickups(s, o.nowMs);
+    if (s.fx.length)
+      drawFx(
+        ctx,
+        s.fx.filter((f) => f.k === 0),
+        o.nowMs,
+      );
     for (const e of s.enemies) if (isBoss(e.k)) this.drawBossOf(e, s, o.nowMs);
     for (const e of s.enemies) if (!isBoss(e.k)) this.drawEnemy(e, o.nowMs);
     this.drawTrails(dt);
@@ -382,6 +520,13 @@ export class Renderer {
     this.drawSlashes(dt);
     this.drawTelegraphs(s, players, o.nowMs);
     this.drawBullets(s, o.nowMs);
+    if (s.fx.length)
+      drawFx(
+        ctx,
+        s.fx.filter((f) => f.k === 1),
+        o.nowMs,
+      );
+    this.drawAstraFx(dt, o.nowMs);
     this.stepParticles(dt);
     this.drawProps(true);
     this.drawAmbient(dt, o.nowMs);
@@ -391,6 +536,11 @@ export class Renderer {
     // screen space
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     this.drawGrade();
+    this.dark += (this.darkTarget - this.dark) * Math.min(1, dt * 5);
+    if (this.dark > 0.01) {
+      ctx.fillStyle = `rgba(12, 6, 24, ${0.6 * this.dark})`;
+      ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+    }
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     this.drawOffscreenMarkers(players, o.meId, o.nowMs);
     this.drawProgress(s, players, o.meId);
@@ -474,7 +624,11 @@ export class Renderer {
   private tinted(img: HTMLCanvasElement, color: string, key: string): HTMLCanvasElement {
     const k = `${key}|${color}`;
     let t = this.tint.get(k);
-    if (!t) {
+    if (t) {
+      // Keep the cache small (each layer is a full-screen canvas): most recently used last, oldest evicted.
+      this.tint.delete(k);
+      this.tint.set(k, t);
+    } else {
       t = document.createElement('canvas');
       t.width = img.width;
       t.height = img.height;
@@ -489,13 +643,14 @@ export class Renderer {
         g.fillRect(0, 0, t.width, t.height);
       }
       this.tint.set(k, t);
+      if (this.tint.size > 6) this.tint.delete(this.tint.keys().next().value as string);
     }
     return t;
   }
 
   private drawBackdrop(nowMs: number): void {
     const ctx = this.ctx;
-    const zid = zoneAt(this.camX + this.viewW / 2);
+    const zid = zoneAt(this.lvl, this.camX + this.viewW / 2);
     const z = ZONES[zid];
     const H = this.canvas.height;
     const W = this.canvas.width;
@@ -506,16 +661,47 @@ export class Renderer {
     g.addColorStop(1, z.sky[2]);
     ctx.fillStyle = g;
     ctx.fillRect(0, 0, W, H);
+    if (z.space) {
+      // Stars (fixed, deterministic, a little parallax) and a ringed planet instead of sun and clouds.
+      for (let i = 0; i < 140; i++) {
+        const sx =
+          ((((i * 7919) % 1997) / 1997) * (W + 400) -
+            ((this.camX * 0.04 * this.scale) % (W + 400)) +
+            W +
+            400) %
+          (W + 400);
+        const sy = (((i * 104729) % 1009) / 1009) * H * 0.8;
+        const tw = 0.5 + 0.5 * Math.sin(nowMs / 500 + i);
+        ctx.fillStyle = i % 9 === 0 ? `rgba(196,181,253,${tw})` : `rgba(255,255,255,${0.4 + tw * 0.5})`;
+        const sz = i % 13 === 0 ? 3 : 2;
+        ctx.fillRect(Math.round(sx), Math.round(sy), sz, sz);
+      }
+      const px = W * 0.74;
+      const py = H * 0.3;
+      const pr = H * 0.13;
+      const pg = ctx.createRadialGradient(px - pr * 0.4, py - pr * 0.4, pr * 0.1, px, py, pr);
+      pg.addColorStop(0, '#c4b5fd');
+      pg.addColorStop(1, '#312e81');
+      ctx.fillStyle = pg;
+      ctx.beginPath();
+      ctx.arc(px, py, pr, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(221,214,254,0.6)';
+      ctx.lineWidth = Math.max(2, pr * 0.06);
+      ctx.beginPath();
+      ctx.ellipse(px, py, pr * 1.7, pr * 0.35, -0.3, 0, Math.PI * 2);
+      ctx.stroke();
+    }
     // sun with a soft glow
     const sunX = W * 0.72;
     const sunY = H * (0.42 + (this.camY / FULL_H) * 0.2);
     const glow = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, H * 0.55);
     glow.addColorStop(0, tone(z.sun, 0.2));
-    glow.addColorStop(0.08, z.sun);
-    glow.addColorStop(0.1, 'rgba(255,220,160,0.35)');
-    glow.addColorStop(1, 'rgba(255,200,140,0)');
+    glow.addColorStop(z.moon ? 0.04 : 0.08, z.sun);
+    glow.addColorStop(z.moon ? 0.05 : 0.1, z.moon ? 'rgba(170,190,255,0.18)' : 'rgba(255,220,160,0.35)');
+    glow.addColorStop(1, z.moon ? 'rgba(120,140,220,0)' : 'rgba(255,200,140,0)');
     ctx.fillStyle = glow;
-    ctx.fillRect(0, 0, W, H);
+    if (!z.space) ctx.fillRect(0, 0, W, H);
     // world-anchored layers in parallax
     const s = this.scale;
     const layer = (img: HTMLCanvasElement, factor: number, yOff: number): void => {
@@ -526,7 +712,7 @@ export class Renderer {
     };
     // clouds
     ctx.globalAlpha = 0.7;
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < (z.space ? 0 : 5); i++) {
       const cloud = cloudSprite(i);
       const span = this.viewW + 300;
       const x =
@@ -550,9 +736,11 @@ export class Renderer {
     fog.addColorStop(1, z.fog);
     ctx.fillStyle = fog;
     ctx.fillRect(0, 0, W, H);
-    const mid = zid === 'fortress' ? this.industry : this.canopy;
-    layer(this.tinted(mid, z.mid, zid === 'fortress' ? 'ind' : 'can'), 0.45, 40);
-    if (zid === 'fortress') {
+    let mid = this.canopy;
+    if (z.layer === 'industry') mid = this.industry;
+    else if (z.layer === 'dunes') mid = this.dunes ??= ridgeLayer(9, 0.8, 46, false);
+    layer(this.tinted(mid, z.mid, z.layer), 0.45, 40);
+    if (z.lights) {
       // blinking warning lights on the skyline
       const on = Math.floor(nowMs / 600) % 2 === 0;
       if (on) {
@@ -579,9 +767,10 @@ export class Renderer {
     const top = (bottom - 1) * T + 6;
     for (let c = c0; c <= c1; c++) {
       if (tileAt(this.level, c, bottom) !== Tile.Empty) continue;
+      const [wTop, wBottom] = ZONES[zoneAt(this.lvl, c * T)].water;
       const g = ctx.createLinearGradient(0, top, 0, levelHeight(this.level));
-      g.addColorStop(0, '#1f6f8b');
-      g.addColorStop(1, '#0a2533');
+      g.addColorStop(0, wTop);
+      g.addColorStop(1, wBottom);
       ctx.fillStyle = g;
       ctx.fillRect(c * T, top, T + 1, T * 2);
       const t = nowMs / 400;
@@ -609,7 +798,7 @@ export class Renderer {
     const L = this.level;
     const [c0, c1] = this.visibleCols();
     for (let c = c0; c <= c1; c++) {
-      const zone: ZoneId = zoneAt(c * T);
+      const zone: ZoneId = zoneAt(this.lvl, c * T);
       for (let r = 0; r < L.rows; r++) {
         const t = tileAt(L, c, r);
         if (t === Tile.Empty) continue;
@@ -634,6 +823,10 @@ export class Renderer {
       if (x < this.camX - T * 2 || x > this.camX + this.viewW + T) continue;
       const open = this.gateOpen(s, gdef.id);
       const h = (gdef.rowBottom + 1) * T;
+      if (gdef.fire) {
+        if (!open) drawFireWall(ctx, gdef, nowMs);
+        continue;
+      }
       if (open) {
         ctx.fillStyle = '#2b2f36';
         ctx.fillRect(x + 2, 0, T - 4, 14);
@@ -717,8 +910,17 @@ export class Renderer {
   private drawPickups(s: Snapshot, nowMs: number): void {
     const ctx = this.ctx;
     for (const pk of this.level.pickups) {
-      if ((s.taken & (1 << pk.id)) !== 0) continue;
       if (pk.x < this.camX - 40 || pk.x > this.camX + this.viewW + 40) continue;
+      const taken = (s.taken & (1 << pk.id)) !== 0;
+      if (pk.respawn) drawAltar(ctx, pk.x, pk.y + 22, !taken);
+      if (taken) continue;
+      if (isPowerKind(pk.kind)) {
+        const yy = pk.y - (pk.respawn ? 6 : 0) + Math.round(Math.sin(nowMs / 300 + pk.id) * 3);
+        drawPowerPickup(ctx, pk.kind, pk.x, yy, pk.respawn, nowMs, (t, x, y, c, sz) =>
+          this.label(t, x, y, c, sz),
+        );
+        continue;
+      }
       const y = pk.y + Math.round(Math.sin(nowMs / 300 + pk.id) * 3);
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
@@ -732,7 +934,7 @@ export class Renderer {
         const img = medkitSprite();
         ctx.drawImage(img, pk.x - img.width / 2, y - img.height / 2);
         this.label('MED-KIT', pk.x, y - 22, '#bbf7d0', 10);
-      } else {
+      } else if (!isPowerKind(pk.kind)) {
         const w = GAME_CONFIG.weapons[pk.kind];
         const img = weaponCrate(w.letter, '#991b1b');
         ctx.drawImage(img, pk.x - img.width / 2, y - img.height / 2);
@@ -1020,14 +1222,16 @@ export class Renderer {
     const ctx = this.ctx;
     if (e.x < this.camX - 80 || e.x > this.camX + this.viewW + 80) return;
     const flash = e.h === 1;
-    if (e.k === 'soldier') this.trooper(e, ENEMY_LOOK, 'enemy', nowMs);
+    const faction = this.lvl.faction;
+    const looks = FACTION_LOOKS[faction];
+    if (e.k === 'soldier') this.trooper(e, looks.soldier, `${faction}-enemy`, nowMs);
     else if (e.k === 'grenadier') {
-      this.trooper(e, GRENADIER_LOOK, 'gren', nowMs);
+      this.trooper(e, looks.gren, `${faction}-gren`, nowMs);
       // grenade belt
       ctx.fillStyle = '#3f6212';
       for (let i = 0; i < 3; i++) ctx.fillRect(Math.round(e.x - 6 + i * 4), Math.round(e.y - 16), 3, 3);
     } else if (e.k === 'shield') {
-      this.trooper(e, SHIELD_LOOK, 'shield', nowMs);
+      this.trooper(e, looks.shield, `${faction}-shield`, nowMs);
       if (e.sh === 1) {
         // riot shield in front
         const x = Math.round(e.x + e.f * 13);
@@ -1061,7 +1265,7 @@ export class Renderer {
       ctx.fillRect(Math.round(e.x - e.f * 9) - 5, ey - 36, 10, 18);
       ctx.fillStyle = '#6b7280';
       ctx.fillRect(Math.round(e.x - e.f * 9) - 4, ey - 35, 8, 16);
-      this.trooper({ ...e, y: ey }, JET_LOOK, 'jet', nowMs, 'fall');
+      this.trooper({ ...e, y: ey }, looks.jet, `${faction}-jet`, nowMs, 'fall');
     } else if (e.k === 'turret') {
       const base = turretBase();
       const barrel = turretBarrel();
@@ -1071,6 +1275,24 @@ export class Renderer {
       ctx.drawImage(flash ? this.whiteOf(barrel) : barrel, 0, -4);
       ctx.restore();
       ctx.drawImage(flash ? this.whiteOf(base) : base, Math.round(e.x - 20), Math.round(e.y - 30));
+    } else if (e.k === 'drone' && faction !== 'army') {
+      // Demon fire wisp / void eye instead of a machine.
+      const bob = Math.round(Math.sin(nowMs / 180 + e.id) * 3);
+      const [hot, deep] = faction === 'demon' ? ['#fde68a', '#dc2626'] : ['#e9d5ff', '#6d28d9'];
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const g = ctx.createRadialGradient(e.x, e.y - 8 + bob, 2, e.x, e.y - 8 + bob, 18);
+      g.addColorStop(0, flash ? '#ffffff' : hot);
+      g.addColorStop(0.5, deep);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.arc(e.x, e.y - 8 + bob, 18, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      ctx.fillStyle = '#120f17';
+      ctx.fillRect(Math.round(e.x + e.f * 3) - 4, Math.round(e.y - 11 + bob), 3, 3);
+      ctx.fillRect(Math.round(e.x + e.f * 3) + 2, Math.round(e.y - 11 + bob), 3, 3);
     } else if (e.k === 'drone') {
       const img = droneSprite(Math.floor(nowMs / 50));
       const bob = Math.round(Math.sin(nowMs / 180 + e.id) * 2);
@@ -1097,6 +1319,46 @@ export class Renderer {
   private drawBossOf(e: EnemySnapshot, s: Snapshot, nowMs: number): void {
     const w = GAME_CONFIG.enemies[e.k as 'walker'].width;
     if (e.x + w < this.camX - 60 || e.x - w > this.camX + this.viewW + 60) return;
+    const faction = this.lvl.faction;
+    if (faction === 'army') {
+      this.drawBossBody(e, s, nowMs);
+      return;
+    }
+    // Demon / void bosses: the same machines, drawn offscreen and tinted, with burning eyes on top.
+    const LW = 760;
+    const LH = 700;
+    const layer = (this.bossLayer ??= document.createElement('canvas'));
+    if (layer.width !== LW) {
+      layer.width = LW;
+      layer.height = LH;
+    }
+    const og = layer.getContext('2d');
+    if (!og) {
+      this.drawBossBody(e, s, nowMs);
+      return;
+    }
+    const ox = Math.round(e.x - LW / 2);
+    const oy = Math.round(e.y - LH + 120);
+    og.setTransform(1, 0, 0, 1, 0, 0);
+    og.clearRect(0, 0, LW, LH);
+    og.imageSmoothingEnabled = false;
+    og.setTransform(1, 0, 0, 1, -ox, -oy);
+    const main = this.ctx;
+    this.ctx = og;
+    try {
+      this.drawBossBody(e, s, nowMs);
+    } finally {
+      this.ctx = main;
+    }
+    og.setTransform(1, 0, 0, 1, 0, 0);
+    og.globalCompositeOperation = 'source-atop';
+    og.fillStyle = faction === 'demon' ? 'rgba(185, 28, 28, 0.42)' : 'rgba(109, 40, 217, 0.42)';
+    og.fillRect(0, 0, LW, LH);
+    og.globalCompositeOperation = 'source-over';
+    main.drawImage(layer, ox, oy);
+  }
+
+  private drawBossBody(e: EnemySnapshot, s: Snapshot, nowMs: number): void {
     if (e.k === 'walker') this.drawWarhound(e, nowMs);
     else if (e.k === 'gunship') this.drawVulture(e, nowMs);
     else this.drawFortress(e, s, nowMs);
@@ -1563,7 +1825,7 @@ export class Renderer {
     const ctx = this.ctx;
     for (const e of s.enemies) {
       if (e.k !== 'boss' || (e.at !== ATTACK.beamLow && e.at !== ATTACK.beamHigh)) continue;
-      const a = MISSION_1.arenas.find((x) => x.boss === 'boss');
+      const a = this.lvl.arenas.find((x) => x.boss === 'boss');
       if (!a) continue;
       const low = e.at === ATTACK.beamLow;
       const y = a.floor - (low ? BEAM.lowY : BEAM.highY);
@@ -1726,6 +1988,12 @@ export class Renderer {
         continue;
       }
       ctx.globalCompositeOperation = 'lighter';
+      if (kind === 'flame') {
+        drawFlame(ctx, b.x, b.y, b.vx, nowMs);
+        if (!this.reduce && Math.random() < 0.8)
+          this.add({ x: b.x, y: b.y + 8, vx: -b.vx * 0.1, vy: -60, color: '#ff8c42', size: 3, life: 0.4 });
+        continue;
+      }
       if (kind === 'rocket') {
         // airstrike rocket diving in
         ctx.globalCompositeOperation = 'source-over';
@@ -1823,10 +2091,149 @@ export class Renderer {
     if (this.styleFloats.length > 12) this.styleFloats.shift();
   }
 
+  /** A power was used: start its effect. */
+  astraEffect(ev: Extract<SimEvent, { e: 'astra' }>, reduce: boolean): void {
+    const [hi, lo] = POWER_COLOR[ev.kind];
+    const cy = ev.y - 24;
+    this.rings.push({ x: ev.x, y: cy, r: 6, life: 0.4, max: 0.4, color: hi });
+    this.spark(ev.x + ev.f * 16, cy, lo, 12, reduce, 220);
+    if (ev.kind === 'agni') {
+      this.flash('#ff7a1a', 0.18);
+      if (!reduce) this.shake(6);
+    } else if (ev.kind === 'varuna') {
+      const P = GAME_CONFIG.powers.varuna;
+      const a = ev.x + ev.f * P.range;
+      const b = ev.x - ev.f * P.back;
+      this.rains.push({ x0: Math.min(a, b), x1: Math.max(a, b), ground: ev.y, life: 1.6 });
+      this.flash('#38bdf8', 0.15);
+    } else if (ev.kind === 'vayu') {
+      this.winds.push({ x: ev.x, y: cy, f: ev.f, life: 0.7 });
+      if (!reduce) this.shake(4);
+    } else {
+      this.flash('#7c3aed', 0.22);
+      if (!reduce) this.shake(8);
+    }
+  }
+
+  /** The brahmastra: the sky darkens and a pillar of light gathers (phase 0), then strikes (phase 1). */
+  brahmaEffect(ev: Extract<SimEvent, { e: 'brahma' }>, reduce: boolean): void {
+    if (ev.phase === 0) {
+      this.darkTarget = 1;
+      this.pillar = { x: ev.x, ground: ev.y, life: 1.2, strike: false };
+      return;
+    }
+    this.darkTarget = 0;
+    this.pillar = { x: ev.x, ground: ev.y, life: 0.9, strike: true };
+    this.flash('#fff7cc', 0.85);
+    if (!reduce) this.shake(20);
+    for (let i = 0; i < 6; i++)
+      this.rings.push({
+        x: ev.x,
+        y: ev.y - 20,
+        r: 10 + i * 60,
+        life: 0.5 + i * 0.12,
+        max: 1.1,
+        color: i % 2 ? '#fde047' : '#ffffff',
+      });
+    for (let k = 0; k < (reduce ? 4 : 14); k++) {
+      const x = this.camX + Math.random() * this.viewW;
+      this.spark(x, ev.y - 40 - Math.random() * 200, '#fde68a', 5, reduce, 260);
+    }
+  }
+
+  /** Rain curtains, wind gusts and the brahmastra pillar (world space). */
+  private drawAstraFx(dt: number, nowMs: number): void {
+    const ctx = this.ctx;
+    if (this.rains.length) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(147,197,253,0.75)';
+      ctx.lineWidth = 2;
+      for (const r of this.rains) {
+        r.life -= dt;
+        const a = Math.min(1, r.life * 2);
+        ctx.globalAlpha = a;
+        // a dark cloud bank on top
+        ctx.fillStyle = 'rgba(30,41,59,0.55)';
+        ctx.fillRect(r.x0, this.camY + 4, r.x1 - r.x0, 46);
+        ctx.beginPath();
+        for (let x = r.x0; x < r.x1; x += 14) {
+          const y = this.camY + 40 + ((nowMs * 0.9 + x * 37) % (r.ground - this.camY));
+          ctx.moveTo(x, y);
+          ctx.lineTo(x - 4, y + 16);
+        }
+        ctx.stroke();
+        if (!this.reduce && Math.random() < 0.6)
+          this.add({
+            x: r.x0 + Math.random() * (r.x1 - r.x0),
+            y: r.ground - 2,
+            vx: 0,
+            vy: -50,
+            color: '#bfdbfe',
+            size: 2,
+            life: 0.3,
+          });
+      }
+      ctx.restore();
+      this.rains = this.rains.filter((r) => r.life > 0);
+    }
+    if (this.winds.length) {
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      for (const w of this.winds) {
+        w.life -= dt;
+        const t = 1 - w.life / 0.7;
+        ctx.strokeStyle = `rgba(217,249,157,${0.7 * (1 - t)})`;
+        ctx.lineWidth = 3;
+        for (let i = -3; i <= 3; i++) {
+          const x0 = w.x + w.f * (20 + t * 420);
+          const y = w.y + i * 22 + Math.sin(nowMs / 80 + i) * 4;
+          ctx.beginPath();
+          ctx.moveTo(x0 - w.f * 90, y);
+          ctx.quadraticCurveTo(x0 - w.f * 40, y - 10, x0, y);
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+      this.winds = this.winds.filter((w) => w.life > 0);
+    }
+    const p = this.pillar;
+    if (p) {
+      p.life -= dt;
+      const width = p.strike ? 90 * Math.max(0, p.life / 0.9) + 20 : 14 + (1.2 - p.life) * 30;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const g = ctx.createLinearGradient(p.x - width, 0, p.x + width, 0);
+      g.addColorStop(0, 'rgba(253,224,71,0)');
+      g.addColorStop(0.5, p.strike ? 'rgba(255,255,240,0.95)' : 'rgba(253,224,71,0.6)');
+      g.addColorStop(1, 'rgba(253,224,71,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(p.x - width, this.camY - 20, width * 2, p.ground - this.camY + 20);
+      ctx.restore();
+      if (p.life <= 0) this.pillar = null;
+    }
+  }
+
   gateOpened(id: number, reduce: boolean): void {
     const g = this.level.gates[id];
     if (!g) return;
     const x = g.col * T + T / 2;
+    if (g.fire) {
+      // Rain hits the flames: a column of steam.
+      for (let r = 0; r <= g.rowBottom; r += 2)
+        for (let k = 0; k < (reduce ? 1 : 3); k++)
+          this.add({
+            x: x + (Math.random() - 0.5) * 30,
+            y: r * T,
+            vx: (Math.random() - 0.5) * 40,
+            vy: -40 - Math.random() * 60,
+            color: '#e2e8f0',
+            size: 6,
+            life: 1.2,
+            grow: 10,
+          });
+      this.flash('#7dd3fc', 0.18);
+      return;
+    }
     for (let r = 0; r <= g.rowBottom; r += 3) this.spark(x, r * T, '#86efac', 4, reduce, 140);
     this.flash('#22c55e', 0.15);
   }
@@ -1938,45 +2345,49 @@ export class Renderer {
     this.particles = next;
   }
 
-  /** Fireflies in the jungle, embers at the fortress. */
+  /** Weather and atmosphere: fireflies, embers, snowflakes, sand dust or rain, picked by the zone's art style. */
   private drawAmbient(dt: number, nowMs: number): void {
     if (this.reduce) return;
     const ctx = this.ctx;
-    const zone = zoneAt(this.camX + this.viewW / 2);
-    const ember = zone === 'fortress' || zone === 'towers';
-    while (this.ambient.length < 14)
+    const kind = ZONES[zoneAt(this.lvl, this.camX + this.viewW / 2)].ambient;
+    const A = AMBIENT[kind];
+    const rnd = Math.random;
+    while (this.ambient.length < A.count)
       this.ambient.push({
-        x: this.camX + Math.random() * this.viewW,
-        // fireflies hover low over the ground; embers rise from the whole screen
-        y: ember ? this.camY + Math.random() * this.viewH : FULL_H - 140 - Math.random() * 170,
-        vx: (Math.random() - 0.5) * 20,
-        vy: ember ? -20 - Math.random() * 30 : (Math.random() - 0.5) * 10,
-        life: 3 + Math.random() * 4,
+        x: this.camX + rnd() * (this.viewW + 80) - 40,
+        y: A.low
+          ? FULL_H - 140 - rnd() * 170
+          : A.vy > 0
+            ? this.camY - 20 + rnd() * this.viewH * 0.4
+            : this.camY + rnd() * this.viewH,
+        vx: A.vx + (rnd() - 0.5) * A.spread,
+        vy: A.vy * (0.7 + rnd() * 0.6),
+        life: 3 + rnd() * 4,
         max: 7,
-        size: 2,
-        color: ember ? '#ff8c42' : '#c6f36b',
-        add: true,
+        size: A.w,
+        color: A.color,
+        add: A.glow,
         grav: 0,
-        grow: 0,
+        grow: A.h,
       });
     ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
     for (const p of this.ambient) {
       p.life -= dt;
-      p.x += (p.vx + Math.sin(nowMs / 700 + p.y) * 8) * dt;
+      p.x += (p.vx + (A.sway ? Math.sin(nowMs / 700 + p.y) * A.sway : 0)) * dt;
       p.y += p.vy * dt;
-      const tw = 0.4 + 0.6 * Math.abs(Math.sin(nowMs / 400 + p.x));
-      ctx.globalAlpha = Math.min(1, p.life) * tw * 0.8;
+      ctx.globalCompositeOperation = p.add ? 'lighter' : 'source-over';
+      const tw = A.glow ? 0.4 + 0.6 * Math.abs(Math.sin(nowMs / 400 + p.x)) : 1;
+      ctx.globalAlpha = Math.min(1, p.life) * tw * A.alpha;
       ctx.fillStyle = p.color;
-      ctx.fillRect(Math.round(p.x), Math.round(p.y), 2, 2);
+      ctx.fillRect(Math.round(p.x), Math.round(p.y), p.size, p.grow);
     }
     ctx.restore();
     this.ambient = this.ambient.filter(
       (p) =>
         p.life > 0 &&
-        p.x > this.camX - 40 &&
-        p.x < this.camX + this.viewW + 40 &&
-        p.y > this.camY - 40 &&
+        p.x > this.camX - 60 &&
+        p.x < this.camX + this.viewW + 60 &&
+        p.y > this.camY - 60 &&
         p.y < this.camY + this.viewH + 40,
     );
   }
@@ -2002,7 +2413,7 @@ export class Renderer {
     const ctx = this.ctx;
     const W = this.canvas.width;
     const H = this.canvas.height;
-    ctx.fillStyle = ZONES[zoneAt(this.camX + this.viewW / 2)].grade;
+    ctx.fillStyle = ZONES[zoneAt(this.lvl, this.camX + this.viewW / 2)].grade;
     ctx.fillRect(0, 0, W, H);
     const v = ctx.createRadialGradient(
       W / 2,
@@ -2098,7 +2509,7 @@ export class Renderer {
     ctx.textBaseline = 'middle';
     for (const a of this.level.arenas) {
       const cleared = a.gate >= 0 ? this.gateOpen(s, a.gate) : s.result === 'won';
-      const x = px(a.boss ? (this.level.bosses.find((b) => b.kind === a.boss)?.x ?? a.right) : a.right);
+      const x = px(a.boss ? (this.level.bosses.find((b) => b.arena === a.id)?.x ?? a.right) : a.right);
       if (a.boss) {
         ctx.fillStyle = cleared ? '#57534e' : '#ef4444';
         ctx.fillText('☠', x, y0);

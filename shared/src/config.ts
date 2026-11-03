@@ -9,7 +9,15 @@ export type TrooperKind = 'soldier' | 'turret' | 'drone' | 'shield' | 'jetpack' 
 /** The three bosses of the mission: a walking tank, a gunship, and the final fortress. */
 export type BossKind = 'walker' | 'gunship' | 'boss';
 export type EnemyKind = TrooperKind | BossKind;
-export type PickupKind = 'spread' | 'rapid' | 'laser' | 'medkit';
+/**
+ * Powers ("astras") held in a separate slot and fired with the ASTRA button:
+ * agni (fire wave + burning ground), varuna (rain: puts out fire walls), vayu (wind: blows foes and shots away),
+ * singularity (a black hole that swallows foes and shots). The team's brahmastra is a shared meter, not a pickup.
+ */
+export const POWER_KINDS = ['agni', 'varuna', 'vayu', 'singularity'] as const;
+export type PowerKind = (typeof POWER_KINDS)[number];
+export const isPower = (k: string): k is PowerKind => (POWER_KINDS as readonly string[]).includes(k);
+export type PickupKind = 'spread' | 'rapid' | 'laser' | 'medkit' | PowerKind;
 export type Difficulty = 'easy' | 'normal' | 'hard';
 /** Hero super moves. Each hero has one (see heroes.ts). */
 export type UltKind = 'overdrive' | 'nova' | 'airstrike' | 'phantom';
@@ -23,7 +31,16 @@ export const isBoss = (k: EnemyKind): k is BossKind => k === 'walker' || k === '
  * Projectile kinds (index = wire value). `shot` is a plain bullet; the others are boss/grenadier ordnance with
  * gravity or a blast, and `rocket` is the hero airstrike.
  */
-export const BULLET_KINDS = ['shot', 'grenade', 'shell', 'wave', 'missile', 'bomb', 'rocket'] as const;
+export const BULLET_KINDS = [
+  'shot',
+  'grenade',
+  'shell',
+  'wave',
+  'missile',
+  'bomb',
+  'rocket',
+  'flame',
+] as const;
 export type BulletKind = (typeof BULLET_KINDS)[number];
 
 /** Boss attack ids (wire value). Each has a wind-up ("telegraph") the renderer shows before it lands. */
@@ -107,6 +124,8 @@ export const GAME_CONFIG = {
     doubleJumpSpeed: 513,
     airJumps: 1,
     maxFallSpeed: 820,
+    /** Top speed an anti-gravity lift carries you up at. */
+    liftSpeed: 240,
     /** Jump still works for a moment after running off a ledge. */
     coyoteSec: 0.1,
     /** Dash: a burst of speed that bullets pass through, with i-frames a moment longer (one air dash per jump). */
@@ -336,6 +355,42 @@ export const GAME_CONFIG = {
     medkitHeal: 60,
     /** A med-kit heals the player who grabs it AND every friend within this distance. */
     medkitShareRadius: 220,
+    /** Altars (respawning pickups, e.g. the rain astra before a fire wall) come back after this long. */
+    respawnSec: 8,
+  },
+
+  /** Powers (astras) and the team brahmastra. Distances in px, damage per hit or per second (dps). */
+  powers: {
+    /** Charges per pickup, and the most one soldier can carry. */
+    charges: { agni: 2, varuna: 1, vayu: 2, singularity: 2 } as Record<PowerKind, number>,
+    maxCharges: 3,
+    agni: { waveDamage: 8, waveSpeed: 520, waveSec: 0.8, burnLength: 340, burnSec: 4, burnDps: 16 },
+    varuna: { range: 15 * 32, back: 3 * 32, damage: 6 },
+    vayu: { range: 440, height: 170, push: 560, pushSec: 0.4, damage: 3 },
+    singularity: {
+      ahead: 230,
+      lift: 60,
+      sec: 3.2,
+      radius: 240,
+      pull: 210,
+      coreRadius: 60,
+      coreDps: 22,
+      dps: 6,
+      collapseDamage: 22,
+      collapseRadius: 150,
+    },
+    brahma: {
+      perKill: 3,
+      perDamage: 0.12,
+      max: 100,
+      /** Wind-up before the strike (the sky darkens, a pillar of light comes down). */
+      windupSec: 1.1,
+      range: 1150,
+      damage: 90,
+      /** Bosses lose this share of their full health. */
+      bossShare: 0.12,
+      shieldSec: 1.6,
+    },
   },
 
   /** Hard anti-cheat ceilings used by the server when validating input. */
@@ -356,12 +411,26 @@ export const GAME_CONFIG = {
 
 export type GameConfig = typeof GAME_CONFIG;
 
+/** Every mission, in campaign order (see `missions.ts`). */
+export const MISSION_IDS = [
+  'mission-1',
+  'mission-2',
+  'mission-3',
+  'mission-4',
+  'mission-5',
+  'mission-6',
+] as const;
+export type MissionId = (typeof MISSION_IDS)[number];
+export const isMissionId = (v: unknown): v is MissionId =>
+  typeof v === 'string' && (MISSION_IDS as readonly string[]).includes(v);
+
 export interface MissionSettings {
   difficulty: Difficulty;
+  mission: MissionId;
 }
 
 export function defaultMissionSettings(): MissionSettings {
-  return { difficulty: 'normal' };
+  return { difficulty: 'normal', mission: 'mission-1' };
 }
 
 export const secondsToTicks = (sec: number, tickRate: number = GAME_CONFIG.tickRate): number =>

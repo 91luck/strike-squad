@@ -1,5 +1,5 @@
 import { GAME_CONFIG } from './config';
-import { Tile, gateIdAt, tileAt, type LevelDef } from './level';
+import { Tile, fieldAt, gateIdAt, tileAt, type LevelDef } from './level';
 
 /**
  * Platformer movement, shared by the server simulation and the client's prediction of its own soldier, so both
@@ -19,6 +19,8 @@ export interface PlayerInput {
   melee: boolean;
   /** Hero super move, when the meter is full. */
   ult: boolean;
+  /** Fire the held power (astra), or the team brahmastra when it is charged. Optional on the wire. */
+  astra?: boolean;
 }
 
 export const NEUTRAL_INPUT: PlayerInput = Object.freeze({
@@ -29,6 +31,7 @@ export const NEUTRAL_INPUT: PlayerInput = Object.freeze({
   dash: false,
   melee: false,
   ult: false,
+  astra: false,
 });
 
 export interface Mover {
@@ -81,6 +84,7 @@ export function sanitizeInput(i: Partial<PlayerInput>): PlayerInput {
     dash: i.dash === true,
     melee: i.melee === true,
     ult: i.ult === true,
+    astra: i.astra === true,
   };
 }
 
@@ -178,7 +182,7 @@ export function moveBody(world: World, b: Mover, dt: number): void {
 }
 
 /** Is the body standing on a one-way platform (so Down + Jump drops through)? */
-function onPlatform(world: World, b: Mover): boolean {
+export function onPlatform(world: World, b: Mover): boolean {
   if (!b.onGround) return false;
   const r = Math.floor((b.y + 1) / T);
   const half = b.w / 2;
@@ -259,6 +263,23 @@ export function stepPlayerMovement(world: World, b: Mover, input: PlayerInput, d
     b.vx = b.crouch ? 0 : input.mx * P.runSpeed;
   }
 
+  // Fields: low gravity, anti-gravity lifts, gravity wells (identical on the server and in client prediction).
+  let gScale = 1;
+  let fallMax = P.maxFallSpeed;
+  const fld = world.level.fields.length ? fieldAt(world.level, b.x, b.y - b.h / 2) : null;
+  if (fld?.kind === 'lowg') {
+    gScale = fld.power;
+    fallMax = P.maxFallSpeed * 0.6;
+  } else if (fld?.kind === 'lift') {
+    gScale = -fld.power;
+  } else if (fld?.kind === 'well') {
+    // Linear falloff inside a contained radius: readable, and you can always run out of it.
+    const cx = (fld.x0 + fld.x1) / 2;
+    const r = (fld.x1 - fld.x0) / 2;
+    const d = cx - b.x;
+    b.vx += Math.sign(d) * fld.power * Math.max(0, 1 - Math.abs(d) / r);
+  }
+
   if (jumpPressed) {
     if (input.my > 0 && b.slideTicks === 0 && onPlatform(world, b)) {
       b.dropTicks = 8;
@@ -278,7 +299,8 @@ export function stepPlayerMovement(world: World, b: Mover, input: PlayerInput, d
   // Let go of Jump early for a short hop.
   if (!input.jump && b.vy < -P.jumpSpeed * 0.45) b.vy = -P.jumpSpeed * 0.45;
 
-  b.vy = Math.min(P.maxFallSpeed, b.vy + P.gravity * dt);
+  b.vy = Math.min(fallMax, b.vy + P.gravity * gScale * dt);
+  if (gScale < 0) b.vy = Math.max(b.vy, -P.liftSpeed); // a lift carries you up at a steady pace
   moveBody(world, b, dt);
   if (b.dropTicks > 0) b.dropTicks--;
   if (b.onGround) {

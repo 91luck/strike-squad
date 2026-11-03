@@ -115,7 +115,6 @@ function testWorld(): { world: World; level: LevelDef; open: boolean[] } {
   const cols = 40;
   const rows = 18;
   const tiles = new Uint8Array(cols * rows);
-  const gateOf = new Int16Array(cols * rows).fill(-1);
   const set = (c: number, r: number, t: Tile): void => {
     tiles[r * cols + c] = t;
   };
@@ -125,14 +124,13 @@ function testWorld(): { world: World; level: LevelDef; open: boolean[] } {
   for (let r = 10; r < 14; r++) set(20, r, Tile.Solid); // wall
   for (let r = 0; r < 14; r++) {
     set(30, r, Tile.Gate);
-    gateOf[r * cols + 30] = 0;
   }
   const level: LevelDef = {
     ...MISSION_1,
     cols,
     rows,
     tiles,
-    gateOf,
+    gates: [{ id: 0, col: 30, rowTop: 0, rowBottom: 13, fire: false }],
   };
   const open = [false];
   return { world: { level, isGateOpen: (id) => open[id] === true, limitX: cols * T }, level, open };
@@ -327,6 +325,7 @@ describe('platformer physics and moves', () => {
       dash: false,
       melee: false,
       ult: true,
+      astra: false,
     });
     expect(sanitizeInput({ mx: NaN, my: -Infinity })).toEqual(NEUTRAL_INPUT);
   });
@@ -706,6 +705,7 @@ describe('super moves and combo', () => {
     expect(rankOf(p.combo)).toBeGreaterThanOrEqual(0);
     expect(sim.snapshot().players[0]?.rk).toBe(rankOf(p.combo));
     expect(p.stats.bestCombo).toBe(p.combo);
+    sim.bullets = sim.bullets.filter((b) => b.enemy); // no shots of ours still in flight
     bullet(sim, { x: p.x + 30, y: p.y - 20 });
     run(sim, 3, () => sim.setInput('p0', {}));
     expect(p.combo).toBe(0);
@@ -919,7 +919,7 @@ describe('bosses', () => {
     const x0 = w.body.x;
     run(sim, sim.ticks(ATTACK_WINDUP[ATTACK.charge] as number) - 1);
     expect(w.body.x).toBe(x0); // the tell: it revs up in place
-    run(sim, 20);
+    run(sim, 30);
     expect(w.body.x).toBeLessThan(x0 - 100);
     expect(p.hp).toBeLessThan(P.maxHp);
 

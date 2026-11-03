@@ -5,6 +5,7 @@ import {
   type BoardEntry,
   type Difficulty,
   type MissionEnd,
+  type MissionId,
 } from '@strikesquad/shared';
 import type { InputController } from '../input/input';
 import { Timeline } from './timeline';
@@ -15,6 +16,7 @@ export interface SoloOptions {
   difficulty: Difficulty;
   /** Computer squad-mates (clearly labelled as bots) that run, shoot, dodge and use their super moves. */
   buddies: number;
+  mission: MissionId;
   hero: number;
 }
 
@@ -45,7 +47,11 @@ export class SoloMatch {
     private readonly onEnd: (r: MissionEnd) => void,
     seed = (Math.random() * 2 ** 31) | 0 || 1,
   ) {
-    this.sim = new Sim({ seed, tickRate: GAME_CONFIG.tickRate, settings: { difficulty: opts.difficulty } });
+    this.sim = new Sim({
+      seed,
+      tickRate: GAME_CONFIG.tickRate,
+      settings: { difficulty: opts.difficulty, mission: opts.mission },
+    });
     this.sim.addPlayer({ id: this.meId, name: opts.name, slot: 0, hero: opts.hero });
     for (let i = 0; i < Math.min(3, opts.buddies); i++)
       this.sim.addPlayer({
@@ -55,7 +61,7 @@ export class SoloMatch {
         hero: (opts.hero + 1 + i * 2) % 8,
       });
     this.record();
-    view.begin(this.meId, this.sim.snapshot());
+    view.begin(this.meId, this.sim.snapshot(), this.sim.level);
   }
 
   phase(): string {

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { DIFFICULTIES, GAME_CONFIG, type Difficulty } from './config';
+import { DIFFICULTIES, GAME_CONFIG, MISSION_IDS, type Difficulty, type MissionId } from './config';
 import { HERO_COUNT } from './heroes';
 import { NAME_REGEX, PROTOCOL_VERSION, ROOM_CODE_REGEX, type ClientMessage } from './protocol';
 
@@ -17,7 +17,8 @@ const roomCode = z
   .pipe(z.string().regex(ROOM_CODE_REGEX, 'invalid room code'));
 
 const difficulty = z.enum(DIFFICULTIES as unknown as [Difficulty, ...Difficulty[]]);
-const settingsPatch = z.strictObject({ difficulty: difficulty.optional() });
+const mission = z.enum(MISSION_IDS as unknown as [MissionId, ...MissionId[]]);
+const settingsPatch = z.strictObject({ difficulty: difficulty.optional(), mission: mission.optional() });
 const axis = z.number().int().min(-1).max(1);
 
 // ---------------------------------------------------------------- client -> server
@@ -57,6 +58,7 @@ export const ClientMessageSchema = z.discriminatedUnion('t', [
     dash: z.boolean().optional(),
     melee: z.boolean().optional(),
     ult: z.boolean().optional(),
+    astra: z.boolean().optional(),
     vt: z.number().int().min(0).max(2_000_000_000).optional(),
   }),
   z.strictObject({ t: z.literal('rematch') }),

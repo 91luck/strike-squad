@@ -1,10 +1,13 @@
 import {
   GAME_CONFIG,
-  MISSION_1,
   WEAPON_KINDS,
   heroOf,
   rankName,
   type BossKind,
+  type LevelDef,
+  POWER_KINDS,
+  isPower,
+  type PowerKind,
   type PlayerSnapshot,
   type SimEvent,
   type Snapshot,
@@ -32,6 +35,20 @@ export const BOSS_INFO: Record<BossKind, { name: string; sub: string; tip: strin
     sub: 'Final stronghold · 3 phases',
     tip: 'Low laser: JUMP. High laser: DUCK or slide. Everyone, unleash your supers!',
   },
+};
+
+/** Boss subtitles for demon and void missions (same machines, different creatures). */
+const FACTION_SUB: Record<'demon' | 'void', Record<BossKind, string>> = {
+  demon: { walker: 'Demon beast', gunship: 'Winged demon', boss: 'Demon throne · 3 phases' },
+  void: { walker: 'Void stalker', gunship: 'Star reaper', boss: 'Singularity core · 3 phases' },
+};
+
+/** Power names, icons and what they do (HUD and pickup banners). */
+export const POWER_INFO: Record<PowerKind, { name: string; icon: string; tip: string }> = {
+  agni: { name: 'AGNI ASTRA', icon: '🔥', tip: 'Fire wave + burning ground' },
+  varuna: { name: 'VARUNA ASTRA', icon: '🌧', tip: 'Rain: puts out walls of fire' },
+  vayu: { name: 'VAYU ASTRA', icon: '🌪', tip: 'Gust: blows enemies and shots away' },
+  singularity: { name: 'BLACK HOLE', icon: '🕳', tip: 'Swallows enemies and their shots' },
 };
 
 const STYLE_TEXT: Record<StyleTag, string> = {
@@ -83,7 +100,8 @@ export class MatchView {
     window.addEventListener('orientationchange', () => window.setTimeout(() => this.renderer.resize(), 150));
   }
 
-  begin(meId: string, first: Snapshot): void {
+  begin(meId: string, first: Snapshot, level: LevelDef): void {
+    this.renderer.setLevel(level);
     this.meId = meId;
     this.stats = { kills: 0, ults: 0, bestCombo: 0, bossesDown: 0 };
     this.lastCountdown = -1;
@@ -182,13 +200,18 @@ export class MatchView {
             const n = ev.healed.length;
             if (ev.healed.includes(this.meId) || ev.by === this.meId)
               this.showBanner(n > 1 ? `Med-kit healed ${n} soldiers!` : 'Healed!');
-          } else if (ev.by === this.meId) {
-            this.sfx.play('powerup');
-            this.showBanner(`${GAME_CONFIG.weapons[ev.kind].label}!`);
-          } else this.notice(`${this.nameOf(ev.by)} got the ${GAME_CONFIG.weapons[ev.kind].label}`);
+          } else {
+            const label = isPower(ev.kind)
+              ? `${POWER_INFO[ev.kind].icon} ${POWER_INFO[ev.kind].name} · ${POWER_INFO[ev.kind].tip}`
+              : GAME_CONFIG.weapons[ev.kind].label;
+            if (ev.by === this.meId) {
+              this.sfx.play('powerup');
+              this.showBanner(`${label}${isPower(ev.kind) ? ' — press ASTRA' : '!'}`);
+            } else this.notice(`${this.nameOf(ev.by)} got the ${label}`);
+          }
           break;
         case 'arena': {
-          const a = MISSION_1.arenas[ev.id];
+          const a = this.renderer.level.arenas[ev.id];
           if (!a || a.boss) break;
           this.sfx.play('beep');
           this.showBanner(ev.wave === 1 ? `⚠ ${a.name}! Area locked` : `Wave ${ev.wave} of ${ev.of}`, true);
@@ -196,7 +219,7 @@ export class MatchView {
           break;
         }
         case 'clear': {
-          const a = MISSION_1.arenas[ev.id];
+          const a = this.renderer.level.arenas[ev.id];
           this.sfx.play('victory');
           if (a && !a.boss) this.showBanner('AREA CLEAR — move up!');
           break;
@@ -209,7 +232,7 @@ export class MatchView {
           this.notice('🚩 Checkpoint reached');
           break;
         case 'bossWake':
-          this.bossIntro(ev.kind);
+          this.bossIntro(ev.kind, this.renderer.level.arenas[ev.arena]?.name);
           break;
         case 'bossPhase':
           r.flash('#ffffff', 0.35);
@@ -244,6 +267,24 @@ export class MatchView {
           this.showBanner(`${who}${hero.ultName}!${ev.sync ? '  ⚡ SYNC ×1.5' : ''}`);
           break;
         }
+        case 'astra': {
+          r.astraEffect(ev, reduce);
+          this.sfx.play(ev.kind === 'singularity' ? 'explode' : 'powerup');
+          const info = POWER_INFO[ev.kind];
+          const who = ev.id === this.meId ? '' : `${this.nameOf(ev.id)}: `;
+          this.showBanner(`${who}${info.icon} ${info.name}!`);
+          break;
+        }
+        case 'brahma':
+          r.brahmaEffect(ev, reduce);
+          if (ev.phase === 0) {
+            this.sfx.play('beep');
+            this.showBanner(`${ev.id === this.meId ? '' : `${this.nameOf(ev.id)}: `}☀ BRAHMASTRA!`, true);
+          } else {
+            this.sfx.play('explode');
+            this.sfx.play('victory');
+          }
+          break;
         case 'style':
           r.styleText(ev.x, ev.y, STYLE_TEXT[ev.t], ev.id === this.meId);
           if (ev.t === 'parry') this.sfx.play('beep');
@@ -262,12 +303,14 @@ export class MatchView {
     return this.heroIds.get(id) ?? 0;
   }
 
-  private bossIntro(kind: BossKind): void {
+  /** `title`: the arena's name (e.g. TWIN HOUNDS) when it differs from the boss's own. */
+  private bossIntro(kind: BossKind, title = BOSS_INFO[kind].name): void {
     const info = BOSS_INFO[kind];
-    $('boss-intro-name').textContent = info.name;
-    $('boss-intro-sub').textContent = info.sub;
+    const faction = this.renderer.level.faction;
+    $('boss-intro-name').textContent = title;
+    $('boss-intro-sub').textContent = faction === 'army' ? info.sub : FACTION_SUB[faction][kind];
     $('boss-intro-tip').textContent = info.tip;
-    $('boss-name').textContent = info.name;
+    $('boss-name').textContent = title;
     const card = $('boss-intro');
     card.hidden = false;
     card.classList.remove('show');
@@ -344,6 +387,7 @@ export class MatchView {
   ): void {
     if (this.coachUntil && nowMs > this.coachUntil && s.phase !== 'countdown') this.hideCoach();
     $('hud-lives').textContent = `♥ ${s.lives}`;
+    this.updatePowers(s, me);
     $('hud-lives').title = `${s.lives} squad lives left`;
     $('hud-score').textContent = String(s.score);
     if (me) {
@@ -381,7 +425,8 @@ export class MatchView {
     const bossBar = $('boss-bar');
     if (s.boss && s.boss.hp > 0) {
       bossBar.hidden = false;
-      $('boss-name').textContent = BOSS_INFO[s.boss.k].name;
+      $('boss-name').textContent =
+        (s.arena && this.renderer.level.arenas[s.arena.id]?.name) || BOSS_INFO[s.boss.k].name;
       const f = Math.max(0, s.boss.hp / s.boss.max);
       this.bossLag = f > this.bossLag ? f : this.bossLag + (f - this.bossLag) * 0.05;
       ($('boss-fill') as HTMLElement).style.width = `${f * 100}%`;
@@ -392,7 +437,7 @@ export class MatchView {
     } else if (!s.boss) bossBar.hidden = true;
     // Arena lock.
     const ar = $('hud-arena');
-    const a = s.arena ? MISSION_1.arenas[s.arena.id] : undefined;
+    const a = s.arena ? this.renderer.level.arenas[s.arena.id] : undefined;
     if (s.arena && a && !a.boss) {
       ar.hidden = false;
       ar.textContent = `⚠ ${a.name} · WAVE ${s.arena.w}/${s.arena.n} · ${s.arena.left} LEFT`;
@@ -407,6 +452,39 @@ export class MatchView {
       $('hud-net').textContent = this.settings().showStats
         ? `${this.fps} fps${net ? ` · ${net.rtt} ms` : ''}`
         : '';
+    }
+  }
+
+  /** Held power chip, the ASTRA button glow, and the team brahmastra meter. */
+  private updatePowers(s: Snapshot, me: PlayerSnapshot | undefined): void {
+    const chip = $('hud-power');
+    const kind = me && me.pw >= 0 ? POWER_KINDS[me.pw] : undefined;
+    const btn = document.getElementById('btn-touch-astra');
+    if (btn) {
+      // On phones the button itself shows what it will fire, and how many are left.
+      const label = kind && me ? `${POWER_INFO[kind].icon} ×${me.pn}` : s.bm >= 100 ? '☀ BRAHMA' : null;
+      const fallback = this.renderer.level.faction === 'void' ? 'POWER' : 'ASTRA';
+      const text = label ?? fallback;
+      if (btn.textContent !== text) btn.textContent = text;
+    }
+    if (kind && me) {
+      const info = POWER_INFO[kind];
+      chip.hidden = false;
+      chip.textContent = `${info.icon} ${info.name} ×${me.pn}`;
+      chip.title = info.tip;
+      chip.classList.toggle('void', kind === 'singularity');
+    } else chip.hidden = true;
+    const bar = $('hud-brahma');
+    if (s.bm >= 0) {
+      bar.hidden = false;
+      ($('hud-brahma-fill') as HTMLElement).style.width = `${s.bm}%`;
+      const ready = s.bm >= 100;
+      bar.classList.toggle('ready', ready);
+      $('hud-brahma-label').textContent = ready ? 'BRAHMASTRA READY · ASTRA' : 'BRAHMASTRA';
+      btn?.classList.toggle('ready', Boolean(kind) || ready);
+    } else {
+      bar.hidden = true;
+      btn?.classList.toggle('ready', Boolean(kind));
     }
   }
 

@@ -1,6 +1,6 @@
 import { ATTACK, GAME_CONFIG, isBoss } from './config';
-import { Tile, levelWidth, tileAt } from './level';
-import { NEUTRAL_INPUT, groundBelow, solidAtPoint, type PlayerInput } from './physics';
+import { Tile, fieldAt, levelWidth, tileAt } from './level';
+import { NEUTRAL_INPUT, groundBelow, onPlatform, solidAtPoint, type PlayerInput } from './physics';
 import { ATTACK_WINDUP, type Enemy, type Player, type Sim } from './sim';
 
 /**
@@ -26,6 +26,9 @@ interface Memory {
   backoff: number;
   ultHeld: boolean;
   dashHeld: boolean;
+  /** The foe we are fighting: kept unless another is clearly closer (no flip-flopping between two). */
+  foeId: number;
+  astraHeld: boolean;
 }
 
 interface Foe {
@@ -53,10 +56,13 @@ export class Autopilot {
         backoff: 0,
         ultHeld: false,
         dashHeld: false,
+        foeId: -1,
+        astraHeld: false,
       };
       this.mem.set(p.id, m);
     }
-    const foe = this.nearestFoe(sim, p);
+    const foe = this.nearestFoe(sim, p, m.foeId);
+    m.foeId = foe ? foe.e.id : -1;
     const target = this.target(sim, p, foe);
     const dx = target.x - p.x;
     let mx = Math.abs(dx) > 16 ? Math.sign(dx) : 0; // dead band wider than one step: no jitter
@@ -79,7 +85,15 @@ export class Autopilot {
       if (wall || pit) wantJump = true;
       // Over a wide pit: keep going with a double jump at the top of the arc.
     }
-    if (!p.onGround && mx !== 0 && p.vy > -60 && !groundBelow(sim.world, p.x + mx * 40, p.y + 40)) {
+    // In low gravity one jump already carries far: a double jump would overshoot the landing.
+    const floaty = fieldAt(sim.level, p.x, p.y - 20)?.kind === 'lowg';
+    if (
+      !floaty &&
+      !p.onGround &&
+      mx !== 0 &&
+      p.vy > -60 &&
+      !groundBelow(sim.world, p.x + mx * 40, p.y + 40)
+    ) {
       const below = this.groundDepth(sim, p.x + mx * 30, p.y);
       if (below > 3 * T) wantAirJump = true;
     }
@@ -160,13 +174,15 @@ export class Autopilot {
         my = -1;
         if (Math.abs(fdx) < 50) mx = 0;
         else if (mx === 0) mx = Math.sign(fdx);
+      } else if (!p.onGround && fdy > 60 && Math.abs(fdx) < fdy * 1.2) {
+        my = 1; // in the air over it: shoot down
       } else if (mx === 0 && Math.abs(fdx) > 8 && Math.sign(fdx) !== p.facing) mx = Math.sign(fdx); // turn round
     }
     // Fighting from a platform over the enemies' heads: drop down to their level.
     if (
       p.onGround &&
       target.y > p.y + 16 &&
-      tileAt(sim.level, Math.floor(p.x / T), Math.round(p.y / T)) === Tile.OneWay
+      onPlatform(sim.world, p) // standing on a one-way platform (even by one foot)
     ) {
       my = 1;
       wantJump = true;
@@ -212,7 +228,26 @@ export class Autopilot {
       if (bossNear || crowd >= 3) ult = true;
     }
     m.ultHeld = ult;
-    return { mx, my, jump, fire, dash, melee: false, ult };
+    // ---- powers: rain on a fire wall ahead; fire, wind and black holes on a crowd or a boss; the brahmastra
+    let astra = false;
+    if (!m.astraHeld) {
+      const wall = this.fireWallAhead(sim, p);
+      if (p.power === 'varuna') astra = wall !== null && wall - p.x < 9 * T;
+      else {
+        let crowd = 0;
+        let bossNear = false;
+        for (const e of sim.enemies.values()) {
+          if (!e.awake) continue;
+          const dx = (e.body.x - p.x) * p.facing;
+          if (isBoss(e.kind) && Math.abs(e.body.x - p.x) < 700) bossNear = true;
+          else if (dx > -30 && dx < 380 && Math.abs(e.body.y - p.y) < 160) crowd++;
+        }
+        if (p.power && p.powerN > 0) astra = crowd >= 2 || (bossNear && p.power !== 'vayu');
+        else if (sim.brahma >= GAME_CONFIG.powers.brahma.max) astra = bossNear || crowd >= 4;
+      }
+    }
+    m.astraHeld = astra;
+    return { mx, my, jump, fire, dash, melee: false, ult, astra };
   }
 
   private groundDepth(sim: Sim, x: number, y: number): number {
@@ -220,16 +255,33 @@ export class Autopilot {
     return 99 * T;
   }
 
-  private nearestFoe(sim: Sim, p: Player): Foe | null {
+  /** x of the nearest closed wall of fire ahead (within 14 tiles), if any. */
+  private fireWallAhead(sim: Sim, p: Player): number | null {
+    for (const g of sim.level.gates) {
+      if (!g.fire || sim.gateOpen[g.id]) continue;
+      const x = g.col * T;
+      if (x > p.x && x - p.x < 14 * T) return x;
+    }
+    return null;
+  }
+
+  private nearestFoe(sim: Sim, p: Player, keepId = -1): Foe | null {
     let best: Foe | null = null;
+    // Locked in an arena: fight what is inside it (a straggler left outside can't be reached from in here).
+    const ai = sim.activeArena();
+    const arena = ai >= 0 ? sim.level.arenas[ai] : undefined;
+    const inside = arena && p.x >= arena.left - 2 * T;
     for (const e of sim.enemies.values()) {
       if (!e.awake) continue;
+      if (inside && !isBoss(e.kind) && (e.body.x < arena.left - T || e.body.x > arena.right + 2 * T))
+        continue;
       const x = e.kind === 'boss' ? e.body.x - e.body.w / 2 : e.body.x;
       const y = e.kind === 'boss' ? e.body.y - 110 : e.body.y - e.body.h / 2;
       const d = Math.hypot(x - p.x, y - p.y);
       if (d > (isBoss(e.kind) ? 900 : 540)) continue;
       // Prefer bosses a little: they are what ends the fight.
-      const score = isBoss(e.kind) ? d * 0.8 : d;
+      let score = isBoss(e.kind) ? d * 0.8 : d;
+      if (e.id === keepId) score *= 0.75;
       if (!best || score < best.d) best = { e, x, y, d: score };
     }
     return best;
@@ -258,14 +310,34 @@ export class Autopilot {
         const keep = foe.e.kind === 'grenadier' ? 3 * T : 6 * T;
         return { x: clamp(foe.x - Math.sign(foe.x - p.x || 1) * keep), y };
       }
-      return { x: clamp((arena.left + arena.right) / 2), y };
+      // Nothing in range: hunt down whoever of this arena is left (it won't open until they're gone).
+      let hunt: number | null = null;
+      for (const e of sim.enemies.values())
+        if (e.awake && e.arena === ai && (hunt === null || Math.abs(e.body.x - p.x) < Math.abs(hunt - p.x)))
+          hunt = e.body.x;
+      return { x: clamp(hunt ?? (arena.left + arena.right) / 2), y };
     }
     // Shield trooper on the way: go and knife it.
-    if (foe && foe.e.shield > 0 && Math.abs(foe.x - p.x) < 8 * T) return { x: foe.x, y: p.y };
+    if (foe && foe.e.shield > 0 && Math.abs(foe.x - p.x) < 8 * T) return { x: foe.x, y: foe.e.body.y };
     // Don't run off alone: wait for the friend furthest behind to catch up.
     let rear = p.x;
     for (const q of sim.players.values()) if (q.state === 'alive') rear = Math.min(rear, q.x);
     if (p.x - rear > 12 * T) return { x: p.x, y: p.y };
+    // A wall of fire ahead and no rain to put it out: fetch it from the altar (unless a friend carries it).
+    const wall = this.fireWallAhead(sim, p);
+    if (wall !== null && p.power !== 'varuna') {
+      let friendHasRain = false;
+      for (const q of sim.players.values())
+        if (q !== p && q.state === 'alive' && q.power === 'varuna') friendHasRain = true;
+      if (!friendHasRain) {
+        let altar: { x: number; y: number } | null = null;
+        for (const pk of sim.level.pickups)
+          if (pk.kind === 'varuna' && !sim.taken[pk.id] && pk.x < wall && wall - pk.x < 16 * T)
+            if (altar === null || Math.abs(pk.x - p.x) < Math.abs(altar.x - p.x))
+              altar = { x: pk.x, y: pk.y + 22 };
+        if (altar) return altar; // its surface y: drops off a platform above it
+      }
+    }
     const gate = sim.level.gates.find((g) => !sim.gateOpen[g.id] && g.col * T + T > p.x);
     const stop = gate ? gate.col * T - 3 * T : levelWidth(sim.level) - T;
     return { x: Math.min(stop, sim.world.limitX - 6 * T), y: p.y };

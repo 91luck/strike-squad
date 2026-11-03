@@ -6,7 +6,12 @@ import {
   DIFFICULTIES,
   GAME_CONFIG,
   HEROES,
+  MISSIONS,
+  getMission,
   heroOf,
+  isPower,
+  isMissionId,
+  missionInfo,
   NAME_REGEX,
   ROOM_CODE_REGEX,
   parseJoinPath,
@@ -14,6 +19,7 @@ import {
   type BoardEntry,
   type Difficulty,
   type MissionEnd,
+  type MissionId,
   type RoomInfo,
   type ServerMessage,
 } from '@strikesquad/shared';
@@ -27,6 +33,7 @@ import { MatchView } from './game/view';
 import { InputController } from './input/input';
 import { Connection, type ConnState } from './net/connection';
 import { registerPwa } from './pwa';
+import { ProgressStore } from './progress';
 import { SettingsStore, keyLabel } from './settings';
 import { canFullscreen, enterLandscapeFullscreen, isIOS, isStandalone, phoneMatchGesture } from './ui/phone';
 import {
@@ -47,6 +54,7 @@ import {
 // ---------------------------------------------------------------- state
 
 const settings = new SettingsStore();
+const progress = new ProgressStore();
 const sfx = new Sfx();
 const view = new MatchView($('game') as HTMLCanvasElement, sfx, () => settings.value);
 
@@ -318,6 +326,7 @@ function startOnlineMatch(m: Extract<ServerMessage, { t: 'matchStart' }>): void 
   $('pause-note').textContent = 'Online missions keep running while this menu is open.';
   $('btn-pause-invite').hidden = false;
   setupTouch();
+  missionControls(room.settings.mission);
   online = new OnlineMatch(m, view, conn, input);
   online.run();
   if (m.snap.phase !== 'countdown') view.notice('You joined the squad mid-mission — find your friends!');
@@ -350,10 +359,37 @@ function stopOnline(): void {
   online = null;
 }
 
+/**
+ * Per-mission controls: advanced missions start with auto-fire OFF (the AUTO button or T turns it on), and show
+ * the ASTRA button when the mission has powers.
+ */
+function missionControls(id: MissionId): void {
+  const info = missionInfo(id);
+  input.autoFireOverride = info.advanced ? false : null;
+  const level = getMission(id);
+  const powers = level.brahma || level.pickups.some((p) => isPower(p.kind));
+  $('touch').classList.toggle('has-powers', powers);
+  $('btn-touch-astra').classList.toggle('void', level.faction === 'void');
+  $('btn-touch-astra').textContent = level.faction === 'void' ? 'POWER' : 'ASTRA';
+  showAutoFire(input.autoFire());
+}
+
+function showAutoFire(on: boolean): void {
+  const b = $('btn-touch-auto');
+  b.textContent = `AUTO FIRE: ${on ? 'ON' : 'OFF'}`;
+  b.classList.toggle('on', on);
+  b.setAttribute('aria-pressed', String(on));
+  $('btn-touch-fire').classList.toggle('auto', on);
+}
+input.onAutoFireChange = (on) => {
+  showAutoFire(on);
+  if (currentScreen() === 'game') view.notice(on ? 'Auto-fire ON' : 'Auto-fire OFF');
+};
+
 function setupTouch(): void {
   $('touch').hidden = !touchCapable;
   if (touchCapable) input.usedTouch = true;
-  $('btn-touch-fire').classList.toggle('auto', settings.value.autoFire);
+  showAutoFire(input.autoFire());
   if (settings.value.coachSeen) $('joy-zone').classList.add('used');
   const portrait = touchCapable && window.innerHeight > window.innerWidth;
   $('overlay-portrait').hidden = !portrait || sessionStorage.getItem('portraitDismissed') === '1';
@@ -411,6 +447,7 @@ function startPractice(opts: SoloOptions): void {
   $('pause-note').textContent = 'Solo training is paused.';
   $('btn-pause-invite').hidden = true;
   setupTouch();
+  missionControls(opts.mission);
   practice = new SoloMatch(opts, view, input, (r) => window.setTimeout(() => showResults(r, false), 600));
   practice.run();
   maybeCoach();
@@ -502,8 +539,13 @@ function showResults(r: MissionEnd, isOnline: boolean): void {
   title.dataset.result = won ? 'win' : 'loss';
   const players = r.board.length;
   const best = r.board.reduce((n, b) => Math.max(n, b.rank), -1);
+  const played = currentMission();
+  const info = missionInfo(played.id);
+  const first = won && progress.won(played.id, r.timeSec, played.difficulty);
+  if (first) toast(`${info.name} completed for the first time!`);
+  fillMissionSelects();
   $('result-sub').textContent = won
-    ? `${players === 1 ? 'You' : `All ${players} of you`} destroyed the Iron Fortress in ${formatClock(r.timeSec)} with ${r.livesLeft} team ${r.livesLeft === 1 ? 'life' : 'lives'} to spare. Score ${r.score}.`
+    ? `${players === 1 ? 'You' : `All ${players} of you`} completed ${info.name} in ${formatClock(r.timeSec)} with ${r.livesLeft} team ${r.livesLeft === 1 ? 'life' : 'lives'} to spare. Score ${r.score}.`
     : r.reason === 'abandoned'
       ? 'Everybody left the mission.'
       : r.reason === 'time'
@@ -568,11 +610,27 @@ function renderBoard(board: BoardEntry[], meId: string | undefined): void {
   );
 }
 
+/** The mission (and difficulty) of the squad or solo run that just ended. */
+function currentMission(): { id: MissionId; difficulty: Difficulty } {
+  if (room) return { id: room.settings.mission, difficulty: room.settings.difficulty };
+  return { id: practiceOpts?.mission ?? 'mission-1', difficulty: practiceOpts?.difficulty ?? 'normal' };
+}
+
+/** The mission after this one in the campaign, if any. */
+function nextMission(id: MissionId): MissionId | null {
+  const i = MISSIONS.findIndex((m) => m.id === id);
+  return MISSIONS[i + 1]?.id ?? null;
+}
+
 function renderResultsButtons(): void {
   if (currentScreen() !== 'results') return;
   const hint = $('results-hint');
   const rematch = $('btn-rematch') as HTMLButtonElement;
   const toLobby = $('btn-to-lobby') as HTMLButtonElement;
+  const next = $('btn-next-mission') as HTMLButtonElement;
+  const upcoming = lastEnd?.result === 'won' ? nextMission(currentMission().id) : null;
+  next.hidden = !upcoming || (room !== null && room.hostId !== me?.id);
+  if (upcoming) next.textContent = `Next: ${missionInfo(upcoming).name} ▶`;
   if (room === null) {
     rematch.disabled = false;
     toLobby.hidden = true;
@@ -594,6 +652,17 @@ $('btn-rematch').addEventListener('click', () => {
   else if (practiceOpts) startPractice(practiceOpts);
 });
 $('btn-to-lobby').addEventListener('click', () => conn.send({ t: 'toLobby' }));
+$('btn-next-mission').addEventListener('click', () => {
+  const next = nextMission(currentMission().id);
+  if (!next) return;
+  phoneMatchGesture();
+  if (room) {
+    // Host: back to the lobby, switch mission, go (the server handles these in order).
+    conn.send({ t: 'toLobby' });
+    conn.send({ t: 'setSettings', settings: { mission: next } });
+    conn.send({ t: 'startMatch' });
+  } else if (practiceOpts) startPractice({ ...practiceOpts, mission: next });
+});
 $('btn-results-leave').addEventListener('click', () => (room ? leaveRoom() : leaveToMenu(true)));
 
 // ---------------------------------------------------------------- navigation
@@ -639,8 +708,9 @@ $('btn-create').addEventListener('click', () => {
 });
 $('btn-create-go').addEventListener('click', () => {
   const difficulty = ($('create-difficulty') as HTMLSelectElement).value as Difficulty;
-  if (!DIFFICULTIES.includes(difficulty)) return;
-  ensureConnected(() => conn.send({ t: 'createRoom', settings: { difficulty } }));
+  const mission = ($('create-mission') as HTMLSelectElement).value;
+  if (!DIFFICULTIES.includes(difficulty) || !isMissionId(mission)) return;
+  ensureConnected(() => conn.send({ t: 'createRoom', settings: { difficulty, mission } }));
 });
 $('btn-join').addEventListener('click', () => {
   $('join-error').hidden = true;
@@ -722,6 +792,10 @@ function renderLobby(): void {
   const diff = $('lobby-difficulty') as HTMLSelectElement;
   diff.value = r.settings.difficulty;
   diff.disabled = !host;
+  const mission = $('lobby-mission') as HTMLSelectElement;
+  mission.value = r.settings.mission;
+  mission.disabled = !host;
+  renderBriefing(r.settings.mission);
   const start = $('btn-start') as HTMLButtonElement;
   start.hidden = !host;
   start.disabled = !host;
@@ -735,6 +809,10 @@ function renderLobby(): void {
   renderHeroGrid(r.players.find((p) => p.id === myId)?.hero ?? settings.value.hero);
 }
 
+$('lobby-mission').addEventListener('change', (e) => {
+  const mission = (e.target as HTMLSelectElement).value;
+  if (isMissionId(mission)) conn.send({ t: 'setSettings', settings: { mission } });
+});
 $('lobby-difficulty').addEventListener('change', (e) => {
   const difficulty = (e.target as HTMLSelectElement).value as Difficulty;
   if (DIFFICULTIES.includes(difficulty)) conn.send({ t: 'setSettings', settings: { difficulty } });
@@ -770,6 +848,37 @@ $('btn-share').addEventListener('click', async () => {
   }
 });
 
+// ---------------------------------------------------------------- missions
+
+/** Fill every mission menu from the campaign list: number, name, place, toughness, and a tick once completed. */
+function fillMissionSelects(): void {
+  for (const sel of document.querySelectorAll<HTMLSelectElement>('select.mission-select')) {
+    const keep = sel.value;
+    sel.replaceChildren(
+      ...MISSIONS.map((m) => {
+        const done = progress.get(m.id);
+        const stars = '★'.repeat(m.stars) + '☆'.repeat(Math.max(0, 5 - m.stars));
+        return el('option', {
+          text: `${m.num} · ${m.name} — ${m.place} ${stars}${m.advanced ? ' · ADVANCED' : ''}${done ? ' ✓' : ''}`,
+          attrs: { value: m.id },
+        });
+      }),
+    );
+    sel.value = isMissionId(keep) ? keep : 'mission-1';
+  }
+}
+fillMissionSelects();
+
+/** Lobby briefing for the chosen mission (the last two tips are the same for every mission). */
+function renderBriefing(id: MissionId): void {
+  const m = missionInfo(id);
+  $('h-mission').textContent = `Mission ${m.num} · ${m.name}`;
+  const list = document.querySelector('.briefing');
+  if (!list) return;
+  for (const li of list.querySelectorAll('li.brief-line')) li.remove();
+  list.prepend(...m.brief.map((b) => el('li', { class: 'brief-line', text: b })));
+}
+
 // ---------------------------------------------------------------- solo setup
 
 $('btn-practice').addEventListener('click', () => showScreen('practice'));
@@ -778,8 +887,10 @@ $('btn-practice-go').addEventListener('click', () => {
   const difficulty = ($('practice-diff') as HTMLSelectElement).value as Difficulty;
   if (!DIFFICULTIES.includes(difficulty)) return;
   const buddies = Number(($('practice-buddies') as HTMLSelectElement).value);
+  const mission = ($('practice-mission') as HTMLSelectElement).value;
   startPractice({
     name: currentName(),
+    mission: isMissionId(mission) ? mission : 'mission-1',
     difficulty,
     buddies: [0, 1, 3].includes(buddies) ? buddies : 1,
     hero: settings.value.hero,
@@ -802,7 +913,9 @@ function syncSettingsUi(): void {
   $('key-jump-label').textContent = keyLabel(s.keyJump);
   $('btn-pause-sound').textContent = `Sound: ${s.muted ? 'off' : 'on'}`;
   $('btn-pause-sound').setAttribute('aria-pressed', String(s.muted));
-  $('btn-touch-fire').classList.toggle('auto', s.autoFire);
+  if (input.autoFireOverride === null) showAutoFire(s.autoFire);
+  ($('set-hand') as HTMLSelectElement).value = s.hand;
+  $('touch').classList.toggle('lefty', s.hand === 'left');
   document.body.classList.toggle('reduce-motion', s.reduceMotion);
   sfx.setVolume(s.volume, s.muted);
 }
@@ -818,6 +931,9 @@ bindCheck('set-reduce', 'reduceMotion');
 bindCheck('set-fps', 'showStats');
 $('set-volume').addEventListener('input', (e) =>
   settings.update({ volume: Number((e.target as HTMLInputElement).value) }),
+);
+$('set-hand').addEventListener('change', (e) =>
+  settings.update({ hand: (e.target as HTMLSelectElement).value === 'left' ? 'left' : 'right' }),
 );
 $('set-sens').addEventListener('input', (e) =>
   settings.update({ touchSensitivity: Number((e.target as HTMLInputElement).value) }),

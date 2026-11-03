@@ -15,6 +15,7 @@ import { Predictor } from '../src/game/predict';
 import { Timeline } from '../src/game/timeline';
 import { stickToAxes } from '../src/input/input';
 import { backoffMs } from '../src/net/connection';
+import { ProgressStore } from '../src/progress';
 import { SettingsStore, keyLabel, sanitizeSettings } from '../src/settings';
 import { wsUrl } from '../src/env';
 
@@ -56,6 +57,8 @@ const player = (over: Partial<PlayerSnapshot> = {}): PlayerSnapshot => ({
   dd: 1,
   ad: 0,
   pd: 0,
+  pw: -1,
+  pn: 0,
   ...over,
 });
 const snap = (tick: number, players: PlayerSnapshot[]): Snapshot => ({
@@ -74,6 +77,8 @@ const snap = (tick: number, players: PlayerSnapshot[]): Snapshot => ({
   players,
   enemies: [],
   bullets: [],
+  bm: -1,
+  fx: [],
 });
 const WORLD = { gates: 0, limitX: 7000 };
 
@@ -126,7 +131,7 @@ describe('Predictor', () => {
   const world: World = { level: MISSION_1, isGateOpen: () => false, limitX: 7000 };
 
   it('predicts exactly the movement of the shared physics', () => {
-    const pr = new Predictor(30);
+    const pr = new Predictor(30, MISSION_1);
     pr.reconcile(player({ x: 200 }), 0, WORLD);
     const ref = newMover(200, G, GAME_CONFIG.player.width, GAME_CONFIG.player.height);
     Object.assign(ref, { onGround: true, coyote: 3 });
@@ -140,7 +145,7 @@ describe('Predictor', () => {
   });
 
   it('predicts double jump, dash and slide exactly like the server', () => {
-    const pr = new Predictor(30);
+    const pr = new Predictor(30, MISSION_1);
     pr.reconcile(player({ x: 200 }), 0, WORLD);
     const ref = newMover(200, G, GAME_CONFIG.player.width, GAME_CONFIG.player.height);
     Object.assign(ref, { onGround: true, coyote: 3 });
@@ -165,7 +170,7 @@ describe('Predictor', () => {
   });
 
   it('reconciles to the server and replays unacknowledged inputs', () => {
-    const pr = new Predictor(30);
+    const pr = new Predictor(30, MISSION_1);
     pr.reconcile(player({ x: 200 }), 0, WORLD);
     for (let i = 1; i <= 10; i++) pr.step(i, { ...NEUTRAL_INPUT, mx: 1 });
     const step = GAME_CONFIG.player.runSpeed / 30;
@@ -177,7 +182,7 @@ describe('Predictor', () => {
   });
 
   it('smooths a small correction instead of teleporting, but snaps on a big one', () => {
-    const pr = new Predictor(30);
+    const pr = new Predictor(30, MISSION_1);
     pr.reconcile(player({ x: 200 }), 0, WORLD);
     pr.step(1, { ...NEUTRAL_INPUT });
     pr.reconcile(player({ x: 220 }), 1, WORLD);
@@ -189,7 +194,7 @@ describe('Predictor', () => {
   });
 
   it("does not predict while KO'd", () => {
-    const pr = new Predictor(30);
+    const pr = new Predictor(30, MISSION_1);
     pr.reconcile(player({ x: 200, st: 1 }), 0, WORLD);
     pr.step(1, { ...NEUTRAL_INPUT, mx: 1 });
     expect(pr.pose().x).toBe(200);
@@ -228,6 +233,11 @@ describe('settings', () => {
       },
     });
     expect(() => broken.update({ volume: 5 })).not.toThrow();
+  });
+  it('keeps the touch-control hand setting (right by default, only "left" flips it)', () => {
+    expect(sanitizeSettings({}).hand).toBe('right');
+    expect(sanitizeSettings({ hand: 'left' }).hand).toBe('left');
+    expect(sanitizeSettings({ hand: 'up' }).hand).toBe('right');
   });
   it('formats key labels', () => {
     expect(keyLabel('KeyE')).toBe('E');
@@ -289,5 +299,25 @@ describe('static asset config', () => {
     if (!existsSync(path)) return; // no file: fine
     const text = readFileSync(path, 'utf8');
     expect(text).not.toMatch(/^\s*\/\*\s+\/index\.html/m);
+  });
+});
+
+describe('mission progress', () => {
+  it('records the first win, the best time and the hardest difficulty', () => {
+    let saved = '';
+    const p = new ProgressStore({ getItem: () => null, setItem: (_k, v) => void (saved = v) });
+    expect(p.won('mission-2', 400, 'normal')).toBe(true);
+    expect(p.won('mission-2', 350, 'easy')).toBe(false);
+    expect(p.get('mission-2')).toEqual({ best: 350, hardest: 'normal' });
+    expect(new ProgressStore({ getItem: () => saved, setItem: () => undefined }).get('mission-2')?.best).toBe(
+      350,
+    );
+  });
+  it('ignores junk in storage', () => {
+    const p = new ProgressStore({
+      getItem: () => JSON.stringify({ 'mission-9': { best: 1, hardest: 'easy' }, 'mission-1': { best: -5 } }),
+      setItem: () => undefined,
+    });
+    expect(p.get('mission-1')).toBeUndefined();
   });
 });

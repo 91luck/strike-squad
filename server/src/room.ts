@@ -4,7 +4,7 @@ import {
   Sim,
   defaultMissionSettings,
   type BoardEntry,
-  type Difficulty,
+  type SettingsPatch,
   type ErrorCode,
   type MissionEnd,
   type MissionSettings,
@@ -166,11 +166,12 @@ export class Room {
 
   // ------------------------------------------------------------ lobby actions
 
-  setSettings(id: string, patch: { difficulty?: Difficulty }): Result {
+  setSettings(id: string, patch: SettingsPatch): Result {
     if (!this.players.has(id)) return fail('not_in_room', 'You are not in this squad.');
     if (id !== this.hostId) return fail('not_host', 'Only the host can change mission options.');
     if (this.phase !== 'lobby') return fail('bad_state', 'Options can only be changed in the lobby.');
     if (patch.difficulty !== undefined) this.settings.difficulty = patch.difficulty;
+    if (patch.mission !== undefined) this.settings.mission = patch.mission;
     this.touch();
     this.broadcastRoom();
     return OK;
@@ -213,7 +214,7 @@ export class Room {
     if (this.players.size < GAME_CONFIG.mission.minPlayers) return fail('bad_state', 'Nobody is here.');
     const sim = new Sim({
       seed: 1 + secureRandomInt(2 ** 31 - 2),
-      settings: this.settings,
+      settings: { ...this.settings },
       tickRate: this.deps.tickRate,
     });
     for (const p of this.players.values())
@@ -256,6 +257,7 @@ export class Room {
       dash?: boolean;
       melee?: boolean;
       ult?: boolean;
+      astra?: boolean;
       vt?: number;
     },
   ): void {

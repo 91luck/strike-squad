@@ -1684,7 +1684,10 @@ input[type='range'] {
 }
 
 .touch-btn {
+  /* Each button sets --x / --y (distance from the screen corner); the hand setting picks the corner. */
   position: absolute;
+  right: calc(var(--x) + env(safe-area-inset-right));
+  bottom: calc(var(--y) + env(safe-area-inset-bottom));
   pointer-events: auto;
   touch-action: none;
   display: grid;
@@ -1699,8 +1702,8 @@ input[type='range'] {
 }
 
 .touch-btn.jump {
-  right: calc(120px + env(safe-area-inset-right));
-  bottom: calc(22px + env(safe-area-inset-bottom));
+  --x: 120px;
+  --y: 22px;
   width: 104px;
   height: 104px;
   background: radial-gradient(circle at 35% 30%, #6aa8ff, #2563eb 70%);
@@ -1711,8 +1714,8 @@ input[type='range'] {
 }
 
 .touch-btn.fire {
-  right: calc(18px + env(safe-area-inset-right));
-  bottom: calc(126px + env(safe-area-inset-bottom));
+  --x: 18px;
+  --y: 126px;
   width: 84px;
   height: 84px;
   background: radial-gradient(circle at 35% 30%, #ff8a8a, #dc2626 70%);
@@ -1745,24 +1748,24 @@ input[type='range'] {
 }
 
 .touch-btn.dash {
-  right: calc(236px + env(safe-area-inset-right));
-  bottom: calc(28px + env(safe-area-inset-bottom));
+  --x: 236px;
+  --y: 28px;
   width: 74px;
   height: 74px;
   background: radial-gradient(circle at 35% 30%, #67e8f9, #0891b2 70%);
 }
 
 .touch-btn.melee {
-  right: calc(222px + env(safe-area-inset-right));
-  bottom: calc(118px + env(safe-area-inset-bottom));
+  --x: 222px;
+  --y: 118px;
   width: 62px;
   height: 62px;
   background: radial-gradient(circle at 35% 30%, #d4d4d8, #52525b 70%);
 }
 
 .touch-btn.ult {
-  right: calc(124px + env(safe-area-inset-right));
-  bottom: calc(142px + env(safe-area-inset-bottom));
+  --x: 124px;
+  --y: 142px;
   width: 72px;
   height: 72px;
   font-size: 11px;
@@ -1782,6 +1785,71 @@ input[type='range'] {
   filter: brightness(1.3);
   transform: scale(0.94);
   opacity: 1;
+}
+
+/* Powers (advanced missions): the ASTRA button, shown only where powers exist. */
+.touch-btn.astra {
+  --x: 30px;
+  --y: 222px;
+  width: 64px;
+  height: 64px;
+  font-size: 11px;
+  display: none;
+  background: radial-gradient(circle at 35% 30%, #fde68a, #c2410c 70%);
+  box-shadow:
+    inset 0 -5px 0 rgba(0, 0, 0, 0.3),
+    0 0 0 3px rgba(255, 255, 255, 0.22),
+    0 6px 12px rgba(0, 0, 0, 0.4);
+}
+
+.touch.has-powers .touch-btn.astra {
+  display: grid;
+}
+
+.touch-btn.astra.ready {
+  animation: glowpulse 0.7s ease-in-out infinite;
+}
+
+.touch-btn.astra.void {
+  background: radial-gradient(circle at 35% 30%, #c4b5fd, #4c1d95 70%);
+}
+
+/* Auto-fire toggle: a pill near the top, clear of the thumbs. */
+.touch-toggle {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  right: calc(78px + env(safe-area-inset-right));
+  pointer-events: auto;
+  touch-action: none;
+  padding: 7px 12px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  background: rgba(10, 14, 28, 0.72);
+  color: #e2e8f0;
+  font: 600 12px var(--body, sans-serif);
+  letter-spacing: 0.04em;
+}
+
+.touch-toggle.on {
+  border-color: #f87171;
+  background: rgba(220, 38, 38, 0.8);
+  color: #fff;
+}
+
+/* Left-handed layout: buttons on the left, joystick on the right (same distances, mirrored). */
+.touch.lefty .touch-btn {
+  right: auto;
+  left: calc(var(--x) + env(safe-area-inset-left));
+}
+
+.touch.lefty .joy-zone {
+  left: auto;
+  right: 0;
+}
+
+.touch.lefty .joy-hint {
+  left: auto;
+  right: calc(28px + env(safe-area-inset-right));
 }
 
 /* Phones: see-through buttons so bosses and bullets behind them stay readable. */
@@ -2245,34 +2313,34 @@ body[data-current='game'] .toast {
   .touch-btn.jump {
     width: 92px;
     height: 92px;
-    right: calc(108px + env(safe-area-inset-right));
+    --x: 108px;
   }
 
   .touch-btn.fire {
     width: 70px;
     height: 70px;
-    bottom: calc(110px + env(safe-area-inset-bottom));
+    --y: 110px;
   }
 
   .touch-btn.dash {
     width: 62px;
     height: 62px;
-    right: calc(208px + env(safe-area-inset-right));
-    bottom: calc(24px + env(safe-area-inset-bottom));
+    --x: 208px;
+    --y: 24px;
   }
 
   .touch-btn.melee {
     width: 52px;
     height: 52px;
-    right: calc(196px + env(safe-area-inset-right));
-    bottom: calc(96px + env(safe-area-inset-bottom));
+    --x: 196px;
+    --y: 96px;
   }
 
   .touch-btn.ult {
     width: 60px;
     height: 60px;
-    right: calc(112px + env(safe-area-inset-right));
-    bottom: calc(122px + env(safe-area-inset-bottom));
+    --x: 112px;
+    --y: 122px;
   }
 }
 
@@ -2297,36 +2365,106 @@ body.reduce-motion *::after {
   .touch-btn.jump {
     width: 80px;
     height: 80px;
-    right: calc(96px + env(safe-area-inset-right));
-    bottom: calc(16px + env(safe-area-inset-bottom));
+    --x: 96px;
+    --y: 16px;
   }
 
   .touch-btn.fire {
     width: 62px;
     height: 62px;
-    right: calc(14px + env(safe-area-inset-right));
-    bottom: calc(96px + env(safe-area-inset-bottom));
+    --x: 14px;
+    --y: 96px;
   }
 
   .touch-btn.dash {
     width: 56px;
     height: 56px;
-    right: calc(184px + env(safe-area-inset-right));
-    bottom: calc(18px + env(safe-area-inset-bottom));
+    --x: 184px;
+    --y: 18px;
   }
 
   .touch-btn.melee {
     width: 46px;
     height: 46px;
-    right: calc(176px + env(safe-area-inset-right));
-    bottom: calc(84px + env(safe-area-inset-bottom));
+    --x: 176px;
+    --y: 84px;
   }
 
   .touch-btn.ult {
     width: 54px;
     height: 54px;
-    right: calc(100px + env(safe-area-inset-right));
-    bottom: calc(108px + env(safe-area-inset-bottom));
+    --x: 100px;
+    --y: 108px;
+    font-size: 9px;
+  }
+}
+
+/* ---------------------------------------------------------------- powers HUD */
+
+.hud-chip.power {
+  font-weight: 600;
+  border-color: rgba(251, 146, 60, 0.7);
+}
+
+.hud-chip.power.void {
+  border-color: rgba(167, 139, 250, 0.8);
+}
+
+.brahma-bar {
+  /* Team meter: bottom centre, between the thumbs on phones. */
+  position: absolute;
+  left: 50%;
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  width: min(300px, 32vw);
+  height: 14px;
+  border: 2px solid rgba(250, 204, 21, 0.6);
+  border-radius: 8px;
+  background: rgba(10, 14, 28, 0.75);
+  overflow: hidden;
+}
+
+.brahma-fill {
+  height: 100%;
+  width: 0;
+  background: linear-gradient(90deg, #f59e0b, #fde047, #fff7cc);
+  transition: width 0.2s;
+}
+
+.brahma-bar span {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font: 600 9px var(--body, sans-serif);
+  letter-spacing: 0.18em;
+  color: #fff;
+  text-shadow: 0 1px 2px #000;
+}
+
+.brahma-bar.ready {
+  border-color: #fde047;
+  animation: glowpulse 0.7s ease-in-out infinite;
+}
+
+@media (max-height: 500px) {
+  .touch-btn.astra {
+    --y: 192px;
+    width: 56px;
+    height: 56px;
+  }
+
+  /* Phones: the ASTRA button shows the held power; the team meter sits at the bottom, between the thumbs. */
+  .hud-chip.power {
+    display: none;
+  }
+}
+
+@media (max-height: 380px) {
+  .touch-btn.astra {
+    --y: 168px;
+    width: 50px;
+    height: 50px;
     font-size: 9px;
   }
 }

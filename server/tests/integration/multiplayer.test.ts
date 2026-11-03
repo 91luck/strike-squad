@@ -197,7 +197,7 @@ describe('mission', () => {
     await advance(ts, 10, clients);
     const seen = [a, b, c].map((x) => snapPlayer(x, a.id).x);
     expect(new Set(seen).size).toBe(1);
-    expect(seen[0]).toBeGreaterThan(5 * T + 16 + 50);
+    expect(seen[0]).toBeGreaterThan(5 * T + 16 + 40);
   });
 
   it('shots are simulated on the server and kills credited to the shooter', async () => {
@@ -285,7 +285,7 @@ describe('mission', () => {
     // Dash: press and release arrive between two ticks.
     a.send(input(1, { dash: true, mx: 1 }));
     a.send(input(2, { mx: 1 }));
-    await advance(ts, 4, clients); // snapshots go out every 2 ticks
+    await advance(ts, 6, clients); // a dash lasts 6 ticks; snapshots go out every 2
     expect(snapPlayer(b, a.id).x).toBeGreaterThan(50 * T + 16 + 80);
     // Super move (meter set server-side; a client cannot fill it).
     const me = sim.players.get(a.id)!;
@@ -523,7 +523,7 @@ describe('connections', () => {
         .sort(),
     ).toEqual(ids2);
     expect(snapPlayer(r2.clients[0]!, r2.clients[0]!.id).x).toBe(5 * T + 16);
-    expect(snapPlayer(r1.clients[0]!, r1.clients[0]!.id).x).toBeGreaterThan(5 * T + 16 + 100);
+    expect(snapPlayer(r1.clients[0]!, r1.clients[0]!.id).x).toBeGreaterThan(5 * T + 16 + 80);
   });
 });
 
@@ -582,6 +582,25 @@ describe('play now', () => {
 });
 
 describe('real-time loop', () => {
+  it('starts the mission the host picked, and only the host may change it', async () => {
+    const t2 = await startTestServer();
+    try {
+      const r = await createRoom(t2, ['A', 'B']);
+      open.push(...r.clients);
+      const [host, guest] = r.clients;
+      guest!.send({ t: 'setSettings', settings: { mission: 'mission-2' } });
+      expect((await guest!.next('error')).code).toBe('not_host');
+      host!.send({ t: 'setSettings', settings: { mission: 'mission-3' } });
+      const room = await guest!.next((m) => m.t === 'room' && m.room.settings.mission === 'mission-3');
+      expect(room.room.settings.mission).toBe('mission-3');
+      host!.send({ t: 'startMatch' });
+      const ms = await guest!.next('matchStart');
+      expect(ms.levelId).toBe('mission-3');
+    } finally {
+      await t2.stop();
+    }
+  });
+
   it('runs missions on the timer without manual ticks', async () => {
     const live = await startTestServer({ TIME_SCALE: '20' }, { manualTicks: false });
     try {

@@ -1,5 +1,7 @@
 export * from './config';
 export * from './level';
+export * from './course';
+export * from './missions';
 export * from './physics';
 export * from './rng';
 export * from './sim';
