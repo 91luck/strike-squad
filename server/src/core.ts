@@ -38,9 +38,11 @@ export interface Client {
   inputBucket: TokenBucket;
   msgBucket: TokenBucket;
   createBucket: TokenBucket;
+  /** Abuse counters, reset every ABUSE_WINDOW_MS so long sessions on shaky networks never add up to a kick. */
   violations: number;
   inputDrops: number;
   badMessages: number;
+  abuseWindowStart: number;
   lastRateErrorAt: number;
 }
 
@@ -68,6 +70,16 @@ export interface ServerStats {
 }
 
 const MAX_BUFFERED_BYTES = 1_000_000; // slow-consumer protection
+
+/**
+ * Kicks are for floods, not for bad networks. A phone whose connection stalls for a few seconds then delivers its
+ * whole input backlog at once; the surplus is dropped (stale anyway) but must not count toward a kick forever.
+ * Counters therefore cover a 10 s window: a real flood still trips INPUT_DROP_KICK (~150 inputs/s for 10 s).
+ */
+const ABUSE_WINDOW_MS = 10_000;
+const INPUT_DROP_KICK = 900;
+const VIOLATION_KICK = 50;
+const BAD_MESSAGE_KICK = 25;
 
 /**
  * All multiplayer logic (sessions, rooms, matchmaking, validation, rate limits), independent of any
@@ -226,6 +238,7 @@ export class GameCore {
       violations: 0,
       inputDrops: 0,
       badMessages: 0,
+      abuseWindowStart: now,
       lastRateErrorAt: 0,
     };
     this.clients.add(client);
@@ -290,6 +303,10 @@ export class GameCore {
   receive(client: Client, text: string | null): void {
     this.counters.msgsIn++;
     const now = Date.now();
+    if (now - client.abuseWindowStart > ABUSE_WINDOW_MS) {
+      client.abuseWindowStart = now;
+      client.inputDrops = client.violations = client.badMessages = 0;
+    }
     if (text === null) {
       this.counters.rejected++;
       return this.badMessage(client, 'Binary messages are not supported.');
@@ -316,7 +333,7 @@ export class GameCore {
       this.counters.rejected++;
       if (cheap) {
         client.inputDrops++;
-        if (client.inputDrops > 600) client.transport.close(1008, 'rate limit');
+        if (client.inputDrops > INPUT_DROP_KICK) client.transport.close(1008, 'rate limit');
         return; // silently drop excess inputs
       }
       return this.rateLimited(client, now);
@@ -350,13 +367,13 @@ export class GameCore {
       client.lastRateErrorAt = now;
       this.sendError(client, 'rate_limited', 'You are sending messages too quickly.');
     }
-    if (client.violations > 50) client.transport.close(1008, 'rate limit');
+    if (client.violations > VIOLATION_KICK) client.transport.close(1008, 'rate limit');
   }
 
   private badMessage(client: Client, message: string): void {
     client.badMessages++;
     this.sendError(client, 'bad_message', message);
-    if (client.badMessages > 25) client.transport.close(1008, 'too many invalid messages');
+    if (client.badMessages > BAD_MESSAGE_KICK) client.transport.close(1008, 'too many invalid messages');
   }
 
   private dispatch(client: Client, m: ClientMessage, now: number): void {

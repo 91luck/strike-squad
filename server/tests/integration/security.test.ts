@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GAME_CONFIG, PROTOCOL_VERSION } from '@strikesquad/shared';
 import { ConfigError, loadConfig } from '../../src/config';
 import { TestClient, advance, createRoom, startMatch, startTestServer, type TestServer } from '../helpers';
@@ -217,6 +217,37 @@ describe('abuse of game actions', () => {
     // Speed is enforced by the simulation, no matter how many inputs were sent.
     expect(t.x - 200).toBeLessThanOrEqual(GAME_CONFIG.player.runSpeed + 1);
     expect(a.closed).toBeNull();
+  });
+
+  it('a phone whose network keeps stalling and flushing its backlog is never kicked', async () => {
+    // Regression: drops used to add up over the whole session, so ~10 three-second stalls kicked a player (1008)
+    // and the client gave up for good. Bursts are dropped but only count inside a 10 s window.
+    const { clients } = await room(['A', 'B']);
+    const [a] = clients as [TestClient, TestClient];
+    await startMatch(ts, clients);
+    let fake = Date.now();
+    const spy = vi.spyOn(Date, 'now').mockImplementation(() => fake);
+    try {
+      let seq = 0;
+      for (let stall = 0; stall < 14; stall++) {
+        fake += 3000; // the network was silent for 3 s...
+        for (let i = 0; i < 90; i++) a.send(input(++seq, { mx: 1 })); // ...then 3 s of inputs arrive at once
+        await new Promise((r) => setTimeout(r, 60));
+      }
+      expect(a.closed).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('a sustained input flood is still disconnected', async () => {
+    const { clients } = await room(['A', 'B']);
+    const [a] = clients as [TestClient, TestClient];
+    await startMatch(ts, clients);
+    for (let i = 1; i <= 1200; i++) a.send(input(i, { mx: 1 }));
+    await new Promise((r) => setTimeout(r, 400));
+    expect(a.closed?.code).toBe(1008);
+    await expectServerAlive();
   });
 
   it('lag compensation: accepts the viewed tick, clamps the rewind, rejects malformed values', async () => {

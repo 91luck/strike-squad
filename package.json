@@ -2,6 +2,8 @@
   "name": "strike-squad",
   "version": "0.1.0",
   "private": true,
+  "author": "Lokesh Mahadule",
+  "license": "SEE LICENSE IN LICENSE",
   "description": "STRIKE SQUAD - a server-authoritative co-op run-and-gun mission game for up to 8 friends",
   "type": "module",
   "engines": {
@@ -26,6 +28,7 @@
     "test:integration": "vitest run server/tests/integration",
     "test:e2e": "playwright test",
     "playtest": "tsx scripts/playtest.ts",
+    "loadtest": "tsx scripts/loadtest.ts",
     "check": "npm run lint && npm run typecheck && npm test && npm run build",
     "audit:deps": "npm audit --audit-level=high",
     "dev:cloudflare": "wrangler dev",

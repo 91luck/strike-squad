@@ -28,10 +28,29 @@ export type Tile = (typeof Tile)[keyof typeof Tile];
  * its palette, so adding a style never touches the simulation.
  */
 export type ArtStyle =
-  'jungle' | 'river' | 'towers' | 'fortress' | 'desert' | 'snow' | 'night' | 'inferno' | 'space';
+  | 'jungle'
+  | 'river'
+  | 'towers'
+  | 'fortress'
+  | 'desert'
+  | 'snow'
+  | 'night'
+  | 'inferno'
+  | 'space'
+  // Themed worlds: a pharaoh's tomb, a frost-giant hall, Olympus (stormy ruins and the marble temple),
+  // the demon citadel's gate and the inside of an alien hive ship.
+  | 'tomb'
+  | 'frosthall'
+  | 'olympus'
+  | 'temple'
+  | 'hellgate'
+  | 'hive';
 
-/** Who the enemies are (cosmetic): soldiers, demons, or void creatures from deep space. */
-export type Faction = 'army' | 'demon' | 'void';
+/**
+ * Who the enemies are (cosmetic only: same rules, different look, names and boss art). `army` soldiers,
+ * the `pharaoh`'s tomb guard, `norse` frost warriors, `olympus` myth beasts, a `demon` army and `void` aliens.
+ */
+export type Faction = 'army' | 'pharaoh' | 'norse' | 'olympus' | 'demon' | 'void';
 
 export interface EnemySpawn {
   id: number;

@@ -4,16 +4,16 @@ All numbers live in `shared/src/config.ts` and are the single source of truth fo
 
 ## Missions
 
-Four missions, each harder than the last. Pick one in **Play with friends** (the host can change it in the lobby), in **Solo training**, or press **Next mission** after a win. A ✓ in the menu marks missions you have completed on this device.
+Six missions, each harder than the last, each in its own world. Pick one in **Play with friends** (the host can change it in the lobby), in **Solo training**, or press **Next mission** after a win. A ✓ in the menu marks missions you have completed on this device.
 
-| #   | Mission                 | Place            | Length    | Arenas (ambush · boss)                                                                                                   | Toughness (troop health · fire rate · damage · boss health · boss pace) |
-| --- | ----------------------- | ---------------- | --------- | ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------- |
-| 1   | Operation Lifeline      | Jungle           | 276 tiles | AMBUSH · WARHOUND · VULTURE · IRON FORTRESS                                                                              | base rules                                                              |
-| 2   | Operation Sandstorm     | Desert canyon    | 378 tiles | SANDSTORM (4 waves) · **TWIN HOUNDS** (two walkers) · LOCKDOWN (4) · VULTURE + escorts · SAND FORTRESS                   | ×1.15 · ×1.1 · ×1.1 · ×1.1 · ×1.1                                       |
-| 3   | Operation Frostbite     | Frozen mountains | 408 tiles | WHITEOUT (4) · ICE VULTURE + escorts · BUNKER ASSAULT (4) · IRON HOUND + escorts · FROST CITADEL                         | ×1.25 · ×1.15 · ×1.15 · ×1.15 · ×1.12                                   |
-| 4   | Operation Blackout      | Night city       | 396 tiles | BLACKOUT (5) · **HUNTER-KILLERS** (walker + gunship) · LAST STAND (5) · HOUND MK-II · IRON FORTRESS MK-II                | ×1.35 · ×1.2 · ×1.2 · ×1.2 · ×1.15                                      |
-| 5   | Operation Astra         | Burning citadel  | 372 tiles | DEMON HORDE (4) · INFERNO BEAST + escorts · WINGED DEMON + escorts · BLOOD MOON (5) · DEMON KING                         | ×1.25 · ×1.15 · ×1.15 · ×1.15 · ×1.12 · **advanced**                    |
-| 6   | Operation Event Horizon | Deep space       | 394 tiles | VOID SWARM (4) · VOID STALKER (low gravity) · STAR REAPER + escorts · EVENT HORIZON (5) · SINGULARITY CORE (low gravity) | ×1.35 · ×1.2 · ×1.2 · ×1.2 · ×1.15 · **advanced**                       |
+| #   | Mission              | Place           | Length    | Arenas (ambush · boss)                                                                                                     | Toughness (troop health · fire rate · damage · boss health · boss pace) |
+| --- | -------------------- | --------------- | --------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| 1   | Operation Lifeline   | Jungle          | 276 tiles | AMBUSH · WARHOUND · VULTURE · IRON FORTRESS                                                                                | base rules                                                              |
+| 2   | Curse of the Pharaoh | Desert tombs    | 378 tiles | THE CURSE WAKES (4 waves) · **TWIN SCORPIONS** (two walkers) · SEALED CHAMBER (4) · SUN FALCON + escorts · ANUBIS COLOSSUS | ×1.15 · ×1.1 · ×1.1 · ×1.1 · ×1.1                                       |
+| 3   | Thunder of the North | Frozen north    | 408 tiles | DRAUGR WAKE (4) · THOR, THUNDER GOD + escorts · SHIELD WALL (4) · FENRIR + escorts · FROST GIANT                           | ×1.25 · ×1.15 · ×1.15 · ×1.15 · ×1.12                                   |
+| 4   | Storm over Olympus   | Mount Olympus   | 396 tiles | STORM GATE (5) · **MINOTAUR AND HARPY** (walker + gunship) · LAST STAND (5) · MINOTAUR KING · ZEUS, STORM KING             | ×1.35 · ×1.2 · ×1.2 · ×1.2 · ×1.15                                      |
+| 5   | Operation Astra      | Burning citadel | 372 tiles | DEMON HORDE (4) · INFERNO BEAST + escorts · FIRE DRAGON + escorts · BLOOD MOON (5) · DEMON KING                            | ×1.25 · ×1.15 · ×1.15 · ×1.15 · ×1.12 · **advanced**                    |
+| 6   | Alien Invasion       | Deep space      | 394 tiles | ALIEN SWARM (4) · XENO CRAWLER (low gravity) · UFO MOTHERSHIP + escorts · EVENT HORIZON (5) · HIVE QUEEN (low gravity)     | ×1.35 · ×1.2 · ×1.2 · ×1.2 · ×1.15 · **advanced**                       |
 
 - **Escorts:** in a boss arena with escorts, the first wave arrives with the boss and each next wave 3 s after the previous one is down, while a boss stands.
 - **Twin bosses** share one health bar (each has 60–62% of a lone boss's health).
@@ -46,7 +46,18 @@ Auto-fire starts **off** in advanced missions. Tap **AUTO FIRE** (top right) or 
 | Gravity well      | pulls you sideways toward the pit below it (you can always run out); bends shots    |
 | Magnetic storm    | every shot curves (drawn as an aurora)                                              |
 
-Enemies are demons (mission 5) and void creatures (mission 6): the same troop types and boss machines with their own look.
+## Worlds
+
+Every mission after the first has its own enemies, bosses, ground, props, gates, sky and shot colours. Rules do not change: each faction has the same six troop types and the same three boss behaviours (the beast charges and stomps like WARHOUND, the flyer bombs and fires slow missiles like VULTURE, the final boss fires low/high beams in three phases like the IRON FORTRESS).
+
+| #   | Faction | Troops                                                           | Beast          | Flyer          | Final boss      | World                                     |
+| --- | ------- | ---------------------------------------------------------------- | -------------- | -------------- | --------------- | ----------------------------------------- |
+| 1   | army    | soldiers, riot shields, jetpacks, drones, turrets                | WARHOUND       | VULTURE        | IRON FORTRESS   | jungle, river, watchtowers, iron fortress |
+| 2   | pharaoh | mummies, jackal guards, winged mummies, scarabs, cobra idols     | Giant Scorpion | Sun Falcon     | Anubis Colossus | desert, pyramids, sandstone tombs         |
+| 3   | norse   | draugr with round shields, ravens, rune totems                   | Fenrir         | Thor           | Frost Giant     | snow, pines, aurora, ice halls            |
+| 4   | olympus | skeleton hoplites, harpies, bronze owls, stone lions             | Minotaur       | Storm Harpy    | Zeus            | marble ruins in a lightning storm, temple |
+| 5   | demon   | demons, bat-winged imps, fire wisps, skull totems                | Inferno Beast  | Fire Dragon    | Demon King      | burning citadel, obsidian, bone gates     |
+| 6   | void    | aliens with ray guns and hover discs, probe saucers, plasma pods | Xeno Crawler   | UFO Mothership | Hive Queen      | deep space, the inside of a hive ship     |
 
 ## Mission rules
 

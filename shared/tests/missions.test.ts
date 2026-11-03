@@ -27,6 +27,23 @@ describe('mission registry', () => {
       expect(MISSIONS[i]!.stars).toBeGreaterThanOrEqual(MISSIONS[i - 1]!.stars);
   });
 
+  it('gives every mission after the first its own world: a faction, art and boss arenas of its own', () => {
+    // Mission 1 is the army story opener; missions 2-6 must not reuse its soldiers or its iron fortress.
+    const factions = MISSION_IDS.map((id) => getMission(id).faction);
+    expect(factions[0]).toBe('army');
+    expect(new Set(factions).size).toBe(MISSION_IDS.length);
+    const arenaNames = new Set<string>();
+    for (const id of MISSION_IDS.slice(1)) {
+      const level = getMission(id);
+      for (const a of level.art) expect(['fortress', 'night', 'towers'], `${id} art`).not.toContain(a.style);
+      for (const a of level.arenas.filter((x) => x.boss)) {
+        expect(arenaNames.has(a.name), `${id} reuses arena ${a.name}`).toBe(false);
+        arenaNames.add(a.name);
+        expect(a.name).not.toMatch(/HOUND|VULTURE|IRON FORTRESS/);
+      }
+    }
+  });
+
   it('builds a mission once and shares it (rooms and the client reuse one immutable copy)', () => {
     expect(getMission('mission-3')).toBe(getMission('mission-3'));
     expect(getMission('no-such-mission').id).toBe('mission-1');
@@ -137,7 +154,7 @@ describe('mission rules in the sim', () => {
     const sim = new Sim({ seed: 5, settings: { mission: 'mission-2' } });
     sim.addPlayer({ id: 'a', name: 'A', slot: 0 });
     while (sim.phase === 'countdown') sim.step();
-    const arena = sim.level.arenas.find((a) => a.name === 'TWIN HOUNDS')!;
+    const arena = sim.level.arenas.find((a) => a.name === 'TWIN SCORPIONS')!;
     const twins = [...sim.enemies.values()].filter((e) => e.arena === arena.id && isBoss(e.kind));
     expect(twins).toHaveLength(2);
     const p = sim.players.get('a')!;
@@ -158,7 +175,7 @@ describe('mission rules in the sim', () => {
     const sim = new Sim({ seed: 9, settings: { mission: 'mission-2' } });
     sim.addPlayer({ id: 'a', name: 'A', slot: 0 });
     while (sim.phase === 'countdown') sim.step();
-    const arena = sim.level.arenas.find((a) => a.name === 'VULTURE')!;
+    const arena = sim.level.arenas.find((a) => a.name === 'SUN FALCON')!;
     expect(arena.waves.length).toBe(2);
     const p = sim.players.get('a')!;
     p.x = arena.trigger + 10;

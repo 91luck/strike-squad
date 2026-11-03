@@ -76,9 +76,11 @@ test('menu shows every entry point and no console errors', async ({ page }) => {
   for (const id of ['btn-play', 'btn-create', 'btn-join', 'btn-practice', 'btn-howto', 'btn-settings']) {
     await expect(page.getByTestId(id)).toBeVisible();
   }
+  await expect(page.getByTestId('credit')).toContainText('Developed by Lokesh Mahadule');
   await page.getByTestId('btn-howto').click();
   const howto = page.getByRole('dialog', { name: 'How to play' });
   await expect(howto).toBeVisible();
+  await expect(howto).toContainText('Lokesh Mahadule');
   await expect(howto).toContainText('Super moves');
   await expect(howto).toContainText('WARHOUND');
   await page.keyboard.press('Escape');
@@ -451,6 +453,39 @@ async function trackDuring(page: Page, action: () => Promise<void>): Promise<{ d
     return { dx: w.__track.maxX - w.__track.x0, rose: w.__track.y0 - w.__track.minY };
   });
 }
+
+test('@mobile Controls and Settings fit on screen on short landscape phones, and open from the pause menu', async ({
+  page,
+}) => {
+  // 290 px tall: a 360 px landscape phone minus the browser's address bar.
+  for (const size of [
+    { width: 740, height: 290 },
+    { width: 915, height: 412 },
+    { width: 412, height: 839 },
+  ]) {
+    await page.setViewportSize(size);
+    await gotoMenu(page, 'Thumbs');
+    for (const id of ['btn-howto', 'btn-settings', 'btn-practice', 'btn-create']) {
+      const box = await page.getByTestId(id).boundingBox();
+      expect(box, id).not.toBeNull();
+      expect(box!.y + box!.height, `${id} bottom at ${size.width}x${size.height}`).toBeLessThanOrEqual(
+        size.height,
+      );
+    }
+  }
+  await page.setViewportSize({ width: 915, height: 412 });
+  await page.getByTestId('btn-practice').click();
+  await page.getByTestId('btn-practice-go').click();
+  await page.getByTestId('btn-pause').click();
+  await page.getByTestId('btn-pause-settings').click();
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible();
+  await expect(page.getByTestId('set-hand')).toBeVisible();
+  await page.getByRole('dialog', { name: 'Settings' }).getByRole('button', { name: 'Done' }).click();
+  await page.getByTestId('btn-pause-howto').click();
+  await expect(page.getByRole('dialog', { name: 'How to play' })).toBeVisible();
+  await page.getByRole('dialog', { name: 'How to play' }).getByRole('button', { name: 'Got it' }).click();
+  await expect(page.getByTestId('pause')).toBeVisible(); // still paused underneath
+});
 
 test('@mobile touch controls are shown in a mission', async ({ page }) => {
   await gotoMenu(page, 'Thumbs');

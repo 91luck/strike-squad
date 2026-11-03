@@ -153,8 +153,9 @@ export class Connection {
       window.clearInterval(this.pingTimer);
       if (this.ws === ws) this.ws = null;
       if (!this.wanted) return;
-      // 1008 = policy violation (origin rejected / abusive client): retrying would just repeat the failure.
-      if (e.code === 1008) {
+      // 1008 from a rejected origin would just repeat; a rate-limit kick (a burst after a network stall) is worth
+      // a reconnect, which resumes the same seat.
+      if (e.code === 1008 && !/rate limit/i.test(e.reason)) {
         this.attempt = this.maxAttempts;
       }
       this.scheduleRetry();

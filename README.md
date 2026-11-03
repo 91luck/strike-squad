@@ -96,3 +96,11 @@ The browser sends only **intentions** (left/right, up/down, jump, fire, dash, kn
 ## Roadmap
 
 Mission 2 and a mission select · Hindi UI · emotes / quick chat · gamepad support · computer buddies to fill online squads.
+
+## Author and licence
+
+STRIKE SQUAD is developed by **Lokesh Mahadule**. Copyright © 2026 Lokesh Mahadule. All rights reserved.
+
+This is **not** open-source software. No copying, modification, redistribution or reuse of the code, levels or
+art is allowed without written permission; see [LICENSE](LICENSE). Open-source packages used to build the game
+keep their own licences.

@@ -23,13 +23,17 @@ export interface ZoneStyle {
   dirtDark: string;
   grade: string;
   /** Ground texture, platform material and the middle backdrop layer (tinted with `mid`). */
-  ground: 'grass' | 'brick' | 'plate';
-  plat: 'wood' | 'metal';
-  layer: 'canopy' | 'industry' | 'dunes';
+  ground: 'grass' | 'brick' | 'plate' | 'sandstone' | 'ice' | 'marble' | 'obsidian' | 'hive';
+  plat: 'wood' | 'metal' | 'stone' | 'ice' | 'marble' | 'bone' | 'chitin';
+  layer: 'canopy' | 'industry' | 'dunes' | 'pyramids' | 'pines' | 'temples' | 'spires' | 'hive';
   /** Floating particles: fireflies, embers, snowflakes, sand dust or rain. */
   ambient: 'fireflies' | 'embers' | 'snow' | 'dust' | 'rain' | 'motes';
   /** Prop set: jungle plants, a field camp, or a military base. Tufts: grass tufts in the camp set. */
-  props: 'jungle' | 'camp' | 'base';
+  props: 'jungle' | 'camp' | 'base' | 'tomb' | 'norse' | 'greek' | 'hell' | 'alien';
+  /** Look of the arena gates (the walls that lock you in): blast door, carved stone, ice, bronze, bone, membrane. */
+  gate: 'blast' | 'stone' | 'ice' | 'bronze' | 'bone' | 'membrane';
+  /** Sky effect: northern lights or a lightning storm. */
+  skyFx?: 'aurora' | 'storm';
   tufts: boolean;
   /** River/pit water (top, bottom). */
   water: [string, string];
@@ -61,6 +65,7 @@ export const ZONES: Record<ZoneId, ZoneStyle> = {
     props: 'jungle',
     tufts: true,
     water: BLUE_WATER,
+    gate: 'blast',
     lights: false,
     moon: false,
   },
@@ -82,6 +87,7 @@ export const ZONES: Record<ZoneId, ZoneStyle> = {
     props: 'jungle',
     tufts: true,
     water: BLUE_WATER,
+    gate: 'blast',
     lights: false,
     moon: false,
   },
@@ -103,6 +109,7 @@ export const ZONES: Record<ZoneId, ZoneStyle> = {
     props: 'camp',
     tufts: true,
     water: BLUE_WATER,
+    gate: 'blast',
     lights: false,
     moon: false,
   },
@@ -124,6 +131,7 @@ export const ZONES: Record<ZoneId, ZoneStyle> = {
     props: 'base',
     tufts: false,
     water: BLUE_WATER,
+    gate: 'blast',
     lights: true,
     moon: false,
   },
@@ -139,12 +147,13 @@ export const ZONES: Record<ZoneId, ZoneStyle> = {
     dirtDark: '#8f6638',
     grade: 'rgba(255, 190, 110, 0.06)',
     ground: 'grass',
-    plat: 'wood',
-    layer: 'dunes',
+    plat: 'stone',
+    layer: 'pyramids',
     ambient: 'dust',
-    props: 'camp',
+    props: 'tomb',
     tufts: false,
     water: ['#3f8fa0', '#173c47'],
+    gate: 'stone',
     lights: false,
     moon: false,
   },
@@ -161,11 +170,12 @@ export const ZONES: Record<ZoneId, ZoneStyle> = {
     grade: 'rgba(160, 200, 255, 0.06)',
     ground: 'grass',
     plat: 'wood',
-    layer: 'canopy',
+    layer: 'pines',
     ambient: 'snow',
-    props: 'camp',
+    props: 'norse',
     tufts: false,
     water: ['#7fb8d6', '#24465c'],
+    gate: 'ice',
     lights: false,
     moon: false,
   },
@@ -187,6 +197,7 @@ export const ZONES: Record<ZoneId, ZoneStyle> = {
     props: 'base',
     tufts: false,
     water: ['#1d3b4f', '#060d14'],
+    gate: 'blast',
     lights: true,
     moon: true,
   },
@@ -201,13 +212,14 @@ export const ZONES: Record<ZoneId, ZoneStyle> = {
     dirt: '#3a1f1c',
     dirtDark: '#24120f',
     grade: 'rgba(255, 60, 20, 0.08)',
-    ground: 'brick',
-    plat: 'metal',
-    layer: 'canopy',
+    ground: 'obsidian',
+    plat: 'bone',
+    layer: 'spires',
     ambient: 'embers',
-    props: 'base',
+    props: 'hell',
     tufts: false,
     water: ['#ff7a1a', '#7c1d06'],
+    gate: 'bone',
     lights: false,
     moon: false,
   },
@@ -226,12 +238,148 @@ export const ZONES: Record<ZoneId, ZoneStyle> = {
     plat: 'metal',
     layer: 'dunes',
     ambient: 'motes',
-    props: 'base',
+    props: 'alien',
     tufts: false,
     water: ['#3b1d6e', '#05010f'],
+    gate: 'membrane',
     lights: true,
     moon: true,
     space: true,
+  },
+  tomb: {
+    sky: ['#2a1640', '#b4583a', '#f4c27a'],
+    sun: '#ffd27a',
+    far: '#8a5a3c',
+    mid: '#5a3a24',
+    fog: 'rgba(240, 180, 110, 0.28)',
+    top: '#e6c88c',
+    topLight: '#f7e2b0',
+    dirt: '#c9a46a',
+    dirtDark: '#9a7444',
+    grade: 'rgba(255, 170, 80, 0.07)',
+    ground: 'sandstone',
+    plat: 'stone',
+    layer: 'pyramids',
+    ambient: 'dust',
+    props: 'tomb',
+    tufts: false,
+    water: ['#3f8fa0', '#173c47'],
+    gate: 'stone',
+    lights: false,
+    moon: false,
+  },
+  frosthall: {
+    sky: ['#040d18', '#0c2638', '#1d4b5c'],
+    sun: '#e0f2fe',
+    far: '#29445a',
+    mid: '#132a38',
+    fog: 'rgba(160, 220, 255, 0.2)',
+    top: '#e0f2fe',
+    topLight: '#ffffff',
+    dirt: '#5f8fb0',
+    dirtDark: '#3d6a8a',
+    grade: 'rgba(100, 200, 255, 0.08)',
+    ground: 'ice',
+    plat: 'ice',
+    layer: 'pines',
+    ambient: 'snow',
+    props: 'norse',
+    tufts: false,
+    water: ['#7fb8d6', '#24465c'],
+    gate: 'ice',
+    skyFx: 'aurora',
+    lights: false,
+    moon: true,
+  },
+  olympus: {
+    sky: ['#0b1020', '#26304d', '#59607e'],
+    sun: '#e0e7ff',
+    far: '#3b4260',
+    mid: '#1f2438',
+    fog: 'rgba(140, 150, 200, 0.22)',
+    top: '#6b8f47',
+    topLight: '#9cc06a',
+    dirt: '#bdb7aa',
+    dirtDark: '#8f897c',
+    grade: 'rgba(120, 140, 255, 0.07)',
+    ground: 'marble',
+    plat: 'marble',
+    layer: 'temples',
+    ambient: 'rain',
+    props: 'greek',
+    tufts: true,
+    water: ['#1d3b4f', '#060d14'],
+    gate: 'bronze',
+    skyFx: 'storm',
+    lights: false,
+    moon: true,
+  },
+  temple: {
+    sky: ['#0f0a24', '#4c1d95', '#f59e0b'],
+    sun: '#fde68a',
+    far: '#4b3b7a',
+    mid: '#2a2046',
+    fog: 'rgba(250, 204, 21, 0.18)',
+    top: '#f5f1e6',
+    topLight: '#ffffff',
+    dirt: '#e2dccd',
+    dirtDark: '#b8b09e',
+    grade: 'rgba(255, 210, 90, 0.06)',
+    ground: 'marble',
+    plat: 'marble',
+    layer: 'temples',
+    ambient: 'dust',
+    props: 'greek',
+    tufts: false,
+    water: ['#1d3b4f', '#060d14'],
+    gate: 'bronze',
+    skyFx: 'storm',
+    lights: false,
+    moon: false,
+  },
+  hellgate: {
+    sky: ['#0a0203', '#2a0606', '#7f1d1d'],
+    sun: '#ef4444',
+    far: '#2a0808',
+    mid: '#140404',
+    fog: 'rgba(200, 40, 20, 0.32)',
+    top: '#3b1f1c',
+    topLight: '#f97316',
+    dirt: '#221719',
+    dirtDark: '#0e090a',
+    grade: 'rgba(255, 40, 20, 0.09)',
+    ground: 'obsidian',
+    plat: 'bone',
+    layer: 'spires',
+    ambient: 'embers',
+    props: 'hell',
+    tufts: false,
+    water: ['#ff7a1a', '#7c1d06'],
+    gate: 'bone',
+    lights: false,
+    moon: false,
+  },
+  hive: {
+    sky: ['#020806', '#062016', '#14532d'],
+    sun: '#86efac',
+    far: '#0f2a1c',
+    mid: '#0a1a12',
+    fog: 'rgba(60, 220, 120, 0.16)',
+    top: '#4ade80',
+    topLight: '#bbf7d0',
+    dirt: '#1f2d22',
+    dirtDark: '#0f1a12',
+    grade: 'rgba(60, 255, 140, 0.06)',
+    ground: 'hive',
+    plat: 'chitin',
+    layer: 'hive',
+    ambient: 'motes',
+    props: 'alien',
+    tufts: false,
+    water: ['#22c55e', '#052e16'],
+    gate: 'membrane',
+    lights: true,
+    moon: false,
   },
 };
 
@@ -303,8 +451,110 @@ export function groundTile(zone: ZoneId, top: boolean, v: number): HTMLCanvasEle
     }
     for (let i = 0; i < 18; i++) px(Math.floor(r() * 30) + 1, Math.floor(r() * 30) + 1, tone(z.dirt, -0.12));
     if (top) {
-      for (let i = 0; i < 8; i++) px(i * 4, 0, i % 2 ? '#1d1d1d' : '#f4c430', 4, 4);
-      px(0, 4, '#1d1d1d', T, 1);
+      // army plating gets hazard stripes; a spaceship deck gets a neon edge
+      if (z.space) {
+        px(0, 0, z.topLight, T, 2);
+        px(0, 2, '#67e8f9', T, 1);
+        for (let i = 0; i < 4; i++) px(3 + i * 8, 3, '#a78bfa', 3, 1);
+      } else {
+        for (let i = 0; i < 8; i++) px(i * 4, 0, i % 2 ? '#1d1d1d' : '#f4c430', 4, 4);
+        px(0, 4, '#1d1d1d', T, 1);
+      }
+    }
+  } else if (z.ground === 'sandstone' || z.ground === 'marble') {
+    // big cut blocks; sandstone gets carved glyphs, marble gets veins and an olive/stone lip on top
+    const marble = z.ground === 'marble';
+    g.fillStyle = z.dirt;
+    g.fillRect(0, 0, T, T);
+    const off = v % 2 ? 16 : 0;
+    px(0, 15, z.dirtDark, T, 1);
+    px((off + 15) % 32, 0, z.dirtDark, 1, 15);
+    px((off + 31) % 32, 16, z.dirtDark, 1, 16);
+    px(0, 0, tone(z.dirt, 0.14), T, 1);
+    px(0, 16, tone(z.dirt, 0.1), T, 1);
+    if (marble) {
+      for (let i = 0; i < 3; i++) {
+        let x = Math.floor(r() * 28);
+        for (let y = 2 + Math.floor(r() * 10); y < 30; y += 2) {
+          px(x, y, tone(z.dirt, -0.12), 1, 2);
+          x += r() < 0.5 ? 1 : -1;
+          if (x < 0 || x > 31) break;
+        }
+      }
+    } else if (v % 4 === 1) {
+      // a carved eye glyph / ankh
+      const gx = 6 + Math.floor(r() * 14);
+      const gy = top ? 18 : 4 + Math.floor(r() * 16);
+      px(gx, gy + 2, z.dirtDark, 8, 1);
+      px(gx + 2, gy, z.dirtDark, 4, 1);
+      px(gx + 3, gy + 1, z.dirtDark, 2, 2);
+      px(gx + 1, gy + 4, z.dirtDark, 1, 3);
+    } else if (v % 4 === 3) {
+      const gx = 8 + Math.floor(r() * 12);
+      px(gx + 1, 4, z.dirtDark, 3, 3);
+      px(gx + 2, 5, z.dirt, 1, 1);
+      px(gx + 2, 7, z.dirtDark, 1, 6);
+      px(gx, 9, z.dirtDark, 5, 1);
+    }
+    for (let i = 0; i < 10; i++)
+      px(Math.floor(r() * 31), Math.floor(r() * 31), tone(z.dirt, (r() - 0.5) * 0.15));
+    if (top) {
+      px(0, 0, z.top, T, marble ? 4 : 3);
+      px(0, 0, z.topLight, T, 1);
+      if (marble && z.top !== z.dirt)
+        for (let x = 0; x < T; x += 3) px(x, 4, z.top, 2, 1 + Math.floor(r() * 3));
+    }
+  } else if (z.ground === 'ice') {
+    g.fillStyle = z.dirt;
+    g.fillRect(0, 0, T, T);
+    // translucent ice blocks with bright cracks and trapped bubbles
+    for (let i = 0; i < 4; i++) {
+      const x0 = Math.floor(r() * 30);
+      for (let k = 0; k < 7; k++) px(x0 + k, Math.floor(r() * 3) + k * 3, tone(z.dirt, 0.35));
+    }
+    px(0, 0, tone(z.dirt, 0.2), 1, T);
+    px(0, 31, z.dirtDark, T, 1);
+    for (let i = 0; i < 4; i++)
+      px(3 + Math.floor(r() * 26), 6 + Math.floor(r() * 22), 'rgba(255,255,255,0.7)');
+    px(4 + (v % 3) * 7, 10, tone(z.dirt, 0.45), 6, 2);
+    if (top) {
+      px(0, 0, z.top, T, 6);
+      px(0, 0, z.topLight, T, 2);
+      // icicles hanging off the lip
+      for (let x = 2; x < T; x += 7) px(x, 6, z.top, 2, 2 + Math.floor(r() * 4));
+    }
+  } else if (z.ground === 'obsidian') {
+    g.fillStyle = z.dirt;
+    g.fillRect(0, 0, T, T);
+    for (let i = 0; i < 14; i++) px(Math.floor(r() * 30), Math.floor(r() * 30), tone(z.dirt, 0.12), 3, 1);
+    // glowing lava cracks
+    let x = Math.floor(r() * 24) + 4;
+    for (let y = top ? 6 : 0; y < 32; y += 2) {
+      px(x, y, '#f97316', 1, 2);
+      if (y % 6 === 0) px(x, y, '#fde047');
+      x += r() < 0.5 ? 1 : -1;
+    }
+    if (top) {
+      px(0, 0, z.top, T, 5);
+      px(0, 0, z.topLight, T, 1);
+      for (let i = 0; i < 4; i++) px(Math.floor(r() * 30), 1 + Math.floor(r() * 3), '#fb923c');
+    }
+  } else if (z.ground === 'hive') {
+    g.fillStyle = z.dirt;
+    g.fillRect(0, 0, T, T);
+    // organic hex cells with a faint glow
+    for (let cy = 0; cy < 4; cy++)
+      for (let cx = 0; cx < 4; cx++) {
+        const hx = cx * 8 + (cy % 2 ? 4 : 0);
+        const hy = cy * 8;
+        px(hx + 1, hy + 1, tone(z.dirt, 0.1), 6, 6);
+        px(hx + 2, hy + 2, z.dirtDark, 4, 4);
+        if (r() < 0.12) px(hx + 3, hy + 3, '#4ade80', 2, 2);
+      }
+    if (top) {
+      px(0, 0, z.top, T, 4);
+      px(0, 0, z.topLight, T, 1);
+      for (let x = 1; x < T; x += 5) px(x, 4, z.top, 2, 2 + Math.floor(r() * 4)); // slime drips
     }
   } else if (z.ground === 'brick') {
     g.fillStyle = z.dirt;
@@ -349,35 +599,63 @@ export function groundTile(zone: ZoneId, top: boolean, v: number): HTMLCanvasEle
   return c;
 }
 
+/** One-way platform material per style: base colour, top highlight, supports. */
+const PLAT: Record<ZoneStyle['plat'], { base: string; support: string }> = {
+  wood: { base: '#9a6634', support: '#6b4423' },
+  metal: { base: '#5d646f', support: '#3b4048' },
+  stone: { base: '#c79b5c', support: '#8a6438' },
+  ice: { base: '#a5d8f0', support: '#5f9cc0' },
+  marble: { base: '#e5e1d6', support: '#a8a195' },
+  bone: { base: '#d6cbb0', support: '#3b1f1c' },
+  chitin: { base: '#355e3b', support: '#1a2e1d' },
+};
+
 export function platformTile(zone: ZoneId, v: number): HTMLCanvasElement {
   const key = `plat|${zone}|${v}`;
   let c = tileCache.get(key);
   if (c) return c;
   const [cv, g] = canvas(T, 16);
-  const metal = ZONES[zone].plat === 'metal';
-  const base = metal ? '#5d646f' : '#9a6634';
+  const kind = ZONES[zone].plat;
+  const { base, support } = PLAT[kind];
   g.fillStyle = base;
   g.fillRect(0, 0, T, 9);
   g.fillStyle = tone(base, 0.25);
   g.fillRect(0, 0, T, 2);
   g.fillStyle = tone(base, -0.3);
   g.fillRect(0, 8, T, 1);
-  if (metal) {
+  if (kind === 'metal') {
     g.fillStyle = '#2b2f36';
     for (let x = 2; x < T; x += 6) g.fillRect(x, 3, 3, 3);
-  } else {
+  } else if (kind === 'wood') {
     g.fillStyle = tone(base, -0.25);
     g.fillRect(15, 0, 1, 9);
     g.fillRect(31, 0, 1, 9);
     g.fillStyle = '#d7d3c8';
-    g.fillRect(3, 4, 1, 1);
-    g.fillRect(19, 4, 1, 1);
-    g.fillRect(12, 4, 1, 1);
-    g.fillRect(28, 4, 1, 1);
+    for (const x of [3, 12, 19, 28]) g.fillRect(x, 4, 1, 1);
+  } else if (kind === 'stone' || kind === 'marble') {
+    g.fillStyle = tone(base, -0.22);
+    g.fillRect(v % 2 ? 10 : 22, 0, 1, 9);
+    // a carved band
+    g.fillStyle = kind === 'stone' ? '#1d4ed8' : '#b7791f';
+    g.fillRect(0, 4, T, 1);
+  } else if (kind === 'ice') {
+    g.fillStyle = 'rgba(255,255,255,0.8)';
+    g.fillRect(3 + (v % 3) * 8, 2, 6, 1);
+    g.fillStyle = base;
+    for (let x = 4; x < T; x += 9) g.fillRect(x, 9, 2, 3 + (x % 3)); // icicles
+  } else if (kind === 'bone') {
+    // a row of ribs and skulls
+    g.fillStyle = tone(base, -0.35);
+    for (let x = 2; x < T; x += 5) g.fillRect(x, 2, 1, 6);
+    g.fillStyle = '#1a0505';
+    g.fillRect(14, 3, 2, 2);
+    g.fillRect(18, 3, 2, 2);
+  } else {
+    g.fillStyle = '#86efac';
+    for (let x = 3; x < T; x += 8) g.fillRect(x, 3, 2, 2);
   }
-  // supports
-  g.fillStyle = metal ? '#3b4048' : '#6b4423';
-  if (v % 2 === 0) {
+  if (v % 2 === 0 && kind !== 'ice') {
+    g.fillStyle = support;
     g.fillRect(5, 9, 3, 7);
     g.fillRect(24, 9, 3, 7);
   }
@@ -392,7 +670,39 @@ export interface Prop {
   x: number;
   y: number;
   kind:
-    'bush' | 'fern' | 'rock' | 'tuft' | 'palm' | 'crate' | 'sandbags' | 'wire' | 'sign' | 'lamp' | 'flower';
+    | 'bush'
+    | 'fern'
+    | 'rock'
+    | 'tuft'
+    | 'palm'
+    | 'crate'
+    | 'sandbags'
+    | 'wire'
+    | 'sign'
+    | 'lamp'
+    | 'flower'
+    // pharaoh's tomb
+    | 'obelisk'
+    | 'urn'
+    | 'idol'
+    // frozen north
+    | 'pine'
+    | 'runestone'
+    | 'shields'
+    | 'bones'
+    // Olympus
+    | 'column'
+    | 'ruin'
+    | 'amphora'
+    | 'statue'
+    // demon citadel
+    | 'skulls'
+    | 'spikes'
+    | 'brazier'
+    // alien hive
+    | 'crystal'
+    | 'pod'
+    | 'stalk';
   front: boolean;
   v: number;
 }
@@ -563,10 +873,228 @@ export function propSprite(kind: Prop['kind'], v: number): HTMLCanvasElement {
         px(4, 6, 7, 3, '#ffd166');
       });
       break;
+    case 'obelisk':
+      c = outlined(18, 70, (px) => {
+        px(4, 8, 10, 62, '#d9b77a');
+        px(4, 8, 3, 62, '#b8935a');
+        px(6, 2, 6, 7, '#d9b77a');
+        px(8, 0, 2, 3, '#fbbf24');
+        for (let y = 14; y < 64; y += 9) {
+          px(8, y, 3, 2, '#7a5a34');
+          px(9, y + 3, 1, 3, '#7a5a34');
+        }
+      });
+      break;
+    case 'urn':
+      c = outlined(16, 22, (px) => {
+        px(4, 0, 8, 3, '#9a5b2e');
+        px(5, 3, 6, 2, '#7a4422');
+        px(2, 5, 12, 13, '#b8703a');
+        px(2, 5, 3, 13, '#8f5427');
+        px(3, 9, 10, 2, '#1d4ed8');
+        px(4, 18, 8, 4, '#9a5b2e');
+      });
+      break;
+    case 'idol':
+      // a half-buried pharaoh statue head
+      c = outlined(44, 40, (px) => {
+        px(6, 6, 32, 34, '#1d4ed8');
+        for (let x = 6; x < 38; x += 4) px(x, 6, 2, 34, '#fbbf24');
+        px(12, 8, 20, 32, '#d0a76a');
+        px(12, 8, 4, 32, '#a9844f');
+        px(16, 18, 5, 2, '#1a1418');
+        px(24, 18, 5, 2, '#1a1418');
+        px(21, 22, 3, 7, '#b38c55');
+        px(18, 31, 8, 2, '#8a6a3e');
+        px(20, 0, 4, 7, '#fbbf24');
+      });
+      break;
+    case 'pine':
+      c = outlined(46, 96, (px) => {
+        px(21, 70, 5, 26, '#4a3424');
+        for (let i = 0; i < 5; i++) {
+          const w = 12 + i * 7;
+          const y = 6 + i * 13;
+          px(23 - w / 2, y, w, 15, i % 2 ? '#1f4d3a' : '#25593f');
+          px(23 - w / 2, y, w, 3, '#eef6fb'); // snow on each tier
+        }
+        px(21, 0, 4, 8, '#25593f');
+      });
+      break;
+    case 'runestone':
+      c = outlined(22, 36, (px) => {
+        px(3, 4, 16, 32, '#6b7280');
+        px(5, 0, 12, 6, '#6b7280');
+        px(3, 4, 3, 32, '#4b5563');
+        px(9, 8, 2, 20, '#38bdf8');
+        px(9, 10, 6, 2, '#38bdf8');
+        px(9, 18, 5, 2, '#38bdf8');
+        px(13, 20, 2, 6, '#38bdf8');
+        px(5, 0, 12, 2, '#eef6fb');
+      });
+      break;
+    case 'shields':
+      // a rack of painted round shields
+      c = outlined(46, 24, (px) => {
+        px(0, 18, 46, 3, '#5b3a24');
+        const cols = ['#b91c1c', '#1d4ed8', '#ca8a04'];
+        for (let i = 0; i < 3; i++) {
+          const x = 2 + i * 15;
+          px(x, 2, 13, 16, cols[i] as string);
+          px(x + 2, 0, 9, 20, cols[i] as string);
+          px(x + 5, 7, 3, 3, '#d1d5db');
+          px(x + 6, 2, 1, 16, 'rgba(0,0,0,0.25)');
+        }
+      });
+      break;
+    case 'bones':
+      c = outlined(30, 12, (px) => {
+        px(2, 7, 26, 3, '#e7e5e4');
+        px(1, 6, 3, 5, '#f5f5f4');
+        px(26, 6, 3, 5, '#f5f5f4');
+        px(10, 2, 9, 7, '#e7e5e4');
+        px(12, 4, 2, 2, '#1a1418');
+        px(16, 4, 2, 2, '#1a1418');
+      });
+      break;
+    case 'column':
+      c = outlined(26, 110, (px) => {
+        px(1, 0, 24, 7, '#e7e2d6');
+        px(3, 7, 20, 4, '#cfc9bb');
+        for (let x = 4; x < 22; x += 4) {
+          px(x, 11, 3, 91, '#ece8de');
+          px(x + 3, 11, 1, 91, '#bdb6a6');
+        }
+        px(2, 102, 22, 8, '#d6d0c2');
+      });
+      break;
+    case 'ruin':
+      // a broken column stump with a fallen drum beside it
+      c = outlined(48, 44, (px) => {
+        px(4, 6, 18, 38, '#e2ddd0');
+        for (let x = 6; x < 20; x += 4) px(x + 3, 6, 1, 38, '#b8b1a1');
+        px(4, 2, 6, 5, '#e2ddd0');
+        px(14, 4, 8, 3, '#e2ddd0');
+        px(24, 30, 22, 14, '#d6d0c2');
+        px(24, 30, 22, 3, '#ece8de');
+        px(30, 34, 2, 8, '#b8b1a1');
+        px(37, 34, 2, 8, '#b8b1a1');
+        px(2, 40, 8, 4, '#6b8f47');
+      });
+      break;
+    case 'amphora':
+      c = outlined(16, 26, (px) => {
+        px(6, 0, 4, 4, '#c2410c');
+        px(2, 3, 2, 6, '#9a3412');
+        px(12, 3, 2, 6, '#9a3412');
+        px(3, 6, 10, 15, '#ea580c');
+        px(3, 10, 10, 4, '#1c1917');
+        px(5, 11, 2, 2, '#ea580c');
+        px(9, 11, 2, 2, '#ea580c');
+        px(6, 21, 4, 5, '#c2410c');
+      });
+      break;
+    case 'statue':
+      // a marble hero on a plinth, spear raised
+      c = outlined(34, 92, (px) => {
+        px(2, 76, 30, 16, '#d6d0c2');
+        px(2, 76, 30, 3, '#ece8de');
+        px(12, 46, 4, 30, '#ece8de');
+        px(18, 46, 4, 30, '#e2ddd0');
+        px(10, 22, 14, 26, '#ece8de');
+        px(10, 22, 4, 26, '#cfc9bb');
+        px(12, 10, 10, 12, '#ece8de');
+        px(11, 6, 12, 5, '#ece8de');
+        px(24, 0, 2, 50, '#bdb6a6');
+        px(22, 22, 4, 4, '#ece8de');
+      });
+      break;
+    case 'skulls':
+      c = outlined(34, 20, (px) => {
+        for (const [x, y] of [
+          [2, 10],
+          [12, 10],
+          [22, 10],
+          [7, 2],
+          [17, 2],
+        ] as const) {
+          px(x, y, 9, 8, '#e7e5e4');
+          px(x + 1, y + 3, 2, 2, '#1a0505');
+          px(x + 5, y + 3, 2, 2, '#1a0505');
+          px(x + 3, y + 6, 3, 2, '#a8a29e');
+        }
+      });
+      break;
+    case 'spikes':
+      c = outlined(36, 26, (px) => {
+        for (let i = 0; i < 6; i++) {
+          const h = 12 + ((i * 7) % 12);
+          for (let k = 0; k < h; k++)
+            px(
+              3 + i * 5 + Math.floor(k / 6),
+              26 - k,
+              Math.max(1, 3 - Math.floor(k / 5)),
+              1,
+              k > h - 3 ? '#fca5a5' : '#3f1d1d',
+            );
+        }
+      });
+      break;
+    case 'brazier':
+      c = outlined(20, 40, (px) => {
+        px(8, 14, 4, 26, '#3b1f1c');
+        px(4, 36, 12, 4, '#3b1f1c');
+        px(2, 8, 16, 7, '#57534e');
+        px(2, 8, 16, 2, '#78716c');
+        px(5, 1, 10, 8, '#f97316');
+        px(7, 0, 6, 6, '#fde047');
+      });
+      break;
+    case 'crystal':
+      c = outlined(30, 34, (px) => {
+        const cols = ['#a78bfa', '#67e8f9', '#86efac'];
+        const col = cols[v % 3] as string;
+        px(12, 0, 6, 34, col);
+        px(12, 0, 2, 34, '#ffffff');
+        px(4, 12, 6, 22, tone(col, -0.2));
+        px(20, 8, 6, 26, tone(col, -0.1));
+        px(21, 8, 2, 26, 'rgba(255,255,255,0.7)');
+      });
+      break;
+    case 'pod':
+      // an alien egg pod, half open
+      c = outlined(26, 28, (px) => {
+        px(4, 6, 18, 22, '#365314');
+        px(6, 2, 14, 6, '#4d7c0f');
+        px(4, 6, 4, 22, '#1a2e05');
+        px(10, 8, 6, 12, '#bef264');
+        px(12, 10, 2, 6, '#ffffff');
+        px(2, 24, 22, 4, '#1a2e05');
+      });
+      break;
+    case 'stalk':
+      c = outlined(18, 64, (px) => {
+        for (let y = 10; y < 64; y += 3) px(8 + Math.round(Math.sin(y / 9) * 3), y, 3, 3, '#166534');
+        px(4, 0, 10, 12, '#22c55e');
+        px(6, 2, 6, 7, '#bbf7d0');
+      });
+      break;
   }
   propCache.set(key, c as HTMLCanvasElement);
   return c as HTMLCanvasElement;
 }
+
+/** Prop sets for the themed worlds: one tall landmark, one big piece and three small ones. */
+const THEMED_PROPS: Record<
+  'tomb' | 'norse' | 'greek' | 'hell' | 'alien',
+  { tall: Prop['kind']; big: Prop['kind']; small: [Prop['kind'], Prop['kind'], Prop['kind']] }
+> = {
+  tomb: { tall: 'obelisk', big: 'idol', small: ['rock', 'urn', 'palm'] },
+  norse: { tall: 'pine', big: 'shields', small: ['runestone', 'bones', 'rock'] },
+  greek: { tall: 'column', big: 'statue', small: ['ruin', 'amphora', 'bush'] },
+  hell: { tall: 'brazier', big: 'spikes', small: ['skulls', 'bones', 'spikes'] },
+  alien: { tall: 'stalk', big: 'crystal', small: ['pod', 'crystal', 'pod'] },
+};
 
 /** Scatter props along the level surfaces (deterministic: everybody sees the same world). */
 export function buildProps(level: LevelDef): Prop[] {
@@ -600,6 +1128,15 @@ export function buildProps(level: LevelDef): Prop[] {
         else if (roll < 0.2 && !busy.has(c)) out.push({ x, y, kind: 'crate', front: false, v: c });
         else if (roll < 0.26) out.push({ x, y, kind: 'sandbags', front: false, v: c });
         if (r() < 0.25 && z.tufts) out.push({ x, y, kind: 'tuft', front: true, v: c });
+      } else if (z.props !== 'base') {
+        // Themed worlds: a tall landmark every so often, smaller dressing in between.
+        const set = THEMED_PROPS[z.props];
+        if (c % 10 === 5 && row >= 12 && !busy.has(c)) out.push({ x, y, kind: set.tall, front: false, v: c });
+        else if (roll < 0.14) out.push({ x, y, kind: set.small[0], front: false, v: c });
+        else if (roll < 0.24) out.push({ x, y, kind: set.small[1], front: false, v: c });
+        else if (roll < 0.3) out.push({ x, y, kind: set.small[2], front: false, v: c });
+        else if (roll < 0.33 && !busy.has(c)) out.push({ x, y, kind: set.big, front: false, v: c });
+        if (z.tufts && r() < 0.25) out.push({ x: x + (r() - 0.5) * 20, y, kind: 'tuft', front: true, v: c });
       } else {
         if (roll < 0.1) out.push({ x, y, kind: 'crate', front: false, v: c });
         else if (roll < 0.2) out.push({ x, y, kind: 'sandbags', front: false, v: c });
@@ -689,6 +1226,92 @@ export function industryLayer(seed: number): HTMLCanvasElement {
       const h = 200 + r() * 90;
       g.fillRect(x + 10, VIEW_H - h, 10, h);
       g.fillRect(x, VIEW_H - h, 30, 26);
+    }
+  }
+  return c;
+}
+
+/** Silhouette skylines for the themed worlds (white, tinted at draw time), 1024 wide and seamless. */
+export function themedLayer(
+  kind: 'pyramids' | 'pines' | 'temples' | 'spires' | 'hive',
+  seed: number,
+): HTMLCanvasElement {
+  const [c, g] = canvas(1024, VIEW_H);
+  const r = rng(seed);
+  g.fillStyle = '#ffffff';
+  const base = VIEW_H - 120;
+  g.fillRect(0, base, 1024, 120);
+  const tri = (x: number, w: number, h: number): void => {
+    g.beginPath();
+    g.moveTo(x, base);
+    g.lineTo(x + w / 2, base - h);
+    g.lineTo(x + w, base);
+    g.fill();
+  };
+  if (kind === 'pyramids') {
+    for (let x = -60; x < 1024; x += 220 + Math.floor(r() * 120)) {
+      const w = 220 + r() * 160;
+      tri(x, w, w * 0.62);
+      if (r() < 0.6) tri(x + w * 0.8, w * 0.5, w * 0.3);
+      if (r() < 0.5) g.fillRect(x + w + 20, base - 150, 14, 150); // obelisk
+    }
+  } else if (kind === 'pines') {
+    for (let x = -20; x < 1044; x += 16 + Math.floor(r() * 18)) {
+      const h = 110 + r() * 150;
+      for (let i = 0; i < 6; i++) {
+        const w = 10 + i * 7;
+        g.fillRect(x - w / 2, base - h + i * (h / 7), w, h / 7 + 2);
+      }
+      g.fillRect(x - 3, base - 20, 6, 20);
+    }
+    // a viking longhall on the ridge
+    const hx = 300 + r() * 300;
+    g.fillRect(hx, base - 70, 180, 70);
+    tri(hx - 20, 220, 120);
+  } else if (kind === 'temples') {
+    for (let x = 0; x < 1024; x += 260 + Math.floor(r() * 140)) {
+      const w = 160 + r() * 80;
+      const h = 90 + r() * 50;
+      g.fillRect(x, base - h, w, 12); // entablature
+      g.beginPath();
+      g.moveTo(x - 8, base - h);
+      g.lineTo(x + w / 2, base - h - 40);
+      g.lineTo(x + w + 8, base - h);
+      g.fill();
+      for (let k = 0; k <= 6; k++) g.fillRect(x + 4 + (k * (w - 18)) / 6, base - h + 12, 10, h - 12);
+      g.fillRect(x - 10, base - 10, w + 20, 10);
+      // broken columns between temples
+      for (let k = 0; k < 3; k++) g.fillRect(x + w + 30 + k * 26, base - 40 - r() * 60, 10, 120);
+    }
+  } else if (kind === 'spires') {
+    for (let x = -20; x < 1044; x += 40 + Math.floor(r() * 60)) {
+      const h = 140 + r() * 220;
+      const w = 18 + r() * 30;
+      g.beginPath();
+      g.moveTo(x, base);
+      g.lineTo(x + w * 0.3, base - h * 0.6);
+      g.lineTo(x + w * 0.5, base - h);
+      g.lineTo(x + w * 0.7, base - h * 0.55);
+      g.lineTo(x + w, base);
+      g.fill();
+      if (r() < 0.4) g.fillRect(x + w * 0.5 - 14, base - h * 0.5, 28, 6); // crossbar like a horned tower
+    }
+  } else {
+    // alien hive: bulbous domes on stalks and arching ribs
+    for (let x = -40; x < 1064; x += 90 + Math.floor(r() * 80)) {
+      const h = 120 + r() * 180;
+      const rad = 22 + r() * 30;
+      g.fillRect(x - 5, base - h, 10, h);
+      g.beginPath();
+      g.ellipse(x, base - h, rad, rad * 1.3, 0, 0, Math.PI * 2);
+      g.fill();
+    }
+    g.lineWidth = 14;
+    g.strokeStyle = '#ffffff';
+    for (let x = 0; x < 1024; x += 256) {
+      g.beginPath();
+      g.arc(x + 128, base, 150, Math.PI, 0);
+      g.stroke();
     }
   }
   return c;

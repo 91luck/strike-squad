@@ -2,6 +2,8 @@
   "name": "@strikesquad/shared",
   "version": "0.1.0",
   "private": true,
+  "author": "Lokesh Mahadule",
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",

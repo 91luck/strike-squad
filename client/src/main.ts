@@ -85,6 +85,7 @@ const input = new InputController({
   settings: () => settings.value,
   isActive: () => currentScreen() === 'game' && !isPaused() && !isOverlayOpen('overlay-conn'),
   onPause: () => {
+    if (document.querySelector('.modal-overlay:not([hidden])')) return; // a dialog is on top; it handles Escape
     if (currentScreen() === 'game') (isPaused() ? resume : pause)();
   },
 });
@@ -736,6 +737,9 @@ $('join-code').addEventListener('keydown', (e) => {
 
 $('btn-howto').addEventListener('click', () => openOverlay('modal-howto'));
 $('btn-settings').addEventListener('click', () => openOverlay('modal-settings'));
+// The same help and settings from the pause menu, so phone players never have to leave a mission to find them.
+$('btn-pause-howto').addEventListener('click', () => openOverlay('modal-howto'));
+$('btn-pause-settings').addEventListener('click', () => openOverlay('modal-settings'));
 $('link-privacy').addEventListener('click', (e) => {
   e.preventDefault();
   openOverlay('modal-privacy');

@@ -9,6 +9,7 @@
       content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
     />
     <meta name="theme-color" content="#1b211e" />
+    <meta name="author" content="Lokesh Mahadule" />
     <meta
       name="description"
       content="STRIKE SQUAD - free co-op run-and-gun missions for up to 8 friends in your browser. Dash, slide, knife and unleash hero super moves against three giant bosses."
@@ -39,7 +40,7 @@
             <small>Co-op Missions · 1–8 friends</small>
           </h1>
           <p class="tagline">
-            Up to 8 friends, one mission, three giant bosses. Dash through bullets, knife through shields,
+            Up to 8 friends, six missions, a dozen giant bosses. Dash through bullets, knife through shields,
             chain combos and unleash your hero's super move together.
           </p>
           <label class="field">
@@ -67,13 +68,21 @@
             <button id="btn-practice" class="btn" type="button" data-testid="btn-practice">
               Solo training<small>Offline, learn the controls</small>
             </button>
+            <!-- Help and settings sit inside the button grid so phones in landscape never push them off-screen. -->
+            <div class="menu-more">
+              <button id="btn-howto" class="btn ghost small" type="button" data-testid="btn-howto">
+                <span aria-hidden="true">?</span> Controls
+              </button>
+              <button id="btn-settings" class="btn ghost small" type="button" data-testid="btn-settings">
+                <span aria-hidden="true">⚙</span> Settings
+              </button>
+            </div>
           </div>
           <nav class="menu-links" aria-label="More">
-            <button id="btn-howto" class="link" type="button" data-testid="btn-howto">How to play</button>
-            <button id="btn-settings" class="link" type="button" data-testid="btn-settings">Settings</button>
             <button id="btn-install" class="link" type="button" hidden>Install app</button>
             <a href="#" id="link-privacy" class="link">Privacy</a>
           </nav>
+          <p class="credit" data-testid="credit">Developed by Lokesh Mahadule · © 2026 All rights reserved</p>
         </div>
         <aside class="hero-stage" aria-label="Your hero">
           <div class="hero-spot" aria-hidden="true"></div>
@@ -479,6 +488,19 @@
               <button id="btn-pause-invite" class="btn" type="button" data-testid="btn-pause-invite" hidden>
                 Copy invite link
               </button>
+              <div class="row pause-help">
+                <button id="btn-pause-howto" class="btn ghost" type="button" data-testid="btn-pause-howto">
+                  Controls
+                </button>
+                <button
+                  id="btn-pause-settings"
+                  class="btn ghost"
+                  type="button"
+                  data-testid="btn-pause-settings"
+                >
+                  Settings
+                </button>
+              </div>
               <button id="btn-pause-sound" class="btn" type="button" aria-pressed="false">Sound: on</button>
               <button id="btn-fullscreen" class="btn" type="button">Fullscreen</button>
               <button id="btn-pause-leave" class="btn danger" type="button" data-testid="btn-pause-leave">
@@ -721,6 +743,13 @@
             <li><b>VULTURE</b> (gunship): keep moving under the bombs, shoot or knife its missiles.</li>
             <li><b>IRON FORTRESS</b>: jump the low laser, duck or slide under the high one. Three phases.</li>
           </ul>
+          <p class="muted">
+            Every mission has its own world and its own bosses, but they fight the same way: the beast charges
+            and stomps like WARHOUND, the flyer bombs like VULTURE, the final boss fires low and high beams
+            like the IRON FORTRESS. Mission 2: Giant Scorpion, Sun Falcon, Anubis Colossus. Mission 3: Fenrir,
+            Thor, Frost Giant. Mission 4: Minotaur, Storm Harpy, Zeus. Mission 5: Inferno Beast, Fire Dragon,
+            Demon King. Mission 6: Xeno Crawler, UFO Mothership, Hive Queen.
+          </p>
           <h3>Weapons</h3>
           <ul>
             <li><b>S</b> Spread: five bullets in a fan</li>
@@ -732,6 +761,9 @@
           <p>
             Open an invite link any time, even mid-mission: you appear next to your friends and the squad gets
             one more life.
+          </p>
+          <p class="muted credit-line">
+            STRIKE SQUAD · Developed by <b>Lokesh Mahadule</b> · © 2026 All rights reserved.
           </p>
           <button class="btn primary" type="button" data-close>Got it</button>
         </div>

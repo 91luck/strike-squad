@@ -1,4 +1,4 @@
-import { heroOf, type HeroDef } from '@strikesquad/shared';
+import { heroOf, type Faction, type HeroDef } from '@strikesquad/shared';
 
 /**
  * Pixel-art sprite factory. Every sprite is *drawn by code* onto a small offscreen canvas (one canvas pixel = one
@@ -28,9 +28,25 @@ export interface Look {
   hair: string;
   pants: string;
   accent: string;
-  headgear: HeroDef['headgear'] | 'gasmask' | 'horns' | 'dome';
+  headgear:
+    | HeroDef['headgear']
+    | 'gasmask'
+    | 'horns'
+    | 'dome'
+    | 'wraps'
+    | 'jackal'
+    | 'nemes'
+    | 'viking'
+    | 'crest'
+    | 'alien';
   beard?: boolean;
   vest: string;
+  /** What the hands hold (default: a rifle). Themed enemies carry staffs, spears or ray guns. */
+  weapon?: 'gun' | 'staff' | 'spear' | 'raygun';
+  /** Torso detail (default: a tactical vest). */
+  torso?: 'vest' | 'wraps' | 'ribs' | 'plain' | 'fur';
+  /** Enemy colouring for the weapon (darker metal, no hero stripe). */
+  enemy?: boolean;
 }
 
 export const ENEMY_LOOK: Look = {
@@ -77,34 +93,143 @@ const DEMON_BASE: Look = {
   accent: '#ffb703',
   headgear: 'horns',
   vest: '#2a0a0e',
+  weapon: 'staff',
+  torso: 'plain',
+  enemy: true,
 };
-/** Void creatures from deep space: pale violet, glass dome helmets. */
-const VOID_BASE: Look = {
-  color: '#2e2a4f',
-  shade: '#1d1a36',
-  skin: '#8b7fd6',
+/** Aliens from deep space: grey-green skin, huge heads and black eyes, silver suits, ray guns. */
+const ALIEN_BASE: Look = {
+  color: '#3f4a5c',
+  shade: '#2a3240',
+  skin: '#8fbf7a',
   hair: '#1b1630',
-  pants: '#1a1830',
+  pants: '#2a3240',
   accent: '#67e8f9',
-  headgear: 'dome',
-  vest: '#232042',
+  headgear: 'alien',
+  vest: '#566275',
+  weapon: 'raygun',
+  torso: 'plain',
+  enemy: true,
+};
+/** The pharaoh's tomb guard: bandaged mummies, jackal-headed guards, priests in striped headdresses. */
+const MUMMY_BASE: Look = {
+  color: '#cbbd98',
+  shade: '#a39470',
+  skin: '#bfae86',
+  hair: '#2b2418',
+  pants: '#b3a37c',
+  accent: '#7cfc9a',
+  headgear: 'wraps',
+  vest: '#d8cba8',
+  weapon: 'staff',
+  torso: 'wraps',
+  enemy: true,
+};
+/** Undead viking warriors (draugr): frost-blue skin, iron helms, beards and furs. */
+const DRAUGR_BASE: Look = {
+  color: '#4a5a6a',
+  shade: '#334150',
+  skin: '#9fbfd0',
+  hair: '#d7e3ea',
+  pants: '#3a3f44',
+  accent: '#7dd3fc',
+  headgear: 'viking',
+  beard: true,
+  vest: '#6b5844',
+  weapon: 'spear',
+  torso: 'fur',
+  enemy: true,
+};
+/** Skeleton hoplites: bone bodies, bronze crested helmets, red cloaks. */
+const HOPLITE_BASE: Look = {
+  color: '#9a2f2a',
+  shade: '#6e1f1b',
+  skin: '#e8e1cf',
+  hair: '#2b2620',
+  pants: '#2b2620',
+  accent: '#fde68a',
+  headgear: 'crest',
+  vest: '#c08a3e',
+  weapon: 'spear',
+  torso: 'ribs',
+  enemy: true,
 };
 
 export type TrooperLook = 'soldier' | 'shield' | 'jet' | 'gren';
-/** Trooper looks per faction (soldier, shield, jetpack, grenadier). */
-export const FACTION_LOOKS: Record<'army' | 'demon' | 'void', Record<TrooperLook, Look>> = {
+/** Trooper looks per faction (soldier, shield, jetpack/flyer, grenadier). */
+export const FACTION_LOOKS: Record<Faction, Record<TrooperLook, Look>> = {
   army: { soldier: ENEMY_LOOK, shield: SHIELD_LOOK, jet: JET_LOOK, gren: GRENADIER_LOOK },
+  pharaoh: {
+    soldier: MUMMY_BASE,
+    shield: {
+      ...MUMMY_BASE,
+      headgear: 'jackal',
+      skin: '#1f1a17',
+      color: '#1d4ed8',
+      shade: '#1e3a8a',
+      vest: '#d4a017',
+      torso: 'plain',
+      weapon: 'spear',
+      accent: '#fbbf24',
+    },
+    jet: { ...MUMMY_BASE, accent: '#facc15' },
+    gren: {
+      ...MUMMY_BASE,
+      headgear: 'nemes',
+      skin: '#b07a4a',
+      color: '#f5f0e1',
+      shade: '#d6cfb8',
+      vest: '#1d4ed8',
+      torso: 'plain',
+      accent: '#fbbf24',
+    },
+  },
+  norse: {
+    soldier: DRAUGR_BASE,
+    shield: { ...DRAUGR_BASE, color: '#5b3a24', shade: '#3e2718', hair: '#c9b48a', accent: '#fca5a5' },
+    jet: {
+      ...DRAUGR_BASE,
+      headgear: 'hood',
+      color: '#1e293b',
+      shade: '#0f172a',
+      accent: '#bae6fd',
+      beard: false,
+    },
+    gren: {
+      ...DRAUGR_BASE,
+      headgear: 'hood',
+      color: '#7c2d12',
+      shade: '#5a1f0b',
+      weapon: 'staff',
+      accent: '#93c5fd',
+      beard: false,
+    },
+  },
+  olympus: {
+    soldier: HOPLITE_BASE,
+    shield: { ...HOPLITE_BASE, color: '#7f1d1d', accent: '#fcd34d' },
+    jet: {
+      ...HOPLITE_BASE,
+      headgear: 'horns',
+      color: '#4b5563',
+      shade: '#374151',
+      skin: '#a8a29e',
+      torso: 'plain',
+      accent: '#fde047',
+    },
+    gren: { ...HOPLITE_BASE, color: '#1e3a8a', shade: '#172554', weapon: 'staff', accent: '#93c5fd' },
+  },
   demon: {
     soldier: DEMON_BASE,
-    shield: { ...DEMON_BASE, color: '#1f1f2e', accent: '#f97316' },
+    shield: { ...DEMON_BASE, color: '#1f1f2e', accent: '#f97316', weapon: 'spear' },
     jet: { ...DEMON_BASE, skin: '#7c2d12', accent: '#fde047' },
     gren: { ...DEMON_BASE, skin: '#4d7c0f', color: '#1a2e05', accent: '#bef264' },
   },
   void: {
-    soldier: VOID_BASE,
-    shield: { ...VOID_BASE, color: '#1e293b', accent: '#38bdf8' },
-    jet: { ...VOID_BASE, skin: '#c084fc', accent: '#f0abfc' },
-    gren: { ...VOID_BASE, skin: '#34d399', accent: '#a7f3d0' },
+    soldier: ALIEN_BASE,
+    shield: { ...ALIEN_BASE, skin: '#9ca3af', color: '#1e293b', accent: '#38bdf8' },
+    jet: { ...ALIEN_BASE, skin: '#a7c4a0', accent: '#f0abfc' },
+    gren: { ...ALIEN_BASE, skin: '#c4b5fd', color: '#4c1d95', accent: '#a7f3d0' },
   },
 };
 
@@ -386,6 +511,77 @@ function drawHead(p: Px, L: Look, hx: number, hy: number): void {
       p.r(hx + 6, hy + 4, 5, 2, L.accent);
       p.r(hx - 2, hy + 10, 15, 2, '#475569');
       break;
+    case 'wraps':
+      // mummy bandages over the whole head, one glowing eye showing through
+      p.r(hx - 1, hy - 2, 13, 13, L.color);
+      for (let i = 0; i < 6; i++)
+        p.r(hx - 1, hy - 2 + i * 2 + (i % 2), 13, 1, i % 2 ? L.shade : tone(L.color, 0.25));
+      p.r(hx + 1, hy + 3, 11, 1, L.shade);
+      p.r(hx + 6, hy + 4, 4, 2, '#1a1418');
+      p.r(hx + 7, hy + 4, 2, 2, L.accent);
+      p.r(hx - 4, hy + 6, 4, 2, L.color); // loose bandage end
+      p.r(hx - 6, hy + 8, 3, 2, L.shade);
+      break;
+    case 'jackal':
+      // jackal head: tall ears, long snout, gold collar
+      p.r(hx - 1, hy - 1, 12, 12, '#1f1a17');
+      p.r(hx + 1, hy - 8, 3, 8, '#1f1a17');
+      p.r(hx + 6, hy - 8, 3, 8, '#1f1a17');
+      p.r(hx + 2, hy - 6, 1, 5, '#d4a017');
+      p.r(hx + 7, hy - 6, 1, 5, '#d4a017');
+      p.r(hx + 9, hy + 4, 6, 4, '#1f1a17'); // snout
+      p.r(hx + 14, hy + 4, 1, 2, '#000000');
+      p.r(hx + 6, hy + 2, 3, 2, L.accent);
+      p.r(hx - 1, hy + 9, 13, 3, '#d4a017');
+      p.r(hx - 1, hy + 10, 13, 1, '#1d4ed8');
+      break;
+    case 'nemes':
+      // striped pharaoh headdress with a cobra on the brow
+      p.r(hx - 2, hy - 3, 14, 6, '#1d4ed8');
+      for (let i = 0; i < 14; i += 3) p.r(hx - 2 + i, hy - 3, 1, 6, '#fbbf24');
+      p.r(hx - 3, hy + 2, 4, 10, '#1d4ed8');
+      p.r(hx - 3, hy + 4, 4, 1, '#fbbf24');
+      p.r(hx - 3, hy + 7, 4, 1, '#fbbf24');
+      p.r(hx + 9, hy - 5, 2, 3, '#fbbf24'); // cobra
+      p.r(hx + 6, hy + 4, 3, 1, '#111111'); // kohl eye line
+      p.r(hx + 6, hy + 9, 2, 3, '#1d4ed8'); // false beard
+      break;
+    case 'viking':
+      // iron helm with a nose guard over glowing undead eyes
+      p.r(hx - 1, hy - 4, 13, 7, '#6b7280');
+      p.r(hx, hy - 5, 11, 2, '#9ca3af');
+      p.r(hx + 1, hy - 4, 2, 2, '#d1d5db');
+      p.r(hx - 1, hy + 2, 13, 1, '#4b5563');
+      p.r(hx + 8, hy + 2, 2, 5, '#6b7280'); // nose guard
+      p.r(hx + 6, hy + 4, 2, 2, L.accent);
+      p.r(hx - 2, hy + 3, 3, 7, L.hair); // braids
+      break;
+    case 'crest':
+      // bronze crested helmet over a skull
+      p.r(hx + 2, hy + 6, 7, 4, '#1a1418'); // skull grin shadow
+      for (let i = 0; i < 3; i++) p.r(hx + 3 + i * 2, hy + 8, 1, 2, L.skin);
+      p.r(hx - 1, hy - 3, 13, 8, '#b7791f');
+      p.r(hx - 1, hy - 3, 13, 2, '#e0b44a');
+      p.r(hx - 1, hy + 4, 4, 7, '#b7791f'); // cheek guard
+      p.r(hx + 6, hy + 2, 3, 2, '#1a1418');
+      p.dot(hx + 7, hy + 2, L.accent);
+      // horsehair crest
+      p.r(hx - 3, hy - 7, 14, 4, '#b91c1c');
+      p.r(hx - 4, hy - 5, 3, 6, '#b91c1c');
+      p.r(hx - 2, hy - 7, 12, 1, '#ef4444');
+      break;
+    case 'alien':
+      // a huge bald cranium and big black almond eyes (covers the human face)
+      p.r(hx - 2, hy - 6, 15, 12, L.skin);
+      p.r(hx - 1, hy - 7, 13, 2, tone(L.skin, 0.15));
+      p.r(hx, hy + 5, 10, 4, L.skin);
+      p.r(hx + 2, hy + 9, 6, 2, L.skin);
+      p.r(hx - 2, hy - 5, 2, 9, tone(L.skin, -0.18));
+      p.r(hx + 5, hy, 6, 4, '#05070d');
+      p.r(hx + 6, hy + 4, 4, 1, '#05070d');
+      p.dot(hx + 9, hy + 1, '#e0f2fe');
+      p.r(hx + 8, hy + 7, 2, 1, tone(L.skin, -0.35));
+      break;
     case 'gasmask':
       p.r(hx - 2, hy - 3, 14, 7, '#4b525c');
       p.r(hx - 2, hy - 3, 14, 2, '#6d7580');
@@ -407,23 +603,42 @@ function drawGun(
 ): { mx: number; my: number } {
   const metal = enemy ? '#2a2c31' : '#2c2f37';
   const light = enemy ? '#4a4f58' : '#59606e';
+  const weapon = L.weapon ?? 'gun';
+  const hands = (u: number, v: number): string | null => {
+    if (u >= 12 && u < 14.5 && v >= 0.5 && v < 3) return L.skin;
+    if (u >= 5 && u < 7.5 && v >= 0.5 && v < 3) return L.skin;
+    if (u >= -1 && u < 5.5 && v >= -1 && v < 2.5) return v < 0 ? tone(L.color, 0.15) : L.color;
+    return null;
+  };
   p.rotated(px, py, angle, 24, (u, v) => {
-    // barrel
+    if (weapon === 'staff') {
+      // a long staff with a glowing orb where the shots come from
+      if (u >= 18 && u < 23 && v >= -3.5 && v < 1.5)
+        return u >= 20 && u < 22 && v >= -2.5 && v < 0 ? '#ffffff' : L.accent;
+      if (u >= -4 && u < 18 && v >= -0.8 && v < 0.8) return '#6b4423';
+      return hands(u, v);
+    }
+    if (weapon === 'spear') {
+      // shaft + a leaf-shaped blade
+      if (u >= 16 && u < 23 && Math.abs(v) < 2.4 - (u - 16) * 0.3) return u >= 21 ? '#ffffff' : '#cbd5e1';
+      if (u >= -6 && u < 16 && v >= -0.8 && v < 0.8) return '#7c5a35';
+      return hands(u, v);
+    }
+    if (weapon === 'raygun') {
+      // bulbous ray gun with glowing rings
+      if (u >= 14 && u < 21 && v >= -2 && v < 0.5) return u >= 19 ? L.accent : '#cbd5e1';
+      if (u >= 5 && u < 14 && v >= -3.5 && v < 1.2) return (u | 0) % 3 === 0 ? L.accent : '#94a3b8';
+      return hands(u, v);
+    }
+    // rifle: barrel, body, magazine
     if (u >= 15 && u < 22 && v >= -2.2 && v < -0.6) return u >= 21 ? '#0d0d10' : light;
-    // body
     if (u >= 3 && u < 15.5 && v >= -2.8 && v < 1) {
       if (v < -1.8) return light;
       if (u >= 5 && u < 8 && v < -0.5 && !enemy) return L.color;
       return metal;
     }
-    // magazine
     if (u >= 9 && u < 11.8 && v >= 1 && v < 4.8) return '#17191d';
-    // hands
-    if (u >= 12 && u < 14.5 && v >= 0.5 && v < 3) return L.skin;
-    if (u >= 5 && u < 7.5 && v >= 0.5 && v < 3) return L.skin;
-    // sleeve from the shoulder
-    if (u >= -1 && u < 5.5 && v >= -1 && v < 2.5) return v < 0 ? tone(L.color, 0.15) : L.color;
-    return null;
+    return hands(u, v);
   });
   return {
     mx: px + Math.cos(angle) * 22 + Math.sin(angle) * 1.4,
@@ -436,23 +651,50 @@ function drawTorso(p: Px, L: Look, x: number, top: number, hipY: number): void {
   p.r(x, top, 13, h, L.color);
   p.r(x, top, 2, h, L.shade);
   p.r(x + 11, top + 1, 1, h - 2, tone(L.color, 0.2));
-  // tactical vest
-  p.r(x + 2, top + 2, 9, h - 3, L.vest);
-  p.r(x + 2, top + 2, 9, 1, tone(L.vest, 0.25));
-  p.r(x + 3, top + 6, 3, 3, tone(L.vest, -0.3)); // pouches
-  p.r(x + 7, top + 6, 3, 3, tone(L.vest, -0.3));
-  p.r(x + 3, top + 6, 3, 1, tone(L.vest, 0.15));
-  p.r(x + 7, top + 6, 3, 1, tone(L.vest, 0.15));
-  // shoulder strap in hero colour
-  p.r(x + 8, top + 1, 2, 4, L.shade);
-  // belt + buckle
-  p.r(x, hipY - 2, 13, 2, '#2b2620');
-  p.r(x + 5, hipY - 2, 3, 2, '#d4a017');
+  switch (L.torso ?? 'vest') {
+    case 'wraps':
+      for (let y = top + 1; y < hipY; y += 3) p.r(x, y, 13, 1, L.shade);
+      p.r(x + 3, top + 2, 7, 1, tone(L.color, 0.3));
+      return;
+    case 'ribs':
+      // bare ribcage under a cloak over one shoulder
+      p.r(x + 2, top + 1, 10, h - 2, '#1a1418');
+      for (let y = top + 2; y < hipY - 2; y += 2) p.r(x + 3, y, 8, 1, L.skin);
+      p.r(x + 6, top + 1, 2, h - 2, L.skin); // spine
+      p.r(x, top, 4, h, L.color);
+      p.r(x, hipY - 3, 13, 3, L.vest); // bronze belt and kilt
+      return;
+    case 'fur':
+      p.r(x + 2, top + 2, 9, h - 3, L.vest);
+      p.r(x - 1, top - 1, 15, 4, '#d6d3d1'); // fur mantle
+      for (let i = 0; i < 15; i += 2) p.dot(x - 1 + i, top + 3, '#a8a29e');
+      p.r(x, hipY - 2, 13, 2, '#3f2a1a');
+      p.r(x + 5, hipY - 2, 3, 2, '#9ca3af');
+      return;
+    case 'plain':
+      p.r(x + 3, top + 2, 7, h - 4, L.vest);
+      p.r(x + 3, top + 2, 7, 1, tone(L.vest, 0.3));
+      p.r(x, hipY - 2, 13, 2, tone(L.color, -0.3));
+      return;
+    default:
+      // tactical vest
+      p.r(x + 2, top + 2, 9, h - 3, L.vest);
+      p.r(x + 2, top + 2, 9, 1, tone(L.vest, 0.25));
+      p.r(x + 3, top + 6, 3, 3, tone(L.vest, -0.3)); // pouches
+      p.r(x + 7, top + 6, 3, 3, tone(L.vest, -0.3));
+      p.r(x + 3, top + 6, 3, 1, tone(L.vest, 0.15));
+      p.r(x + 7, top + 6, 3, 1, tone(L.vest, 0.15));
+      // shoulder strap in hero colour
+      p.r(x + 8, top + 1, 2, 4, L.shade);
+      // belt + buckle
+      p.r(x, hipY - 2, 13, 2, '#2b2620');
+      p.r(x + 5, hipY - 2, 3, 2, '#d4a017');
+  }
 }
 
 function drawCharacter(L: Look, pose: Pose, frame: number, aim: Aim): CharFrame {
   const p = new Px(SPRITE_W, SPRITE_H);
-  const enemy = L.headgear === 'gasmask' || L.headgear === 'horns' || L.headgear === 'dome';
+  const enemy = L.enemy === true || L.headgear === 'gasmask';
   if (pose === 'down') {
     // Lying on the ground, face up, an arm reaching out.
     const y = FEET_Y;

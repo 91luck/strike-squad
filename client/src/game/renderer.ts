@@ -58,11 +58,22 @@ import {
   platformTile,
   propSprite,
   ridgeLayer,
+  themedLayer,
   zoneAt,
   type Prop,
   type ZoneId,
   type ZoneStyle,
 } from './world-art';
+import { drawThemedColossus, drawThemedGunship, drawThemedWalker, type BossKit } from './boss-art';
+import {
+  SHOT_COLORS,
+  drawCritter,
+  drawFlyer,
+  drawGate,
+  drawOrdnance,
+  drawShield,
+  drawTotem,
+} from './theme-art';
 
 /**
  * Side-view renderer: layered parallax backdrop, pixel-art tiles and props, sprite characters, additive-light effects
@@ -237,7 +248,6 @@ const AMBIENT: Record<
 export class Renderer {
   /** Swapped for an offscreen context while a boss is drawn for tinting (demon / void missions). */
   private ctx: CanvasRenderingContext2D;
-  private bossLayer: HTMLCanvasElement | null = null;
   private lvl: LevelDef = MISSION_1;
   private particles: Particle[] = [];
   private rings: Ring[] = [];
@@ -261,6 +271,7 @@ export class Renderer {
   private readonly canopy: HTMLCanvasElement;
   private readonly industry: HTMLCanvasElement;
   private dunes: HTMLCanvasElement | null = null;
+  private themedLayers = new Map<string, HTMLCanvasElement>();
   private readonly tint = new Map<string, HTMLCanvasElement>();
   private readonly white = new WeakMap<HTMLCanvasElement, HTMLCanvasElement>();
   private seenBullets = new Set<number>();
@@ -604,7 +615,9 @@ export class Renderer {
       (e) => e.k === 'gunship' && Math.abs(e.x - (tx + this.viewW / 2)) < this.viewW,
     );
     if (ship) {
-      ty = Math.min(ty, ship.y - GAME_CONFIG.enemies.gunship.height - 24);
+      // Themed flyers (wings, a sun disc, a winged helm) reach higher than the army gunship's rotor.
+      const reach = this.lvl.faction === 'army' ? 24 : 84;
+      ty = Math.min(ty, ship.y - GAME_CONFIG.enemies.gunship.height - reach);
       if (me) ty = Math.max(ty, me.y - this.viewH + 56); // but never lose your own soldier
     }
     tx = Math.max(0, Math.min(W - this.viewW, tx));
@@ -692,6 +705,28 @@ export class Renderer {
       ctx.ellipse(px, py, pr * 1.7, pr * 0.35, -0.3, 0, Math.PI * 2);
       ctx.stroke();
     }
+    if (z.skyFx === 'aurora') {
+      // Northern lights: slow ribbons of green and violet across the top of the sky.
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      for (let band = 0; band < 3; band++) {
+        const col = band === 1 ? 'rgba(167,139,250,0.16)' : 'rgba(74,222,128,0.18)';
+        ctx.fillStyle = col;
+        ctx.beginPath();
+        const y0 = H * (0.12 + band * 0.08);
+        ctx.moveTo(0, y0);
+        for (let x = 0; x <= W; x += W / 24) {
+          const yy = y0 + Math.sin(x / (W * 0.12) + nowMs / 2600 + band * 1.7) * H * 0.05;
+          ctx.lineTo(x, yy);
+        }
+        for (let x = W; x >= 0; x -= W / 24) {
+          const yy = y0 + H * 0.09 + Math.sin(x / (W * 0.1) + nowMs / 2100 + band) * H * 0.04;
+          ctx.lineTo(x, yy);
+        }
+        ctx.fill();
+      }
+      ctx.restore();
+    }
     // sun with a soft glow
     const sunX = W * 0.72;
     const sunY = H * (0.42 + (this.camY / FULL_H) * 0.2);
@@ -739,7 +774,34 @@ export class Renderer {
     let mid = this.canopy;
     if (z.layer === 'industry') mid = this.industry;
     else if (z.layer === 'dunes') mid = this.dunes ??= ridgeLayer(9, 0.8, 46, false);
+    else if (z.layer !== 'canopy') {
+      let img = this.themedLayers.get(z.layer);
+      if (!img) this.themedLayers.set(z.layer, (img = themedLayer(z.layer, 31 + z.layer.length)));
+      mid = img;
+    }
     layer(this.tinted(mid, z.mid, z.layer), 0.45, 40);
+    if (z.skyFx === 'storm' && !this.reduce) {
+      // A lightning storm: rare full-screen flashes with a forked bolt behind the skyline.
+      const t = nowMs / 1000;
+      const k = (Math.sin(t * 0.9) + Math.sin(t * 2.3 + 1)) / 2;
+      if (k > 0.93) {
+        ctx.fillStyle = `rgba(220,230,255,${(k - 0.93) * 4})`;
+        ctx.fillRect(0, 0, W, H);
+        const bx = W * (0.2 + ((Math.floor(t * 0.5) * 0.37) % 0.6));
+        ctx.strokeStyle = 'rgba(240,245,255,0.9)';
+        ctx.lineWidth = 2 * s;
+        ctx.beginPath();
+        let y = 0;
+        let x = bx;
+        ctx.moveTo(x, y);
+        for (let i = 0; i < 7; i++) {
+          x += ((i * 37) % 23) - 11;
+          y += H * 0.08;
+          ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+    }
     if (z.lights) {
       // blinking warning lights on the skyline
       const on = Math.floor(nowMs / 600) % 2 === 0;
@@ -834,30 +896,7 @@ export class Renderer {
         ctx.fillRect(x + 10, 10, 12, 3);
         continue;
       }
-      ctx.fillStyle = '#2f353e';
-      ctx.fillRect(x + 2, 0, T - 4, h);
-      ctx.fillStyle = '#454d58';
-      ctx.fillRect(x + 4, 0, 6, h);
-      for (let yy = 0; yy < h; yy += 40) {
-        ctx.fillStyle = '#1d2127';
-        ctx.fillRect(x + 2, yy + 36, T - 4, 4);
-        for (let k = 0; k < 4; k++) {
-          ctx.fillStyle = k % 2 ? '#1b1b1b' : '#f4c430';
-          ctx.fillRect(x + 12, yy + 8 + k * 6, 14, 6);
-        }
-        ctx.fillStyle = '#8b95a1';
-        ctx.fillRect(x + 6, yy + 4, 2, 2);
-        ctx.fillRect(x + 24, yy + 4, 2, 2);
-      }
-      // energy glow + warning light
-      const pulse = 0.5 + 0.5 * Math.sin(nowMs / 200);
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.fillStyle = `rgba(255, 70, 70, ${0.15 + pulse * 0.25})`;
-      ctx.fillRect(x - 3, 0, 4, h);
-      ctx.restore();
-      ctx.fillStyle = pulse > 0.5 ? '#ff4040' : '#7a1d1d';
-      ctx.fillRect(x + 12, h - 22, 8, 6);
+      drawGate(ctx, ZONES[zoneAt(this.lvl, x)].gate, x, T, h, nowMs);
     }
   }
 
@@ -1227,45 +1266,21 @@ export class Renderer {
     if (e.k === 'soldier') this.trooper(e, looks.soldier, `${faction}-enemy`, nowMs);
     else if (e.k === 'grenadier') {
       this.trooper(e, looks.gren, `${faction}-gren`, nowMs);
-      // grenade belt
-      ctx.fillStyle = '#3f6212';
-      for (let i = 0; i < 3; i++) ctx.fillRect(Math.round(e.x - 6 + i * 4), Math.round(e.y - 16), 3, 3);
+      if (faction === 'army') {
+        // grenade belt
+        ctx.fillStyle = '#3f6212';
+        for (let i = 0; i < 3; i++) ctx.fillRect(Math.round(e.x - 6 + i * 4), Math.round(e.y - 16), 3, 3);
+      }
     } else if (e.k === 'shield') {
       this.trooper(e, looks.shield, `${faction}-shield`, nowMs);
-      if (e.sh === 1) {
-        // riot shield in front
-        const x = Math.round(e.x + e.f * 13);
-        const top = Math.round(e.y - 40);
-        ctx.fillStyle = '#120f17';
-        ctx.fillRect(x - 4, top - 1, 9, 42);
-        ctx.fillStyle = flash ? '#ffffff' : '#7dd3fc';
-        ctx.globalAlpha = 0.85;
-        ctx.fillRect(x - 3, top, 7, 40);
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = '#e0f2fe';
-        ctx.fillRect(x - 2 + (e.f > 0 ? 3 : 0), top + 2, 2, 30);
-        ctx.fillStyle = '#0c4a6e';
-        ctx.fillRect(x - 3, top + 16, 7, 3);
-      }
+      if (e.sh === 1) drawShield(ctx, faction, Math.round(e.x + e.f * 13), Math.round(e.y - 40), flash);
     } else if (e.k === 'jetpack') {
       const bob = Math.round(Math.sin(nowMs / 160 + e.id) * 2);
       const ey = e.y + bob;
-      // flames under the pack
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
-      const fl = 8 + Math.random() * 8;
-      const g = ctx.createLinearGradient(0, ey - 18, 0, ey - 18 + fl + 10);
-      g.addColorStop(0, '#fff3b0');
-      g.addColorStop(0.4, '#ffb02e');
-      g.addColorStop(1, 'rgba(255,60,0,0)');
-      ctx.fillStyle = g;
-      ctx.fillRect(Math.round(e.x - e.f * 9) - 3, ey - 18, 6, fl + 10);
-      ctx.restore();
-      ctx.fillStyle = '#120f17';
-      ctx.fillRect(Math.round(e.x - e.f * 9) - 5, ey - 36, 10, 18);
-      ctx.fillStyle = '#6b7280';
-      ctx.fillRect(Math.round(e.x - e.f * 9) - 4, ey - 35, 8, 16);
+      drawFlyer(ctx, faction, e.x, ey, e.f, nowMs);
       this.trooper({ ...e, y: ey }, looks.jet, `${faction}-jet`, nowMs, 'fall');
+    } else if (e.k === 'turret' && faction !== 'army') {
+      drawTotem(ctx, faction, Math.round(e.x), Math.round(e.y), e.a / 100, flash);
     } else if (e.k === 'turret') {
       const base = turretBase();
       const barrel = turretBarrel();
@@ -1276,23 +1291,8 @@ export class Renderer {
       ctx.restore();
       ctx.drawImage(flash ? this.whiteOf(base) : base, Math.round(e.x - 20), Math.round(e.y - 30));
     } else if (e.k === 'drone' && faction !== 'army') {
-      // Demon fire wisp / void eye instead of a machine.
       const bob = Math.round(Math.sin(nowMs / 180 + e.id) * 3);
-      const [hot, deep] = faction === 'demon' ? ['#fde68a', '#dc2626'] : ['#e9d5ff', '#6d28d9'];
-      ctx.save();
-      ctx.globalCompositeOperation = 'lighter';
-      const g = ctx.createRadialGradient(e.x, e.y - 8 + bob, 2, e.x, e.y - 8 + bob, 18);
-      g.addColorStop(0, flash ? '#ffffff' : hot);
-      g.addColorStop(0.5, deep);
-      g.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.arc(e.x, e.y - 8 + bob, 18, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-      ctx.fillStyle = '#120f17';
-      ctx.fillRect(Math.round(e.x + e.f * 3) - 4, Math.round(e.y - 11 + bob), 3, 3);
-      ctx.fillRect(Math.round(e.x + e.f * 3) + 2, Math.round(e.y - 11 + bob), 3, 3);
+      drawCritter(ctx, faction, Math.round(e.x), Math.round(e.y + bob), e.f, flash, nowMs);
     } else if (e.k === 'drone') {
       const img = droneSprite(Math.floor(nowMs / 50));
       const bob = Math.round(Math.sin(nowMs / 180 + e.id) * 2);
@@ -1324,38 +1324,35 @@ export class Renderer {
       this.drawBossBody(e, s, nowMs);
       return;
     }
-    // Demon / void bosses: the same machines, drawn offscreen and tinted, with burning eyes on top.
-    const LW = 760;
-    const LH = 700;
-    const layer = (this.bossLayer ??= document.createElement('canvas'));
-    if (layer.width !== LW) {
-      layer.width = LW;
-      layer.height = LH;
-    }
-    const og = layer.getContext('2d');
-    if (!og) {
-      this.drawBossBody(e, s, nowMs);
-      return;
-    }
-    const ox = Math.round(e.x - LW / 2);
-    const oy = Math.round(e.y - LH + 120);
-    og.setTransform(1, 0, 0, 1, 0, 0);
-    og.clearRect(0, 0, LW, LH);
-    og.imageSmoothingEnabled = false;
-    og.setTransform(1, 0, 0, 1, -ox, -oy);
-    const main = this.ctx;
-    this.ctx = og;
-    try {
-      this.drawBossBody(e, s, nowMs);
-    } finally {
-      this.ctx = main;
-    }
-    og.setTransform(1, 0, 0, 1, 0, 0);
-    og.globalCompositeOperation = 'source-atop';
-    og.fillStyle = faction === 'demon' ? 'rgba(185, 28, 28, 0.42)' : 'rgba(109, 40, 217, 0.42)';
-    og.fillRect(0, 0, LW, LH);
-    og.globalCompositeOperation = 'source-over';
-    main.drawImage(layer, ox, oy);
+    // Themed missions: same boss behaviour, a different creature (boss-art.ts).
+    const kit = this.bossKit();
+    const atk = this.atk(e);
+    if (e.k === 'walker') drawThemedWalker(kit, faction, e, nowMs, atk);
+    else if (e.k === 'gunship') drawThemedGunship(kit, faction, e, nowMs, atk);
+    else
+      drawThemedColossus(
+        kit,
+        faction,
+        e,
+        e.hp <= 0 || s.result === 'won',
+        nowMs,
+        atk,
+        e.at === ATTACK.beamHigh ? BEAM.highY : BEAM.lowY,
+      );
+  }
+
+  /** The renderer's drawing helpers, handed to the themed boss painters. */
+  private bossKit(): BossKit {
+    return {
+      ctx: this.ctx,
+      reduce: this.reduce,
+      glow: (x, y, r, c) => this.glow(x, y, r, c),
+      add: (p) => this.add(p),
+      warnIcon: (x, y, n) => this.warnIcon(x, y, n),
+      sightLine: (x, y, a, l, k) => this.sightLine(x, y, a, l, k),
+      shadowAt: (x, y, w, a) => this.shadowAt(x, y, w, a),
+      label: (t, x, y, c, sz) => this.label(t, x, y, c, sz),
+    };
   }
 
   private drawBossBody(e: EnemySnapshot, s: Snapshot, nowMs: number): void {
@@ -1912,6 +1909,11 @@ export class Renderer {
       const kind = KIND(b.k);
       if (b.e === 1) {
         ctx.globalCompositeOperation = 'source-over';
+        if (
+          (kind === 'grenade' || kind === 'bomb' || kind === 'missile') &&
+          drawOrdnance(ctx, this.lvl.faction, kind, b.x, b.y, b.vx, b.vy, nowMs)
+        )
+          continue;
         if (kind === 'grenade' || kind === 'bomb') {
           const r = kind === 'bomb' ? 7 : 5;
           ctx.fillStyle = '#120f17';
@@ -1954,10 +1956,11 @@ export class Renderer {
         if (kind === 'wave') {
           // ground shockwave: a rolling wall of fire and dust
           const dir = Math.sign(b.vx) || 1;
+          const [wc, wh] = SHOT_COLORS[this.lvl.faction].wave;
           const g = ctx.createLinearGradient(b.x - dir * 40, 0, b.x + dir * 6, 0);
-          g.addColorStop(0, 'rgba(255,120,30,0)');
-          g.addColorStop(0.7, 'rgba(255,160,60,0.65)');
-          g.addColorStop(1, 'rgba(255,240,200,0.95)');
+          g.addColorStop(0, `rgba(${wc},0)`);
+          g.addColorStop(0.7, `rgba(${wc},0.65)`);
+          g.addColorStop(1, `rgba(${wh},0.95)`);
           ctx.fillStyle = g;
           const h = 22 + Math.sin(nowMs / 40 + b.x) * 3;
           ctx.beginPath();
@@ -1981,7 +1984,8 @@ export class Renderer {
         const rad = shell ? 13 : 9;
         const g = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, rad);
         g.addColorStop(0, '#ffffff');
-        g.addColorStop(0.35, shell ? '#ff9f1c' : '#ff5a5a');
+        const sc = SHOT_COLORS[this.lvl.faction];
+        g.addColorStop(0.35, shell ? sc.shell : sc.core);
         g.addColorStop(1, 'rgba(255,0,0,0)');
         ctx.fillStyle = g;
         ctx.fillRect(b.x - rad, b.y - rad, rad * 2, rad * 2);

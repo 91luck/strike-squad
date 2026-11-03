@@ -62,6 +62,8 @@ export function installModalKeys(dismissible: string[]): void {
     if (!open) return;
     if (e.key === 'Escape' && dismissible.includes(open.id)) {
       e.preventDefault();
+      // A dialog over the pause menu: Escape closes only the dialog (the game's own Escape listener is on window).
+      if (open.classList.contains('modal-overlay')) e.stopPropagation();
       closeOverlay(open.id);
       return;
     }

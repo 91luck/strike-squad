@@ -2,6 +2,8 @@
   "name": "@strikesquad/server",
   "version": "0.1.0",
   "private": true,
+  "author": "Lokesh Mahadule",
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",

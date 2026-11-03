@@ -4,6 +4,7 @@ import {
   heroOf,
   rankName,
   type BossKind,
+  type Faction,
   type LevelDef,
   POWER_KINDS,
   isPower,
@@ -37,10 +38,22 @@ export const BOSS_INFO: Record<BossKind, { name: string; sub: string; tip: strin
   },
 };
 
-/** Boss subtitles for demon and void missions (same machines, different creatures). */
-const FACTION_SUB: Record<'demon' | 'void', Record<BossKind, string>> = {
-  demon: { walker: 'Demon beast', gunship: 'Winged demon', boss: 'Demon throne · 3 phases' },
-  void: { walker: 'Void stalker', gunship: 'Star reaper', boss: 'Singularity core · 3 phases' },
+/** Boss names per themed faction (the army keeps WARHOUND, VULTURE and the IRON FORTRESS). */
+const FACTION_NAME: Record<Exclude<Faction, 'army'>, Record<BossKind, string>> = {
+  pharaoh: { walker: 'GIANT SCORPION', gunship: 'SUN FALCON', boss: 'ANUBIS COLOSSUS' },
+  norse: { walker: 'FENRIR', gunship: 'THOR', boss: 'FROST GIANT' },
+  olympus: { walker: 'MINOTAUR', gunship: 'STORM HARPY', boss: 'ZEUS' },
+  demon: { walker: 'INFERNO BEAST', gunship: 'FIRE DRAGON', boss: 'DEMON KING' },
+  void: { walker: 'XENO CRAWLER', gunship: 'UFO MOTHERSHIP', boss: 'HIVE QUEEN' },
+};
+
+/** Boss subtitles per themed faction (same attacks as the army machines, different creatures). */
+const FACTION_SUB: Record<Exclude<Faction, 'army'>, Record<BossKind, string>> = {
+  pharaoh: { walker: 'Giant scorpion', gunship: 'Sun falcon', boss: 'Living statue · 3 phases' },
+  norse: { walker: 'Giant wolf', gunship: 'Thunder god', boss: 'Frost giant · 3 phases' },
+  olympus: { walker: 'Bull-headed brute', gunship: 'Storm harpy', boss: 'King of the gods · 3 phases' },
+  demon: { walker: 'Demon beast', gunship: 'Fire dragon', boss: 'Demon throne · 3 phases' },
+  void: { walker: 'Xeno crawler', gunship: 'Alien saucer', boss: 'Hive queen · 3 phases' },
 };
 
 /** Power names, icons and what they do (HUD and pickup banners). */
@@ -243,7 +256,7 @@ export class MatchView {
               ? ev.phase === 2
                 ? 'PHASE 2 — drones and ground slams!'
                 : 'FINAL PHASE — it’s enraged!'
-              : `${BOSS_INFO[ev.kind].name} is enraged!`,
+              : `${this.bossName(ev.kind)} is enraged!`,
             true,
           );
           break;
@@ -253,7 +266,9 @@ export class MatchView {
             r.explosion(ev.x - 50 + i * 25, ev.y - 30 - ((i * 37) % 120), true, reduce);
           r.flash('#ffffff', 0.6);
           this.sfx.play('victory');
-          this.showBanner(`${BOSS_INFO[ev.kind].name} DESTROYED!`);
+          this.showBanner(
+            `${this.bossName(ev.kind)} ${this.renderer.level.faction === 'army' ? 'DESTROYED' : 'DEFEATED'}!`,
+          );
           $('boss-bar').hidden = true;
           break;
         }
@@ -303,8 +318,14 @@ export class MatchView {
     return this.heroIds.get(id) ?? 0;
   }
 
-  /** `title`: the arena's name (e.g. TWIN HOUNDS) when it differs from the boss's own. */
-  private bossIntro(kind: BossKind, title = BOSS_INFO[kind].name): void {
+  /** `title`: the arena's name (e.g. TWIN SCORPIONS) when it differs from the boss's own. */
+  /** The boss's own name in this mission's faction. */
+  private bossName(kind: BossKind): string {
+    const faction = this.renderer.level.faction;
+    return faction === 'army' ? BOSS_INFO[kind].name : FACTION_NAME[faction][kind];
+  }
+
+  private bossIntro(kind: BossKind, title = this.bossName(kind)): void {
     const info = BOSS_INFO[kind];
     const faction = this.renderer.level.faction;
     $('boss-intro-name').textContent = title;
@@ -426,7 +447,7 @@ export class MatchView {
     if (s.boss && s.boss.hp > 0) {
       bossBar.hidden = false;
       $('boss-name').textContent =
-        (s.arena && this.renderer.level.arenas[s.arena.id]?.name) || BOSS_INFO[s.boss.k].name;
+        (s.arena && this.renderer.level.arenas[s.arena.id]?.name) || this.bossName(s.boss.k);
       const f = Math.max(0, s.boss.hp / s.boss.max);
       this.bossLag = f > this.bossLag ? f : this.bossLag + (f - this.bossLag) * 0.05;
       ($('boss-fill') as HTMLElement).style.width = `${f * 100}%`;
