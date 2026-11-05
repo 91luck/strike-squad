@@ -54,6 +54,9 @@ Optional automation: add a `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` se
 
 ## What's in the game
 
+- **Astra Saga:** ten stages, each built around one divine astra inspired by the Indian epics (Agneyastra, Varunastra, Vayavyastra, Nagastra and Garudastra, the Brahmastra, Pashupatastra, the Narayanastra storm, the Sudarshana chakra, Vaishnavastra, Brahmashirsha). Bosses call astras too, each with a counter to learn. Every stage has a shape of its own (a broken bridge over the sea, an updraft gorge, serpent caves, fortress walls to climb or slip under, war trenches, a gauntlet of duels) and a hidden stash. Stages open one by one; stars, astra shards and a continue after running out of lives. Design: [docs/ASTRA_SAGA.md](docs/ASTRA_SAGA.md).
+- **Progression:** XP and levels, heroes that unlock as you level, a daily streak, trophies, and a reward screen that teases the next villain. Design and numbers: [docs/PROGRESSION.md](docs/PROGRESSION.md).
+- **CrazyGames build:** `npm run package:crazygames` makes the portal zip (SDK, ads through the SDK, cloud saves, invites). Guide: [docs/CRAZYGAMES.md](docs/CRAZYGAMES.md).
 - **Play with friends:** private squad, invite link, WhatsApp button, host picks difficulty (easy / normal / hard). Friends can join **any time, even mid-mission**: they appear next to the squad and the squad gains a life.
 - **Play now:** drops you into a public mission already running; if there is none it starts one at once, and the next "Play now" player joins you. No waiting for opponents.
 - **Solo training:** the full mission offline, alone or with 1 or 3 **computer buddies** (labelled `(bot)`) who fight beside you, dodge boss attacks and fire their own super moves.
@@ -64,17 +67,18 @@ Optional automation: add a `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` se
 
 ## Scripts
 
-| Command                                                | What it does                                                                                     |
-| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
-| `npm run dev`                                          | Game server + Vite client with hot reload                                                        |
-| `npm run phone`                                        | Build and serve on your Wi-Fi; prints a link + QR code for your phone                            |
-| `npm run playtest -- 20 normal`                        | Computer squads of 1/2/4/8 play the mission; prints win rate, time, KOs, supers, combo           |
-| `npm run test:url -- <url>`                            | Desktop + phone browser tests against any running copy (deployed or Wi-Fi)                       |
-| `npm run publish:github`                               | Create your GitHub repo, push (with your private noreply email), print deploy links              |
-| `npm run personalize`                                  | Fill your GitHub repo into the Deploy buttons                                                    |
-| `npm run check`                                        | Lint + format check, strict typecheck (4 projects), all unit/integration tests, production build |
-| `npm run test:e2e` / `npm run test:e2e:cloudflare`     | Real-browser tests against the Node server / the Cloudflare runtime                              |
-| `npm run dev:cloudflare` / `npm run deploy:cloudflare` | Run the Cloudflare build locally / deploy it                                                     |
+| Command                                                | What it does                                                                                         |
+| ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `npm run dev`                                          | Game server + Vite client with hot reload                                                            |
+| `npm run phone`                                        | Build and serve on your Wi-Fi; prints a link + QR code for your phone                                |
+| `npm run playtest -- 20 normal`                        | Computer squads of 1/2/4/8 play the mission; prints win rate, time, KOs, supers, combo               |
+| `npm run test:url -- <url>`                            | Desktop + phone browser tests against any running copy (deployed or Wi-Fi)                           |
+| `npm run publish:github`                               | Create your GitHub repo, push (with your private noreply email), print deploy links                  |
+| `npm run personalize`                                  | Fill your GitHub repo into the Deploy buttons                                                        |
+| `npm run check`                                        | Lint + format check, strict typecheck (4 projects), all unit/integration tests, production build     |
+| `npm run test:e2e` / `npm run test:e2e:cloudflare`     | Real-browser tests against the Node server / the Cloudflare runtime                                  |
+| `npm run dev:cloudflare` / `npm run deploy:cloudflare` | Run the Cloudflare build locally / deploy it                                                         |
+| `npm run package:crazygames`                           | Build the CrazyGames version, check the portal's limits, write `release/strike-squad-crazygames.zip` |
 
 ## How it works
 
@@ -82,12 +86,11 @@ The browser sends only **intentions** (left/right, up/down, jump, fire, dash, kn
 
 ## Docs
 
-[Zip → live (Hinglish)](docs/PUBLISH_AND_DEPLOY_HINGLISH.md) · [Play on phone (Hinglish)](docs/PLAY_ON_PHONE_HINGLISH.md) · [Hinglish deploy guide](docs/DEPLOY_GUIDE_HINGLISH.md) · [Deployment](docs/DEPLOYMENT.md) · [Architecture](docs/ARCHITECTURE.md) · [Game rules](docs/GAME_RULES.md) · [Network protocol](docs/NETWORK_PROTOCOL.md) · [Testing](docs/TESTING.md) · [Security](docs/SECURITY.md) · [Troubleshooting](docs/TROUBLESHOOTING.md)
+[Astra Saga](docs/ASTRA_SAGA.md) · [CrazyGames](docs/CRAZYGAMES.md) · [Zip → live (Hinglish)](docs/PUBLISH_AND_DEPLOY_HINGLISH.md) · [Play on phone (Hinglish)](docs/PLAY_ON_PHONE_HINGLISH.md) · [Hinglish deploy guide](docs/DEPLOY_GUIDE_HINGLISH.md) · [Deployment](docs/DEPLOYMENT.md) · [Architecture](docs/ARCHITECTURE.md) · [Game rules](docs/GAME_RULES.md) · [Network protocol](docs/NETWORK_PROTOCOL.md) · [Testing](docs/TESTING.md) · [Security](docs/SECURITY.md) · [Troubleshooting](docs/TROUBLESHOOTING.md)
 
 ## Known limitations
 
-- **Not deployed yet.** Verified locally on both runtimes (Node and Cloudflare `workerd`) in real Chromium; not on a live host.
-- **One mission so far.** Computer squads finish it in 2.5–6 minutes. More missions are the obvious next step.
+- **The CrazyGames build is tested against a stand-in SDK**, not yet in CrazyGames' own QA tool; do that before submitting (docs/CRAZYGAMES.md).
 - **Balance numbers come from computer players** (perfect aim, reacting to ~60% of attacks). Human playtests may shift difficulty.
 - Phones were tested by emulation (Pixel 7 profile, real multi-touch events), not on a physical device. Only Chromium is tested automatically. Sound could not be listened to in the test environment.
 - Cloudflare's free limits are **daily**; heavy use can hit them (online play then stops until 5:30 AM IST, solo training keeps working). One server instance holds all squads in memory, so a redeploy ends running missions.

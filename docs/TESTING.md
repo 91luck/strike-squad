@@ -54,6 +54,14 @@ Vitest breakdown: shared simulation **57**, server multiplayer **32**, server se
 
 20. **Buttons hid the boss on small phones** (667×375). Seen in screenshots; buttons are now see-through until pressed, and a tighter layout is used on screens under 380 px tall.
 
+21. **Computer players stood under a turret on top of a wall forever**, aiming straight up into the rock (stage 5, every run). Found by playtest during the stage redesign; bots now only stop for enemies they can see.
+22. **Computer players stopped moving in mid-air to aim** at a jetpack and dropped short into low-gravity pits. Found by playtest; bots keep moving until they land.
+23. **Computer players double-jumped over the next pillar** (they took any lower ground ahead for a pit) and fell into the gap behind it (stage 6: 137 falls in 6 solo runs). Found by playtest; a double jump is only for a real pit.
+24. **An arena wave trooper that wandered out past the arena edge was ignored** by the bots while it shelled them (stage 4: 36 deaths in 6 runs). Found by playtest; the arena's own troopers count wherever they stand.
+25. **Computer players flip-flopped facing at the edge of their spot** in the new arena shapes and stalled solo runs. Found by playtest; once on its spot a bot now holds it until the spot moves 2 tiles.
+26. **A cave shelf sat under a stalactite** with less headroom than a soldier, so bots (and players) got stuck on it. Found by playtest; the shelf is lower.
+27. **A stash pocket in a cave roof could trap a soldier** (rock on both sides, the only way out was drop-through). Found by playtest; its floor now stops short so you walk off it.
+
 ## Not verified
 
 Real phones, Firefox/Safari, sound by ear, a live deployment, the Docker image build, GitHub Actions, and how fun/difficult it is for people (the playtest uses computer players).

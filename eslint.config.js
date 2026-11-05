@@ -6,6 +6,8 @@ export default tseslint.config(
   {
     ignores: [
       '**/dist/**',
+      '**/dist-crazygames/**',
+      'release/**',
       'node_modules/**',
       'coverage/**',
       'playwright-report/**',

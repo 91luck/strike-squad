@@ -40,6 +40,25 @@ function int(
   return n;
 }
 
+/**
+ * `https://*.example.com`: any subdomain of example.com, at any depth, over https only (game portals serve
+ * games from their own subdomains, e.g. CrazyGames). Never the bare domain, never another scheme or port.
+ */
+const WILDCARD = /^https:\/\/\*\.([a-z0-9-]+(\.[a-z0-9-]+)+)$/i;
+
+export function wildcardMatch(pattern: string, origin: string): boolean {
+  const m = WILDCARD.exec(pattern);
+  if (!m) return false;
+  try {
+    const u = new URL(origin);
+    if (u.protocol !== 'https:' || u.port !== '' || u.origin !== origin) return false;
+    const host = u.hostname.toLowerCase();
+    return host.endsWith(`.${(m[1] as string).toLowerCase()}`);
+  } catch {
+    return false;
+  }
+}
+
 /** Reads and validates configuration. Throws ConfigError with a human-readable message. */
 export function loadConfig(
   env: Record<string, string | undefined> = (
@@ -56,9 +75,9 @@ export function loadConfig(
     throw new ConfigError('ALLOWED_ORIGINS must not contain "*" in production.');
   }
   for (const o of origins) {
-    if (o !== '*' && !/^https?:\/\/[^/\s]+$/.test(o)) {
+    if (o !== '*' && !/^https?:\/\/[^/\s*]+$/.test(o) && !WILDCARD.test(o)) {
       throw new ConfigError(
-        `ALLOWED_ORIGINS entry "${o}" must look like https://host[:port] (no path, no trailing slash).`,
+        `ALLOWED_ORIGINS entry "${o}" must look like https://host[:port] or https://*.domain (no path, no trailing slash).`,
       );
     }
   }
@@ -124,6 +143,7 @@ export function isOriginAllowed(cfg: ServerConfig, origin: string | undefined, h
   // Non-browser clients (tests, curl) send no Origin; they are only accepted outside production.
   if (!origin) return !cfg.production;
   if (cfg.allowedOrigins.includes(origin)) return true;
+  if (cfg.allowedOrigins.some((o) => wildcardMatch(o, origin))) return true;
   if (!host) return false;
   try {
     return new URL(origin).host.toLowerCase() === host.toLowerCase();

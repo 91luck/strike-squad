@@ -40,9 +40,28 @@
             <small>Co-op Missions · 1–8 friends</small>
           </h1>
           <p class="tagline">
-            Up to 8 friends, six missions, a dozen giant bosses. Dash through bullets, knife through shields,
-            chain combos and unleash your hero's super move together.
+            The Astra Saga: ten stages, ten divine astras, a dozen giant bosses. Solo, or with up to 8
+            friends.
           </p>
+          <div id="player-card" class="player-card" data-testid="player-card">
+            <b id="pc-level" class="pc-level" data-testid="pc-level">LV 1</b>
+            <div
+              id="pc-bar"
+              class="xpbar"
+              role="progressbar"
+              aria-label="Level progress"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              aria-valuenow="0"
+            >
+              <i id="pc-fill"></i>
+            </div>
+            <span id="pc-streak" class="pc-streak" data-testid="pc-streak"></span>
+            <button id="btn-weekly" class="pc-weekly" type="button" data-testid="btn-weekly">
+              Weekly 0/3
+            </button>
+            <small id="pc-next" class="pc-next" data-testid="pc-next"></small>
+          </div>
           <label class="field">
             <span>Your callsign</span>
             <input
@@ -56,7 +75,10 @@
             />
           </label>
           <div class="menu-actions">
-            <button id="btn-create" class="btn primary hazard" type="button" data-testid="btn-create">
+            <button id="btn-saga" class="btn primary hazard" type="button" data-testid="btn-saga">
+              ▶ Play Astra Saga<small id="saga-next">Stage 1 · Agnivan</small>
+            </button>
+            <button id="btn-create" class="btn" type="button" data-testid="btn-create">
               Play with friends<small>Get an invite link · up to 8</small>
             </button>
             <button id="btn-play" class="btn" type="button" data-testid="btn-play">
@@ -69,7 +91,10 @@
               Solo training<small>Offline, learn the controls</small>
             </button>
             <!-- Help and settings sit inside the button grid so phones in landscape never push them off-screen. -->
-            <div class="menu-more">
+            <div class="menu-more three">
+              <button id="btn-stages" class="btn ghost small" type="button" data-testid="btn-stages">
+                <span aria-hidden="true">☸</span> Stages
+              </button>
               <button id="btn-howto" class="btn ghost small" type="button" data-testid="btn-howto">
                 <span aria-hidden="true">?</span> Controls
               </button>
@@ -79,7 +104,7 @@
             </div>
           </div>
           <nav class="menu-links" aria-label="More">
-            <button id="btn-install" class="link" type="button" hidden>Install app</button>
+            <button id="btn-install" class="link not-portal" type="button" hidden>Install app</button>
             <a href="#" id="link-privacy" class="link">Privacy</a>
           </nav>
           <p class="credit" data-testid="credit">Developed by Lokesh Mahadule · © 2026 All rights reserved</p>
@@ -92,10 +117,60 @@
             <div class="hero-meta">
               <b id="hero-name" data-testid="hero-name">Blaze</b>
               <span id="hero-tag"></span>
+              <span id="hero-perk" class="hero-perk" data-testid="hero-perk"></span>
             </div>
             <button id="btn-hero-next" class="round-btn" type="button" aria-label="Next hero">›</button>
           </div>
         </aside>
+      </main>
+
+      <!-- ASTRA SAGA: stage select -->
+      <main id="screen-saga" class="screen" data-screen="saga" hidden aria-labelledby="h-saga">
+        <div class="sheet wide">
+          <h2 id="h-saga">Astra Saga</h2>
+          <p class="lead">
+            Ten stages, ten astras. Each stage teaches one: learn its rule, then use it where it counts. Clear
+            a stage to open the next.
+          </p>
+          <div class="saga-bar">
+            <span id="saga-stars" class="saga-stat" data-testid="saga-stars">★ 0 / 30</span>
+            <span
+              id="saga-shards"
+              class="saga-stat"
+              title="Astra shards: earned with stars, spent to continue after running out of lives"
+              data-testid="saga-shards"
+              >✦ 3 shards</span
+            >
+            <button id="btn-codex" class="btn small ghost" type="button" data-testid="btn-codex">
+              📜 Astra codex
+            </button>
+            <button id="btn-trophies" class="btn small ghost" type="button" data-testid="btn-trophies">
+              🏆 Trophies
+            </button>
+          </div>
+          <ol id="saga-grid" class="saga-grid" data-testid="saga-grid"></ol>
+          <div class="saga-opts">
+            <label class="field">
+              <span>Difficulty</span>
+              <select id="saga-diff" data-testid="saga-diff">
+                <option value="easy">Easy</option>
+                <option value="normal" selected>Normal</option>
+                <option value="hard">Hard</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Squad-mates</span>
+              <select id="saga-buddies" data-testid="saga-buddies">
+                <option value="0">None - just me</option>
+                <option value="1" selected>1 computer buddy</option>
+                <option value="3">3 computer buddies</option>
+              </select>
+            </label>
+          </div>
+          <div class="row">
+            <button class="btn ghost" type="button" data-nav="menu">Back</button>
+          </div>
+        </div>
       </main>
 
       <!-- CREATE SQUAD -->
@@ -216,14 +291,14 @@
               </button>
               <a
                 id="btn-whatsapp"
-                class="btn small whatsapp"
+                class="btn small whatsapp not-portal"
                 href="#"
                 target="_blank"
                 rel="noopener noreferrer"
                 data-testid="btn-whatsapp"
                 >Share on WhatsApp</a
               >
-              <button id="btn-share" class="btn small" type="button" hidden>More…</button>
+              <button id="btn-share" class="btn small not-portal" type="button" hidden>More…</button>
             </div>
             <p id="lobby-note" class="muted note" role="status" aria-live="polite"></p>
           </header>
@@ -342,6 +417,14 @@
             <div id="hud-brahma-fill" class="brahma-fill"></div>
             <span id="hud-brahma-label">BRAHMASTRA</span>
           </div>
+          <div
+            id="hud-samarpan"
+            class="samarpan"
+            hidden
+            role="status"
+            aria-live="assertive"
+            data-testid="hud-samarpan"
+          ></div>
           <div id="combo" class="combo" hidden data-testid="combo" aria-live="off">
             <div id="combo-rank" class="combo-rank">C</div>
             <div class="combo-body">
@@ -447,6 +530,34 @@
             </button>
           </div>
         </div>
+        <div
+          id="overlay-continue"
+          class="overlay"
+          hidden
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="h-continue"
+          data-testid="overlay-continue"
+        >
+          <div class="card continue-card">
+            <h2 id="h-continue">Out of lives!</h2>
+            <p id="continue-text">Keep fighting from right here with 3 squad lives.</p>
+            <div class="continue-actions">
+              <button id="btn-continue-ad" class="btn primary" type="button" data-testid="btn-continue-ad">
+                <span aria-hidden="true">▶</span> Watch a video to continue<small
+                  >Optional · it is an ad</small
+                >
+              </button>
+              <button id="btn-continue-shards" class="btn" type="button" data-testid="btn-continue-shards">
+                ✦ Continue for 3 shards<small id="continue-shards-left">You have 3</small>
+              </button>
+              <button id="btn-continue-no" class="btn ghost" type="button" data-testid="btn-continue-no">
+                No thanks
+              </button>
+            </div>
+            <p id="continue-note" class="hint" role="status"></p>
+          </div>
+        </div>
         <div id="overlay-countdown" class="overlay clear" hidden data-testid="countdown">
           <div class="big" id="countdown-num">3</div>
           <p id="countdown-sub">Lock and load!</p>
@@ -502,7 +613,7 @@
                 </button>
               </div>
               <button id="btn-pause-sound" class="btn" type="button" aria-pressed="false">Sound: on</button>
-              <button id="btn-fullscreen" class="btn" type="button">Fullscreen</button>
+              <button id="btn-fullscreen" class="btn not-portal" type="button">Fullscreen</button>
               <button id="btn-pause-leave" class="btn danger" type="button" data-testid="btn-pause-leave">
                 Leave mission
               </button>
@@ -517,6 +628,15 @@
           <h2 id="h-results" class="result-title" data-testid="result-title">Mission over</h2>
           <div id="result-stars" class="stars" data-testid="result-stars"></div>
           <p id="result-sub" class="lead"></p>
+          <div id="result-reward" class="reward" data-testid="result-reward" hidden>
+            <div class="reward-xp">
+              <b id="reward-level" class="pc-level" data-testid="reward-level">LV 1</b>
+              <div class="xpbar big" role="presentation"><i id="reward-fill"></i></div>
+              <span id="reward-xp" class="reward-gain" data-testid="reward-xp">+0 XP</span>
+            </div>
+            <ul id="reward-list" class="reward-list" data-testid="reward-list"></ul>
+          </div>
+          <div id="result-next" class="up-next" data-testid="result-next" hidden></div>
           <div id="result-awards" class="awards" data-testid="awards"></div>
           <table class="board" data-testid="scoreboard">
             <caption class="sr-only">
@@ -552,6 +672,9 @@
             </button>
             <button id="btn-to-lobby" class="btn" type="button" data-testid="btn-to-lobby">
               Back to lobby
+            </button>
+            <button id="btn-results-stages" class="btn" type="button" data-testid="btn-results-stages" hidden>
+              ☸ Stages
             </button>
             <button id="btn-results-leave" class="btn ghost" type="button" data-testid="btn-results-leave">
               Main menu
@@ -835,14 +958,71 @@
               A random session code is kept in this browser tab so you can rejoin after a dropped connection.
               It never appears in links.
             </li>
-            <li>
-              Your settings and callsign are saved in this browser. No analytics, ads, accounts or emails.
+            <li class="not-portal">
+              Your settings, callsign and progress are saved in this browser. No analytics, ads, accounts or
+              emails.
+            </li>
+            <li class="portal-only" hidden>
+              On CrazyGames, videos and accounts are run by CrazyGames under its own privacy policy. If you
+              are signed in there, your progress is saved to your CrazyGames account; this game itself
+              collects no analytics or emails.
             </li>
             <li>
               Squads and scores live in server memory only and disappear when a squad ends. Your IP address is
               used briefly for anti-spam limits and is not stored in a database.
             </li>
           </ul>
+          <button class="btn primary" type="button" data-close>Close</button>
+        </div>
+      </div>
+
+      <div
+        id="modal-codex"
+        class="overlay modal-overlay"
+        hidden
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="h-codex"
+      >
+        <div class="card scroll wide">
+          <h2 id="h-codex">Astra codex</h2>
+          <p class="lead">
+            The astras of the saga, the rule each one keeps, and how to use it. Inspired by the Indian epics;
+            every character and boss in the game is original.
+          </p>
+          <ul id="codex-list" class="codex" data-testid="codex-list"></ul>
+          <button class="btn primary" type="button" data-close>Close</button>
+        </div>
+      </div>
+
+      <div
+        id="modal-weekly"
+        class="overlay modal-overlay"
+        hidden
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="h-weekly"
+      >
+        <div class="card scroll wide">
+          <h2 id="h-weekly">Weekly challenges</h2>
+          <p id="weekly-sub" class="lead"></p>
+          <ul id="weekly-list" class="weekly-list" data-testid="weekly-list"></ul>
+          <button class="btn primary" type="button" data-close>Close</button>
+        </div>
+      </div>
+
+      <div
+        id="modal-trophies"
+        class="overlay modal-overlay"
+        hidden
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="h-trophies"
+      >
+        <div class="card scroll wide">
+          <h2 id="h-trophies">Trophies</h2>
+          <p id="trophy-sub" class="lead"></p>
+          <ul id="trophy-list" class="codex trophies" data-testid="trophy-list"></ul>
           <button class="btn primary" type="button" data-close>Close</button>
         </div>
       </div>

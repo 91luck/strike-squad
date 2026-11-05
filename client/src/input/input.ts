@@ -71,6 +71,8 @@ export class InputController {
    * (or T) flips it.
    */
   autoFireOverride: boolean | null = null;
+  /** A narayanastra storm is on: auto-fire holds off (laying down your weapons is the way through it). */
+  holdAutoFire = false;
   /** Called when the AUTO toggle flips (to refresh the button). */
   onAutoFireChange: (on: boolean) => void = () => undefined;
   /** A button pressed and released between two samples still counts once. */
@@ -178,7 +180,7 @@ export class InputController {
       this.any(EXTRA_FIRE) ||
       this.keys.has(s.keyFire) ||
       this.touchFire.size > 0 ||
-      (this.autoFire() && this.usedTouch);
+      (this.autoFire() && this.usedTouch && !this.holdAutoFire);
     const dash = this.any(DASH_KEYS) || this.touchDash.size > 0 || this.dashLatch;
     const melee = this.any(MELEE_KEYS) || this.touchMelee.size > 0 || this.meleeLatch;
     const ult = this.any(ULT_KEYS) || this.touchUlt.size > 0 || this.ultLatch;

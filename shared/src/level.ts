@@ -44,7 +44,19 @@ export type ArtStyle =
   | 'olympus'
   | 'temple'
   | 'hellgate'
-  | 'hive';
+  | 'hive'
+  // Astra Saga worlds: a burning forest, the sea bridge, storm peaks, the serpent underworld, the city of
+  // illusions, the ash mountain, the great battlefield, the discus fortress, the duel ground and the last war.
+  | 'vana'
+  | 'sagar'
+  | 'shikhar'
+  | 'naglok'
+  | 'maya'
+  | 'bhasm'
+  | 'kurukshetra'
+  | 'chakra'
+  | 'dwand'
+  | 'mahayuddh';
 
 /**
  * Who the enemies are (cosmetic only: same rules, different look, names and boss art). `army` soldiers,
@@ -103,6 +115,13 @@ export interface CheckpointDef {
   y: number;
 }
 
+/**
+ * Astras a boss calls itself (Astra Saga), on top of its normal attacks: serpents that hunt the squad, the
+ * narayanastra storm, the vaishnava orb, the brahmashirsha. Rules and their counters: `GAME_CONFIG.bossAstra`.
+ */
+export const BOSS_RULES = ['naga', 'narayana', 'vaishnava', 'brahmashirsha'] as const;
+export type BossRule = (typeof BOSS_RULES)[number];
+
 /** Where a wave enemy enters: the left or right edge of the arena, or dropping from the sky. */
 export interface WaveSpawn {
   kind: TrooperKind;
@@ -130,6 +149,8 @@ export interface ArenaDef {
   waves: WaveSpawn[][];
   /** The (first) boss of the arena, or null for an ambush. */
   boss: BossKind | null;
+  /** Astras the arena's bosses call (Astra Saga). */
+  rules: BossRule[];
 }
 
 export interface BossSpawn {
@@ -180,6 +201,8 @@ export interface LevelDef {
   faction: Faction;
   /** The squad charges a shared brahmastra in this mission. */
   brahma: boolean;
+  /** Hue shift (degrees) for this stage's enemies and bosses, so each saga stage has its own colours. Cosmetic. */
+  tint: number;
 }
 
 const T = GAME_CONFIG.tile;
@@ -277,6 +300,7 @@ export class Builder {
     a: { trigger: number; left: number; right: number; floor: number; gate: number },
     waves: WaveSpawn[][],
     boss: BossKind | null = null,
+    rules: BossRule[] = [],
   ): number {
     const id = this.arenas.length;
     this.arenas.push({
@@ -289,6 +313,7 @@ export class Builder {
       gate: a.gate,
       waves,
       boss,
+      rules,
     });
     return id;
   }
@@ -316,6 +341,7 @@ export class Builder {
     mods?: MissionMods;
     faction?: Faction;
     brahma?: boolean;
+    tint?: number;
   }): LevelDef {
     if (this.gates.length > MAX_GATES) throw new Error(`${meta.id}: more than ${MAX_GATES} gates`);
     if (this.pickups.length > MAX_PICKUPS) throw new Error(`${meta.id}: more than ${MAX_PICKUPS} pickups`);
@@ -339,6 +365,7 @@ export class Builder {
       fields: this.fields,
       faction: meta.faction ?? 'army',
       brahma: meta.brahma ?? false,
+      tint: meta.tint ?? 0,
     };
   }
 }

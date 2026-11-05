@@ -576,7 +576,7 @@ input[type='range'] {
 
 .menu-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   margin: 6px 0 14px;
 }
@@ -2216,11 +2216,16 @@ body[data-current='game'] .toast {
   }
 
   .menu-actions {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .menu-actions .btn.primary {
     min-height: 52px;
+  }
+
+  /* Leave the right side to the hero, so no button ever sits under it. */
+  .menu-panel {
+    max-width: min(560px, calc(100% - 190px));
   }
 
   .hero-stage {
@@ -2519,4 +2524,517 @@ body.reduce-motion *::after {
     height: 50px;
     font-size: 9px;
   }
+}
+
+/* ------------------------------------------------------------------ portal builds (CrazyGames)
+   No install button, no own fullscreen (the portal provides it), no outside share links. */
+body.portal .not-portal {
+  display: none !important;
+}
+
+body {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+input,
+textarea {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.menu-more.three {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+/* ------------------------------------------------------------------ Astra Saga: stage select */
+
+.saga-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 16px;
+  margin: 4px 0 14px;
+}
+
+.saga-stat {
+  font: 600 var(--step-0) var(--display);
+  color: var(--primary);
+}
+
+.saga-bar .btn {
+  margin-left: auto;
+}
+
+.saga-grid {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.saga-card {
+  position: relative;
+  width: 100%;
+  min-height: 132px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 12px 6px 10px;
+  border: 2px solid var(--line);
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, var(--panel-hi), var(--panel-solid));
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  transition:
+    transform 0.12s,
+    border-color 0.12s;
+}
+
+.saga-card:hover:not(:disabled),
+.saga-card:focus-visible {
+  transform: translateY(-2px);
+  border-color: var(--primary);
+}
+
+.saga-card.next {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(255, 201, 60, 0.25);
+}
+
+.saga-card.locked {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.saga-card .saga-num {
+  position: absolute;
+  top: 6px;
+  left: 9px;
+  font: 600 var(--step--1) var(--display);
+  color: var(--dim);
+}
+
+.saga-card .saga-icon {
+  font-size: 30px;
+  line-height: 1.1;
+}
+
+.saga-card b {
+  font: 600 var(--step-0) var(--display);
+  text-align: center;
+}
+
+.saga-card small {
+  color: var(--dim);
+  font-size: var(--step--1);
+  text-align: center;
+}
+
+.saga-card .saga-stars {
+  color: var(--primary);
+  letter-spacing: 0.1em;
+}
+
+.saga-opts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 860px) {
+  .saga-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .saga-card {
+    min-height: 104px;
+  }
+
+  .saga-card .saga-icon {
+    font-size: 24px;
+  }
+}
+
+@media (max-width: 560px) {
+  .saga-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-height: 500px) {
+  .saga-card {
+    min-height: 84px;
+    padding: 6px 4px;
+  }
+
+  .saga-card small {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------------ Astra codex */
+
+.card.wide {
+  width: min(720px, calc(100vw - 32px));
+}
+
+.codex {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.codex li {
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 12px;
+  align-items: start;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.codex li.locked {
+  opacity: 0.55;
+}
+
+.codex-icon {
+  font-size: 30px;
+  text-align: center;
+}
+
+.codex b {
+  font: 600 var(--step-0) var(--display);
+  color: var(--primary);
+}
+
+.codex p {
+  margin: 2px 0 0;
+}
+
+.codex p.how {
+  color: var(--dim);
+  font-size: var(--step--1);
+}
+
+/* ------------------------------------------------------------------ continue after running out of lives */
+
+.continue-card {
+  text-align: center;
+  max-width: 420px;
+}
+
+.continue-actions {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0 6px;
+}
+
+.continue-actions .btn {
+  width: 100%;
+}
+
+/* ------------------------------------------------------------------ narayanastra: the samarpan instruction */
+
+.samarpan {
+  /* Above the team meter, below the action: never over the boss bar or the banner. */
+  position: absolute;
+  left: 50%;
+  bottom: calc(40px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  max-width: min(92vw, 640px);
+  padding: 8px 16px;
+  border: 2px solid #fde047;
+  border-radius: 10px;
+  background: rgba(40, 28, 4, 0.82);
+  color: #fff7cc;
+  font: 600 var(--step-0) var(--display);
+  text-align: center;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  animation: glowpulse 1s ease-in-out infinite;
+}
+
+.samarpan.resist {
+  border-color: #f87171;
+  background: rgba(60, 8, 8, 0.85);
+  color: #fecaca;
+}
+
+@media (max-height: 500px) {
+  .samarpan {
+    bottom: calc(34px + env(safe-area-inset-bottom));
+    max-width: min(54vw, 420px);
+    font-size: var(--step--1);
+    padding: 5px 10px;
+  }
+}
+
+/* Very short landscape screens (a phone with its address bar showing): one row less in the menu. */
+@media (max-height: 340px) {
+  .menu-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .menu-actions .btn.primary {
+    min-height: 44px;
+  }
+
+  .menu-actions .menu-more {
+    grid-column: span 2;
+  }
+
+  /* No room for the hero showcase: heroes are still picked in the squad lobby. */
+  .hero-stage {
+    display: none;
+  }
+
+  .menu-panel {
+    max-width: none;
+  }
+}
+
+/* ------------------------------------------------------------------ profile: level, XP, rewards, villain tease */
+
+.player-card {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+}
+
+.pc-level {
+  font: 400 var(--step-0) var(--display);
+  color: var(--primary-ink);
+  background: linear-gradient(180deg, var(--primary), var(--primary-2));
+  padding: 2px 9px;
+  border-radius: 8px;
+  box-shadow: 0 2px 0 #b86a00;
+  white-space: nowrap;
+}
+
+.pc-streak {
+  font-size: var(--step--1);
+  color: var(--primary);
+  white-space: nowrap;
+}
+
+.pc-next {
+  grid-column: 1 / -1;
+  font-size: 12px;
+  color: var(--dim);
+  line-height: 1.2;
+}
+
+.xpbar {
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  overflow: hidden;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+.xpbar.big {
+  height: 16px;
+}
+
+.xpbar i {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--blue), #7cc0ff);
+  box-shadow: 0 0 10px rgba(58, 134, 255, 0.7);
+}
+
+.reward {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, var(--panel-hi), var(--panel-solid));
+  border: 1px solid rgba(58, 134, 255, 0.4);
+}
+
+.reward-xp {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.reward-gain {
+  font: 400 var(--step-1) var(--display);
+  color: var(--primary);
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5);
+}
+
+.reward-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.reward-list:not(:empty) {
+  margin-top: 12px;
+}
+
+.reward-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-weight: 600;
+  background: rgba(255, 255, 255, 0.05);
+  border-left: 4px solid var(--blue);
+  animation: pop 0.45s cubic-bezier(0.2, 1.6, 0.4, 1) both;
+}
+
+.reward-item.level {
+  border-left-color: var(--primary);
+  color: var(--primary);
+}
+
+.reward-item.hero {
+  border-left-color: var(--ok);
+}
+
+.reward-item.trophy {
+  border-left-color: var(--primary-2);
+}
+
+.reward-item canvas {
+  width: 28px;
+  height: 28px;
+  image-rendering: pixelated;
+}
+
+.up-next {
+  display: grid;
+  gap: 2px;
+  margin: 0 0 14px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 77, 94, 0.16), rgba(255, 77, 94, 0.04));
+  border: 1px solid rgba(255, 77, 94, 0.45);
+}
+
+.up-label {
+  font: 400 var(--step--1) var(--display);
+  letter-spacing: 0.12em;
+  color: var(--danger);
+}
+
+.up-stage {
+  font: 400 var(--step-1) var(--display);
+}
+
+.up-villains {
+  font: 400 var(--step-0) var(--display);
+  color: var(--primary);
+}
+
+.up-taunt {
+  font-style: italic;
+  color: var(--dim);
+}
+
+.up-astra {
+  color: var(--ok);
+}
+
+.hero-card.locked {
+  opacity: 0.55;
+  filter: grayscale(0.7);
+}
+
+.trophies li.earned {
+  border-color: rgba(255, 201, 60, 0.45);
+}
+
+@media (max-height: 480px) {
+  .pc-next {
+    display: none;
+  }
+
+  .player-card {
+    margin-bottom: 6px;
+    padding: 4px 10px;
+  }
+}
+
+/* ------------------------------------------------------------------ hero passive + weekly challenges */
+
+.hero-meta .hero-perk {
+  font-size: 11.5px;
+  color: var(--primary);
+}
+
+.pc-weekly {
+  white-space: nowrap;
+  font: 600 12px var(--ui);
+  color: var(--ink);
+  background: rgba(58, 134, 255, 0.18);
+  border: 1px solid rgba(58, 134, 255, 0.5);
+  border-radius: 999px;
+  padding: 3px 10px;
+  cursor: pointer;
+}
+
+.pc-weekly:hover,
+.pc-weekly:focus-visible {
+  background: rgba(58, 134, 255, 0.32);
+}
+
+.reward-item.weekly {
+  border-left-color: #7cc0ff;
+}
+
+.weekly-list {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.weekly-list li {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.weekly-list li .xpbar {
+  grid-column: 1 / -1;
+}
+
+.weekly-list li.done {
+  border-color: rgba(74, 222, 128, 0.5);
+}
+
+.weekly-count {
+  font: 400 var(--step--1) var(--display);
+  color: var(--primary);
 }

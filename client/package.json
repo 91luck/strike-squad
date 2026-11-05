@@ -8,7 +8,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -p . --noEmit && vite build && node -e \"require('fs').copyFileSync('dist/index.html','dist/404.html')\"",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:crazygames": "tsc -p . --noEmit && vite build --mode crazygames"
   },
   "dependencies": {
     "@fontsource/chakra-petch": "^5.3.0",

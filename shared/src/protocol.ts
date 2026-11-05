@@ -1,8 +1,12 @@
 import type { Difficulty, MissionId, MissionSettings } from './config';
 import type { FailReason, MissionResult, SimEvent, Snapshot } from './sim';
 
-/** Bumped whenever the wire protocol changes incompatibly. */
-export const PROTOCOL_VERSION = 4;
+/**
+ * Bumped whenever the wire protocol changes incompatibly, or the missions change shape (the server and the page
+ * build the same level from shared code, so an old server and a new page must not play together).
+ * 6: the Astra Saga stages were rebuilt.
+ */
+export const PROTOCOL_VERSION = 6;
 
 /** Unambiguous alphabet (no I, L, O, 0, 1). */
 export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';

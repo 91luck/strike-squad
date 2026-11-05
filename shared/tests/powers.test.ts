@@ -144,6 +144,10 @@ describe('astras', () => {
       grav: 0,
       blast: 0,
       size: 3,
+      turn: 0,
+      hitsLeft: 0,
+      ret: false,
+      src: -1,
     });
     press(sim);
     for (let i = 0; i < 8; i++) sim.step();
@@ -181,6 +185,10 @@ describe('astras', () => {
       grav: 0,
       blast: 0,
       size: 3,
+      turn: 0,
+      hitsLeft: 0,
+      ret: false,
+      src: -1,
     });
     for (let i = 0; i < 20; i++) sim.step();
     expect(Math.abs(e.body.x - hole.x)).toBeLessThan(d0);

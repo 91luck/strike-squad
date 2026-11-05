@@ -1,5 +1,6 @@
 import { GAME_CONFIG, isMissionId, type MissionId, type TrooperKind } from './config';
 import { buildCourse, type CourseDef } from './course';
+import { SAGA, SAGA_BUILDERS } from './saga';
 import { Builder, type LevelDef, type WaveSpawn } from './level';
 
 /**
@@ -108,8 +109,23 @@ export const MISSIONS: readonly MissionInfo[] = [
   },
 ];
 
-export const missionInfo = (id: string): MissionInfo =>
-  MISSIONS.find((m) => m.id === id) ?? (MISSIONS[0] as MissionInfo);
+/** Menu info for any mission: the campaign, or a saga stage (named "Astra n · Name"). */
+export function missionInfo(id: string): MissionInfo {
+  const m = MISSIONS.find((x) => x.id === id);
+  if (m) return m;
+  const s = SAGA.find((x) => x.id === id);
+  if (s)
+    return {
+      id: s.id,
+      num: s.num,
+      name: s.name,
+      place: s.place,
+      stars: s.stars,
+      brief: s.brief,
+      advanced: true,
+    };
+  return MISSIONS[0] as MissionInfo;
+}
 
 const T = GAME_CONFIG.tile;
 
@@ -710,6 +726,7 @@ const BUILDERS: Record<MissionId, () => LevelDef> = {
   'mission-4': () => buildCourse(BLACKOUT),
   'mission-5': () => buildCourse(ASTRA),
   'mission-6': () => buildCourse(EVENT_HORIZON),
+  ...SAGA_BUILDERS,
 };
 
 const built = new Map<MissionId, LevelDef>();

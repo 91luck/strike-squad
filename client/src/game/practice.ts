@@ -39,6 +39,9 @@ export class SoloMatch {
   private firing = false;
   /** Buddies react well but not perfectly: they should help, not carry. */
   private readonly autopilot = new Autopilot(0.7);
+  /** Trailer and test use only: the player's own soldier is played by a full-skill computer player. */
+  autoplayMe = false;
+  private readonly selfPilot = new Autopilot(1);
 
   constructor(
     readonly opts: SoloOptions,
@@ -89,6 +92,20 @@ export class SoloMatch {
     cancelAnimationFrame(this.raf);
   }
 
+  /**
+   * Continue after the squad ran out of lives (a rewarded video or astra shards): the same run goes on from where
+   * it stopped. Returns false when there is nothing to continue.
+   */
+  revive(lives: number): boolean {
+    if (!this.sim.revive(lives)) return false;
+    this.finished = false;
+    this.paused = false;
+    this.acc = 0;
+    this.last = performance.now();
+    this.view.onEvents(this.sim.drainEvents());
+    return true;
+  }
+
   setPaused(p: boolean): void {
     this.paused = p;
     this.last = performance.now();
@@ -129,7 +146,8 @@ export class SoloMatch {
   }
 
   private tickOnce(): void {
-    const input = this.input.read();
+    const me = this.sim.players.get(this.meId);
+    const input = this.autoplayMe && me ? this.selfPilot.decide(this.sim, me) : this.input.read();
     this.firing = input.fire;
     this.sim.setInput(this.meId, input);
     for (const p of this.sim.players.values())

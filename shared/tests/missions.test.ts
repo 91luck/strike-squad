@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   Autopilot,
+  CAMPAIGN_IDS,
   GAME_CONFIG,
   MAX_GATES,
   MAX_PICKUPS,
@@ -8,6 +9,7 @@ import {
   MISSION_IDS,
   Sim,
   Tile,
+  LANDS,
   buildCourse,
   finalArena,
   getMission,
@@ -21,17 +23,18 @@ import { ClientMessageSchema } from '../src/schemas';
 const T = GAME_CONFIG.tile;
 
 describe('mission registry', () => {
-  it('lists every mission id once, in campaign order, with rising toughness', () => {
-    expect(MISSIONS.map((m) => m.id)).toEqual([...MISSION_IDS]);
+  it('lists every campaign mission once, in order, with rising toughness', () => {
+    expect(MISSIONS.map((m) => m.id)).toEqual([...CAMPAIGN_IDS]);
     for (let i = 1; i < MISSIONS.length; i++)
       expect(MISSIONS[i]!.stars).toBeGreaterThanOrEqual(MISSIONS[i - 1]!.stars);
   });
 
   it('gives every mission after the first its own world: a faction, art and boss arenas of its own', () => {
     // Mission 1 is the army story opener; missions 2-6 must not reuse its soldiers or its iron fortress.
-    const factions = MISSION_IDS.map((id) => getMission(id).faction);
+    // (The Astra Saga has its own registry checks in saga.test.ts.)
+    const factions = CAMPAIGN_IDS.map((id) => getMission(id).faction);
     expect(factions[0]).toBe('army');
-    expect(new Set(factions).size).toBe(MISSION_IDS.length);
+    expect(new Set(factions).size).toBe(CAMPAIGN_IDS.length);
     const arenaNames = new Set<string>();
     for (const id of MISSION_IDS.slice(1)) {
       const level = getMission(id);
@@ -127,6 +130,47 @@ describe('course format', () => {
     expect(() => buildCourse({ ...base, sections: [{ art: 'jungle', land: 'flat', len: 20 }] })).toThrow(
       /no final arena/,
     );
+  });
+});
+
+describe('terrain shapes', () => {
+  const base = { id: 'x', name: 'x', mods: getMission('mission-1').mods };
+  const fin = {
+    art: 'jungle' as const,
+    len: 30,
+    arena: { name: 'F', bosses: ['boss' as const], final: true },
+  };
+  const one = (section: Record<string, unknown>) =>
+    buildCourse({ ...base, sections: [{ art: 'jungle', land: 'flat', len: 6 }, section as never, fin] });
+
+  it.each(LANDS.map((l) => [l]))('%s joins its neighbours on the ground line at both ends', (land) => {
+    const L = one({ art: 'jungle', land, len: 34 });
+    for (const c of [6, 7, 6 + 33, 6 + 32]) expect(tileAt(L, c, 14), `${land} col ${c}`).toBe(Tile.Solid);
+    expect(tileAt(L, 6, 13)).toBe(Tile.Empty);
+    expect(tileAt(L, 6 + 33, 13)).toBe(Tile.Empty);
+  });
+
+  it('a rampart has a passage under it: `_` stands a foe on its floor, `^` on top of the wall', () => {
+    const L = one({ art: 'jungle', land: 'rampart', len: 34, foes: 'S20_ T19^' });
+    const [low, high] = L.enemies;
+    expect(low!.y / T).toBe(14);
+    expect(high!.y / T).toBe(7);
+    for (let r = 11; r <= 13; r++) expect(tileAt(L, 6 + 20, r)).toBe(Tile.Empty);
+  });
+
+  it('a tunnel has a rock roof, and its stash is a pocket in the roof you can walk out of', () => {
+    const L = one({ art: 'jungle', land: 'tunnel', len: 30, stash: 20, loot: 'm20^' });
+    expect(tileAt(L, 6 + 3, 0)).toBe(Tile.Solid);
+    expect(tileAt(L, 6 + 3, 6)).toBe(Tile.Solid);
+    const m = L.pickups[0]!;
+    expect(Math.round((m.y + 22) / T)).toBe(6);
+    expect(tileAt(L, 6 + 19, 6)).toBe(Tile.Empty); // the open side of the pocket floor
+  });
+
+  it('refuses a stash over a pit or cut into rock', () => {
+    expect(() => one({ art: 'jungle', land: 'chasm', len: 30, stash: 15 })).toThrow(/over a pit/);
+    expect(() => one({ art: 'jungle', land: 'flat', len: 30, stash: 2 })).toThrow(/bad stash/);
+    expect(() => one({ art: 'jungle', land: 'flat', len: 30, stash: 15 })).not.toThrow();
   });
 });
 

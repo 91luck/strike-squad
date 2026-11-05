@@ -10,11 +10,30 @@ export type TrooperKind = 'soldier' | 'turret' | 'drone' | 'shield' | 'jetpack' 
 export type BossKind = 'walker' | 'gunship' | 'boss';
 export type EnemyKind = TrooperKind | BossKind;
 /**
- * Powers ("astras") held in a separate slot and fired with the ASTRA button:
- * agni (fire wave + burning ground), varuna (rain: puts out fire walls), vayu (wind: blows foes and shots away),
- * singularity (a black hole that swallows foes and shots). The team's brahmastra is a shared meter, not a pickup.
+ * Powers ("astras") held in a separate slot and fired with the ASTRA button. Each one keeps the rule its story
+ * gives it (see docs/ASTRA_SAGA.md):
+ *  - agni: a wave of fire that sets the ground ablaze (fire that ordinary means cannot put out),
+ *  - varuna: torrential rain; puts out walls of fire (agni's counter),
+ *  - vayu: a gale that lifts foes off their feet and blows their shots away,
+ *  - singularity: a black hole (the space mission's power),
+ *  - naga: serpents that never miss: they hunt the nearest foes,
+ *  - garuda: the eagle; the counter to serpents: wipes enemy serpents and shots from the sky, crushes flyers,
+ *  - sudarshana: the spinning discus; seeks foe after foe and comes back to the hand that threw it,
+ *  - pashupata: takes a different form every time it is called (trident strike, a spirit ally, or a fire rain),
+ *  - vaishnava: only another vaishnava stops it: turns a boss's vaishnava orb back on the boss.
+ * The team's brahmastra is a shared meter, not a pickup.
  */
-export const POWER_KINDS = ['agni', 'varuna', 'vayu', 'singularity'] as const;
+export const POWER_KINDS = [
+  'agni',
+  'varuna',
+  'vayu',
+  'singularity',
+  'naga',
+  'garuda',
+  'sudarshana',
+  'pashupata',
+  'vaishnava',
+] as const;
 export type PowerKind = (typeof POWER_KINDS)[number];
 export const isPower = (k: string): k is PowerKind => (POWER_KINDS as readonly string[]).includes(k);
 export type PickupKind = 'spread' | 'rapid' | 'laser' | 'medkit' | PowerKind;
@@ -40,6 +59,14 @@ export const BULLET_KINDS = [
   'bomb',
   'rocket',
   'flame',
+  /** Astra Saga: homing serpents (naga, from either side), the sudarshana discus, a vaishnava orb, the
+   * arrows of a narayanastra storm, a spirit's spark and the falling fire of pashupata. */
+  'serpent',
+  'chakra',
+  'orb',
+  'arrow',
+  'spark',
+  'meteor',
 ] as const;
 export type BulletKind = (typeof BULLET_KINDS)[number];
 
@@ -362,7 +389,17 @@ export const GAME_CONFIG = {
   /** Powers (astras) and the team brahmastra. Distances in px, damage per hit or per second (dps). */
   powers: {
     /** Charges per pickup, and the most one soldier can carry. */
-    charges: { agni: 2, varuna: 1, vayu: 2, singularity: 2 } as Record<PowerKind, number>,
+    charges: {
+      agni: 2,
+      varuna: 1,
+      vayu: 2,
+      singularity: 2,
+      naga: 2,
+      garuda: 1,
+      sudarshana: 2,
+      pashupata: 1,
+      vaishnava: 1,
+    } as Record<PowerKind, number>,
     maxCharges: 3,
     agni: { waveDamage: 8, waveSpeed: 520, waveSec: 0.8, burnLength: 340, burnSec: 4, burnDps: 16 },
     varuna: { range: 15 * 32, back: 3 * 32, damage: 6 },
@@ -391,6 +428,68 @@ export const GAME_CONFIG = {
       bossShare: 0.12,
       shieldSec: 1.6,
     },
+    /** Three serpents that steer toward the nearest foe (turn rate in rad/s). */
+    naga: { serpents: 3, speed: 340, turn: 7, damage: 9, lifeSec: 2.6, seek: 720 },
+    /** The eagle's dive: clears enemy serpents and shots within `range`, crushes flyers, shields the caller. */
+    garuda: { range: 900, flyerDamage: 30, damage: 8, shieldSec: 1.2 },
+    /** The discus: hits up to `hits` different foes, then flies back to its thrower. */
+    sudarshana: { speed: 540, turn: 9, hits: 6, damage: 8, seek: 560, outSec: 2.4, maxSec: 5 },
+    /** Pashupata picks one form per call: a trident strike, a spirit ally, or a rain of fire. */
+    pashupata: {
+      strike: { targets: 4, range: 720, damage: 32 },
+      spirit: { sec: 7, everySec: 0.35, damage: 5, range: 600 },
+      rain: { bolts: 8, spread: 560, damage: 14, blast: 64 },
+    },
+    /** A golden bolt; or, with a boss's vaishnava orb within `reflectRange`, the orb turned back on its boss. */
+    vaishnava: { boltDamage: 40, speed: 620, reflectRange: 640, reflectShare: 0.09 },
+  },
+
+  /**
+   * Astra Saga boss rules: astras the bosses themselves call, layered on top of their normal attacks. Each has a
+   * counter the squad can learn (see docs/ASTRA_SAGA.md). Times in seconds, scaled by the mission's boss tempo.
+   */
+  bossAstra: {
+    /** Serpents that hunt the squad: shoot them down, dash through them, or call garuda. */
+    naga: { everySec: 6.5, windupSec: 0.9, serpents: 4, speed: 175, turn: 2.2, damage: 14, lifeSec: 5 },
+    /**
+     * Narayanastra: grows with resistance. A soldier who stands still without attacking ("samarpan") is spared;
+     * one who keeps fighting draws more arrows each volley. The boss cannot be hurt during the storm. A second
+     * call after a storm nobody fought rebounds on the boss.
+     */
+    narayana: {
+      firstAtSec: 7,
+      secondBelow: 0.5,
+      windupSec: 1.6,
+      stormSec: 5,
+      volleySec: 0.45,
+      /** Arrows per volley at a resisting soldier: base + one per `resistStepSec` of fighting, capped. */
+      base: 1,
+      resistStepSec: 0.5,
+      maxArrows: 6,
+      damage: 10,
+      /** After the storm the boss is spent: stunned and taking extra damage. */
+      spentSec: 3,
+      spentDamage: 1.5,
+      /** The rebound: the boss loses this share of its health. */
+      reboundShare: 0.18,
+    },
+    /** A slow homing orb that cannot be shot down; a vaishnava astra (altar in the arena) turns it back. */
+    vaishnava: { everySec: 9, windupSec: 1, speed: 115, turn: 1.4, damage: 45, lifeSec: 8, blast: 70 },
+    /**
+     * Brahmashirsha: a long charge. The squad's brahmastra fired during it cancels both and stuns the boss;
+     * otherwise it lands on everyone not dodging, and (it cannot be called back) scorches its caller too.
+     */
+    brahmashirsha: {
+      firstBelow: 0.7,
+      everySec: 22,
+      windupSec: 4,
+      damage: 60,
+      backfireShare: 0.06,
+      counterShare: 0.12,
+      stunSec: 4,
+      /** Damage fills the brahmastra this much faster while the boss charges. */
+      chargeBoost: 2,
+    },
   },
 
   /** Hard anti-cheat ceilings used by the server when validating input. */
@@ -411,8 +510,8 @@ export const GAME_CONFIG = {
 
 export type GameConfig = typeof GAME_CONFIG;
 
-/** Every mission, in campaign order (see `missions.ts`). */
-export const MISSION_IDS = [
+/** The original campaign, in order (see `missions.ts`). */
+export const CAMPAIGN_IDS = [
   'mission-1',
   'mission-2',
   'mission-3',
@@ -420,7 +519,25 @@ export const MISSION_IDS = [
   'mission-5',
   'mission-6',
 ] as const;
+/** The Astra Saga: ten stages, each built around one astra (see `saga.ts`). */
+export const SAGA_IDS = [
+  'astra-1',
+  'astra-2',
+  'astra-3',
+  'astra-4',
+  'astra-5',
+  'astra-6',
+  'astra-7',
+  'astra-8',
+  'astra-9',
+  'astra-10',
+] as const;
+/** Every playable mission: the campaign, then the saga. */
+export const MISSION_IDS = [...CAMPAIGN_IDS, ...SAGA_IDS] as const;
 export type MissionId = (typeof MISSION_IDS)[number];
+export type SagaId = (typeof SAGA_IDS)[number];
+export const isSagaId = (v: unknown): v is SagaId =>
+  typeof v === 'string' && (SAGA_IDS as readonly string[]).includes(v);
 export const isMissionId = (v: unknown): v is MissionId =>
   typeof v === 'string' && (MISSION_IDS as readonly string[]).includes(v);
 

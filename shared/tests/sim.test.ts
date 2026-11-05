@@ -21,6 +21,8 @@ import {
   type Player,
   type PlayerInput,
   type World,
+  heroPerk,
+  secondsToTicks,
 } from '../src';
 
 const T = GAME_CONFIG.tile;
@@ -76,8 +78,12 @@ function bullet(sim: Sim, o: Partial<Bullet> & { x: number; y: number }): Bullet
     grav: 0,
     blast: 0,
     size: 2,
+    turn: 0,
+    hitsLeft: 0,
+    ret: false,
+    src: -1,
     ...o,
-  };
+  } as Bullet;
   sim.bullets.push(b);
   return b;
 }
@@ -410,10 +416,12 @@ describe('combat', () => {
     p.invulnUntil = 0;
     bullet(sim, { x: p.x + 30, y: p.y - 20, dmg: GAME_CONFIG.enemies.soldier.dmg });
     run(sim, 3);
-    expect(p.hp).toBe(P.maxHp - GAME_CONFIG.enemies.soldier.dmg);
+    // Every hit is scaled by the hero's passive (p0 is Blaze: FRONTLINE takes a little less).
+    const taken = GAME_CONFIG.enemies.soldier.dmg * heroPerk(p.hero).damageTaken;
+    expect(p.hp).toBeCloseTo(P.maxHp - taken, 6);
     bullet(sim, { x: p.x + 30, y: p.y - 20 });
     run(sim, 3);
-    expect(p.hp).toBe(P.maxHp - GAME_CONFIG.enemies.soldier.dmg); // flinch invulnerability
+    expect(p.hp).toBeCloseTo(P.maxHp - taken, 6); // flinch invulnerability
     // It takes many hits to go down.
     let hits = 1;
     while (p.state === 'alive' && hits < 50) {
@@ -433,9 +441,10 @@ describe('combat', () => {
     p.invulnUntil = 0;
     bullet(sim, { x: p.x + 30, y: p.y - 20, dmg: 40 });
     run(sim, 3);
-    expect(p.hp).toBe(60);
+    const hurt = P.maxHp - 40 * heroPerk(p.hero).damageTaken;
+    expect(p.hp).toBeCloseTo(hurt, 6);
     run(sim, sim.ticks(P.regenDelaySec) - 5);
-    expect(p.hp).toBe(60);
+    expect(p.hp).toBeCloseTo(hurt, 6);
     run(sim, sim.ticks(4));
     expect(p.hp).toBe(P.maxHp);
   });
@@ -539,7 +548,7 @@ describe('combat', () => {
     p.invulnUntil = 0;
     sim['lob'](p.x + 200, G - 40, p.x + 20, G - 2, 0.6, 20, 'grenade', 58);
     run(sim, 40);
-    expect(p.hp).toBe(P.maxHp - 20);
+    expect(p.hp).toBeCloseTo(P.maxHp - 20 * heroPerk(p.hero).damageTaken, 6);
     expect(sim.drainEvents().some((e) => e.e === 'boom')).toBe(true);
   });
 
@@ -1096,5 +1105,169 @@ describe('the mission is beatable', () => {
     expect(sim.result).toBe('won');
     expect(sim.gateOpen.every(Boolean)).toBe(true);
     expect([...bossesDown].sort()).toEqual(['boss', 'gunship', 'walker']);
+  });
+});
+
+describe('hero passives', () => {
+  /** A one-soldier sim playing hero `hero`, past the countdown, no enemies. */
+  const solo = (hero: number): { sim: Sim; p: Player } => {
+    const sim = new Sim({ seed: 7 });
+    const p = sim.addPlayer({ id: 'p0', name: 'P', slot: 0, hero });
+    for (const e of [...sim.enemies.values()]) if (!isBoss(e.kind)) sim.enemies.delete(e.id);
+    while (sim.phase === 'countdown') sim.step();
+    place(p, 5);
+    p.invulnUntil = 0;
+    return { sim, p };
+  };
+  const BLAZE = 0,
+    NOVA = 1,
+    TUSK = 2,
+    VIPER = 3,
+    SPARKY = 4,
+    GHOST = 5,
+    KIKI = 6,
+    SARGE = 7;
+
+  it('gives every hero one named passive that changes one thing, by a modest amount', () => {
+    const neutral = {
+      damageTaken: 1,
+      airGunDamage: 1,
+      regen: 1,
+      meleeDamage: 1,
+      ultGain: 1,
+      dodgeSec: 0,
+      fireRate: 1,
+      respawn: 1,
+    };
+    const names = new Set<string>();
+    const fields = new Set<string>();
+    for (let h = 0; h < 8; h++) {
+      const perk = heroPerk(h);
+      names.add(perk.name);
+      expect(perk.text.length).toBeGreaterThan(5);
+      const changed = (Object.keys(neutral) as (keyof typeof neutral)[]).filter(
+        (k) => perk[k] !== neutral[k],
+      );
+      expect(changed, perk.name).toHaveLength(1);
+      fields.add(changed[0] as string);
+      const k = changed[0] as keyof typeof neutral;
+      if (k !== 'dodgeSec' && k !== 'regen') {
+        // Multipliers stay within 40% of normal: different, not overpowered.
+        expect(Math.abs(perk[k] - 1)).toBeLessThanOrEqual(0.4);
+      }
+    }
+    expect(names.size).toBe(8);
+    expect(fields.size).toBe(8); // no two heroes share a passive
+  });
+
+  it('FRONTLINE (Blaze) takes less damage from the same shot', () => {
+    const hit = (hero: number): number => {
+      const { sim, p } = solo(hero);
+      bullet(sim, { x: p.x + 30, y: p.y - 20, dmg: 20 });
+      run(sim, 3);
+      return P.maxHp - p.hp;
+    };
+    expect(hit(VIPER)).toBeCloseTo(20, 6);
+    expect(hit(BLAZE)).toBeCloseTo(20 * heroPerk(BLAZE).damageTaken, 6);
+  });
+
+  it('IRON HEART (Tusk) heals twice as fast out of combat', () => {
+    const healed = (hero: number): number => {
+      const { sim, p } = solo(hero);
+      p.hp = 40;
+      p.lastHurt = sim.tick;
+      run(sim, sim.ticks(P.regenDelaySec) + sim.ticks(1));
+      return p.hp - 40;
+    };
+    const normal = healed(VIPER);
+    expect(normal).toBeGreaterThan(0);
+    expect(healed(TUSK)).toBeCloseTo(normal * 2, 4);
+  });
+
+  it('VENOM BLADE (Viper) knifes harder', () => {
+    const cut = (hero: number): number => {
+      const { sim } = solo(hero);
+      const e = foe(sim, 501, 'turret', 6);
+      e.hp = e.maxHp = 100;
+      sim.setInput('p0', { melee: true });
+      sim.step();
+      return 100 - e.hp;
+    };
+    expect(cut(BLAZE)).toBeCloseTo(P.melee.damage, 6);
+    expect(cut(VIPER)).toBeCloseTo(P.melee.damage * heroPerk(VIPER).meleeDamage, 6);
+  });
+
+  it('OVERCHARGE (Sparky) fills the super meter faster', () => {
+    const gain = (hero: number): number => {
+      const { sim, p } = solo(hero);
+      p.ult = 0;
+      sim['gainUlt'](p, 10);
+      return p.ult;
+    };
+    expect(gain(BLAZE)).toBeCloseTo(10, 6);
+    expect(gain(SPARKY)).toBeCloseTo(10 * heroPerk(SPARKY).ultGain, 6);
+  });
+
+  it('PHASE STEP (Ghost) stays untouchable longer after a dash, and bullets pass through in that window', () => {
+    const dodge = (hero: number): { sim: Sim; p: Player; left: number } => {
+      const { sim, p } = solo(hero);
+      sim.setInput('p0', { dash: true, mx: 1 });
+      sim.step();
+      return { sim, p, left: p.dodgeUntil - sim.tick };
+    };
+    const normal = dodge(BLAZE).left;
+    const ghost = dodge(GHOST);
+    expect(ghost.left - normal).toBe(
+      ghost.sim.ticks(P.dash.iframeSec + heroPerk(GHOST).dodgeSec) - ghost.sim.ticks(P.dash.iframeSec),
+    );
+    expect(ghost.left).toBeGreaterThan(normal);
+    // Just after the normal window has closed, a bullet still passes through the Ghost.
+    run(ghost.sim, normal + 1, () => ghost.sim.setInput('p0', {}));
+    expect(ghost.sim.tick).toBeLessThan(ghost.p.dodgeUntil);
+    bullet(ghost.sim, { x: ghost.p.x + 20, y: ghost.p.y - 20, vx: -900, dmg: 20 });
+    run(ghost.sim, 2, () => ghost.sim.setInput('p0', {}));
+    expect(ghost.p.hp).toBe(P.maxHp);
+  });
+
+  it('QUICK TRIGGER (Kiki) really fires faster with every gun, the 3-tick rapid gun included', () => {
+    const shots = (hero: number, weapon: Player['weapon']): number => {
+      const { sim, p } = solo(hero);
+      p.weapon = weapon;
+      const seen = new Set<number>();
+      run(sim, sim.ticks(6), () => {
+        sim.setInput('p0', { fire: true });
+        for (const b of sim.bullets) if (b.owner === 'p0') seen.add(b.id);
+      });
+      return seen.size / GAME_CONFIG.weapons[weapon].pellets;
+    };
+    for (const w of ['blaster', 'rapid', 'spread', 'laser'] as const) {
+      const ratio = shots(KIKI, w) / shots(BLAZE, w);
+      expect(ratio, w).toBeGreaterThan(1.06);
+      expect(ratio, w).toBeLessThan(1.25);
+    }
+  });
+
+  it('SKYBORNE (Nova) shots hit harder only when fired in mid-air', () => {
+    const shot = (hero: number, air: boolean): number => {
+      const { sim, p } = solo(hero);
+      p.onGround = !air;
+      sim['fire'](p);
+      return sim.bullets.at(-1)?.dmg ?? 0;
+    };
+    const base = GAME_CONFIG.weapons.blaster.damage;
+    expect(shot(NOVA, false)).toBeCloseTo(base, 6);
+    expect(shot(BLAZE, true)).toBeCloseTo(base, 6);
+    expect(shot(NOVA, true)).toBeCloseTo(base * heroPerk(NOVA).airGunDamage, 6);
+  });
+
+  it('NEVER DOWN (Sarge) comes back sooner after a KO', () => {
+    const wait = (hero: number): number => {
+      const { sim, p } = solo(hero);
+      sim['koPlayer'](p);
+      return p.respawnAt - sim.tick;
+    };
+    expect(wait(BLAZE)).toBe(secondsToTicks(P.respawnSec));
+    expect(wait(SARGE)).toBe(secondsToTicks(P.respawnSec * heroPerk(SARGE).respawn));
+    expect(wait(SARGE)).toBeLessThan(wait(BLAZE));
   });
 });

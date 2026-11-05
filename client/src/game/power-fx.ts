@@ -1,4 +1,12 @@
-import type { FieldDef, FxSnapshot, GateDef, PickupKind, PowerKind } from '@strikesquad/shared';
+import {
+  isPower,
+  type FieldDef,
+  type FxSnapshot,
+  type GateDef,
+  type PickupKind,
+  type PowerKind,
+} from '@strikesquad/shared';
+import { drawSpirit } from './astra-fx';
 
 /**
  * Drawing for the advanced missions: power pickups and altars, walls of fire, burning ground, black holes,
@@ -17,12 +25,22 @@ export const POWER_COLOR: Record<PowerKind, [string, string]> = {
   varuna: ['#bae6fd', '#0284c7'],
   vayu: ['#d9f99d', '#16a34a'],
   singularity: ['#ddd6fe', '#5b21b6'],
+  naga: ['#a7f3d0', '#047857'],
+  garuda: ['#fed7aa', '#c2410c'],
+  sudarshana: ['#fef08a', '#ca8a04'],
+  pashupata: ['#bae6fd', '#1e40af'],
+  vaishnava: ['#fef3c7', '#d97706'],
 };
 const POWER_LABEL: Record<PowerKind, string> = {
   agni: 'AGNI',
   varuna: 'VARUNA',
   vayu: 'VAYU',
   singularity: 'BLACK HOLE',
+  naga: 'NAGA',
+  garuda: 'GARUDA',
+  sudarshana: 'CHAKRA',
+  pashupata: 'PASHUPATA',
+  vaishnava: 'VAISHNAVA',
 };
 
 /** A glowing power orb with its symbol; altars stand on a stone pedestal. */
@@ -93,6 +111,67 @@ function drawSymbol(
       ctx.quadraticCurveTo(2, i * 4 - 3, 6, i * 4);
       ctx.stroke();
     }
+  } else if (kind === 'naga') {
+    // a coiled serpent
+    ctx.strokeStyle = '#ecfdf5';
+    ctx.beginPath();
+    ctx.moveTo(-6, 5);
+    ctx.quadraticCurveTo(-6, -2, 0, -1);
+    ctx.quadraticCurveTo(6, 0, 4, -6);
+    ctx.stroke();
+    ctx.fillStyle = '#ecfdf5';
+    ctx.fillRect(3, -8, 3, 3);
+  } else if (kind === 'garuda') {
+    // spread wings
+    ctx.strokeStyle = '#fff7ed';
+    ctx.beginPath();
+    ctx.moveTo(-7, -1);
+    ctx.quadraticCurveTo(-3, -6, 0, 1);
+    ctx.quadraticCurveTo(3, -6, 7, -1);
+    ctx.moveTo(0, 1);
+    ctx.lineTo(0, 6);
+    ctx.stroke();
+  } else if (kind === 'sudarshana') {
+    ctx.rotate(nowMs / 120);
+    ctx.strokeStyle = '#fffbeb';
+    ctx.beginPath();
+    ctx.arc(0, 0, 6, 0, TAU);
+    ctx.stroke();
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * TAU;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a) * 6, Math.sin(a) * 6);
+      ctx.lineTo(Math.cos(a) * 9, Math.sin(a) * 9);
+      ctx.stroke();
+    }
+  } else if (kind === 'pashupata') {
+    // trident
+    ctx.strokeStyle = '#eff6ff';
+    ctx.beginPath();
+    ctx.moveTo(0, 7);
+    ctx.lineTo(0, -6);
+    ctx.moveTo(-5, -2);
+    ctx.lineTo(-5, -7);
+    ctx.moveTo(5, -2);
+    ctx.lineTo(5, -7);
+    ctx.moveTo(-5, -2);
+    ctx.lineTo(5, -2);
+    ctx.stroke();
+  } else if (kind === 'vaishnava') {
+    // a sun
+    ctx.fillStyle = '#fffbeb';
+    ctx.beginPath();
+    ctx.arc(0, 0, 3.5, 0, TAU);
+    ctx.fill();
+    ctx.strokeStyle = '#fffbeb';
+    ctx.rotate(nowMs / 600);
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * TAU;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a) * 5, Math.sin(a) * 5);
+      ctx.lineTo(Math.cos(a) * 8, Math.sin(a) * 8);
+      ctx.stroke();
+    }
   } else {
     ctx.strokeStyle = '#c4b5fd';
     ctx.rotate(nowMs / 300);
@@ -144,11 +223,12 @@ export function drawFireWall(ctx: CanvasRenderingContext2D, g: GateDef, nowMs: n
   ctx.restore();
 }
 
-/** Burning ground left by agni, and black holes. */
+/** Burning ground left by agni, black holes, and pashupata spirits. */
 export function drawFx(ctx: CanvasRenderingContext2D, fx: FxSnapshot[], nowMs: number): void {
   for (const f of fx) {
     if (f.k === 0) drawBurn(ctx, f, nowMs);
-    else drawHole(ctx, f.x, f.y, f.w, f.t, nowMs);
+    else if (f.k === 1) drawHole(ctx, f.x, f.y, f.w, f.t, nowMs);
+    else drawSpirit(ctx, f.x, f.y, f.t, nowMs);
   }
 }
 
@@ -341,5 +421,4 @@ export function drawFlame(
   ctx.restore();
 }
 
-export const isPowerKind = (k: PickupKind): k is PowerKind =>
-  k === 'agni' || k === 'varuna' || k === 'vayu' || k === 'singularity';
+export const isPowerKind = (k: PickupKind): k is PowerKind => isPower(k);

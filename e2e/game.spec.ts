@@ -98,9 +98,79 @@ test('the menu shows your hero; the choice is remembered and used in the squad',
   await page.getByTestId('btn-create').click();
   await page.getByTestId('btn-create-go').click();
   await expect(page.getByTestId('squad-list')).toContainText('Nova');
+  // Sarge is a reward for level 6: a new player sees the card, locked, and cannot pick it.
+  await expect(page.getByTestId('hero-7')).toHaveClass(/locked/);
+  await expect(page.getByTestId('hero-7')).toContainText('Unlocks at LV 6');
   await page.getByTestId('hero-7').click();
-  await expect(page.getByTestId('squad-list')).toContainText('Sarge');
-  await expect(page.getByTestId('hero-7')).toHaveAttribute('aria-checked', 'true');
+  await expect(page.getByTestId('hero-7')).toHaveAttribute('aria-checked', 'false');
+  await expect(page.getByTestId('squad-list')).not.toContainText('Sarge');
+  await page.getByTestId('hero-2').click();
+  await expect(page.getByTestId('squad-list')).toContainText('Tusk');
+  await expect(page.getByTestId('hero-2')).toHaveAttribute('aria-checked', 'true');
+});
+
+test('the first clear pays XP, opens a hero, names the next villain, and the daily visit pays only once', async ({
+  page,
+}) => {
+  await gotoMenu(page, 'Climber');
+  const shards = (): Promise<number> =>
+    page.evaluate(
+      () =>
+        (window as unknown as { __strikesquad: { progress: { shards: number } } }).__strikesquad.progress
+          .shards,
+    );
+  // New player: level 1, a first-day streak and its shard (3 starting shards + 1).
+  await expect(page.getByTestId('pc-level')).toHaveText('LV 1');
+  await expect(page.getByTestId('pc-streak')).toContainText('1-day streak');
+  await expect(page.getByTestId('pc-next')).toContainText('Next hero: Viper at LV 2');
+  expect(await shards()).toBe(4);
+  await page.reload();
+  await expect(page.getByTestId('pc-streak')).toContainText('1-day streak');
+  expect(await shards()).toBe(4); // same day: no second payout
+  // Every hero shows its passive; the weekly goals are one click away.
+  await expect(page.getByTestId('hero-perk')).toHaveText('FRONTLINE: Takes 12% less damage');
+  await expect(page.getByTestId('btn-weekly')).toContainText('Weekly 0/3');
+  await page.getByTestId('btn-weekly').click();
+  await expect(page.getByTestId('weekly-list').locator('li')).toHaveCount(3);
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('weekly-list')).toBeHidden();
+
+  await page.getByTestId('btn-saga').click();
+  await waitForMission(page);
+  await page.evaluate(() =>
+    (
+      window as unknown as { __strikesquad: { soloSim: { finish(r: string): void } } }
+    ).__strikesquad.soloSim.finish('won'),
+  );
+  await expect(page.getByTestId('result-title')).toHaveText('Mission complete!', { timeout: 10_000 });
+  await expect(page.getByTestId('result-reward')).toBeVisible();
+  await expect(page.getByTestId('reward-xp')).toHaveText(/^\+\d+ XP$/);
+  await expect(page.getByTestId('reward-level')).toHaveText('LV 2');
+  await expect(page.getByTestId('reward-list')).toContainText('LEVEL UP');
+  await expect(page.getByTestId('reward-list')).toContainText('NEW HERO: Viper · VENOM BLADE');
+  // The week's first goal always moves on a win.
+  await expect(page.getByTestId('reward-list')).toContainText('Weekly');
+  await expect(page.getByTestId('reward-list')).toContainText('Trophy: First Blood');
+  const next = page.getByTestId('result-next');
+  await expect(next).toBeVisible();
+  await expect(next).toContainText('Stage 2 · Sagar Setu');
+  await expect(next).toContainText('MAKARA');
+  await expect(next).toContainText('SAMUDRA-RAKSHAS');
+
+  // The trophy is in the trophy case, and the new hero can be picked from the menu.
+  await page.getByTestId('btn-results-stages').click();
+  await page.getByTestId('btn-trophies').click();
+  await expect(page.getByTestId('trophy-first-clear')).toHaveClass(/earned/);
+  await page.keyboard.press('Escape');
+  await expect(page.getByTestId('trophy-list')).toBeHidden();
+  await page.goto('/');
+  await expect(page.getByTestId('pc-level')).toHaveText('LV 2');
+  await expect(page.getByTestId('pc-next')).toContainText('Next hero: Sparky at LV 3');
+  await page.getByRole('button', { name: 'Next hero' }).click();
+  await page.getByRole('button', { name: 'Next hero' }).click();
+  await expect(page.getByTestId('hero-name')).toHaveText('Tusk');
+  await page.getByRole('button', { name: 'Next hero' }).click();
+  await expect(page.getByTestId('hero-name')).toHaveText('Viper');
 });
 
 test('invalid squad code shows an inline error and nothing is sent', async ({ page }) => {
@@ -739,4 +809,24 @@ test('@mobile portrait phone gets a rotate prompt that can be dismissed', async 
   await page.locator('#btn-portrait-dismiss').click();
   await expect(prompt).toBeHidden();
   await expect(page.getByTestId('touch-jump')).toBeVisible();
+});
+
+test('Astra Saga: one click into stage 1; later stages stay locked until cleared; the codex explains each astra', async ({
+  page,
+}) => {
+  await gotoMenu(page, 'Saga');
+  await expect(page.getByTestId('btn-saga')).toContainText('Agnivan');
+  await page.getByTestId('btn-stages').click();
+  await expect(page.getByTestId('saga-1')).toBeEnabled();
+  await expect(page.getByTestId('saga-2')).toBeDisabled();
+  await expect(page.getByTestId('saga-10')).toBeDisabled();
+  await page.getByTestId('btn-codex').click();
+  await expect(page.getByTestId('codex-list')).toContainText('Agneyastra');
+  await expect(page.getByTestId('codex-list')).toContainText('Reach this stage');
+  await page.keyboard.press('Escape');
+  await page.locator('#screen-saga [data-nav="menu"]').click();
+  await page.getByTestId('btn-saga').click();
+  await waitForMission(page);
+  expect(await page.evaluate('window.__strikesquad.soloSim.level.id')).toBe('astra-1');
+  expect(await canvasHasContent(page)).toBe(true);
 });

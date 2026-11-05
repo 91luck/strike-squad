@@ -1,4 +1,7 @@
-# Network protocol (version 1)
+# Network protocol
+
+Current version: 6 (`PROTOCOL_VERSION` in `shared/src/protocol.ts`). It is bumped when the messages change or when
+the missions change shape, since the server and the page build the same level from shared code.
 
 Transport: one WebSocket per player at `/ws`, UTF-8 JSON text frames. Binary frames are rejected. Max client→server message: **2048 bytes**. Types live in `shared/src/protocol.ts`; the server validates every inbound message with strict zod schemas in `shared/src/schemas.ts` (unknown keys are rejected).
 

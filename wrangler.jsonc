@@ -24,9 +24,10 @@
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["StrikeSquadServer"] }],
   "vars": {
     "NODE_ENV": "production",
-    // Optional extra origins (e.g. a custom domain): "https://squad.example.com,https://other.example".
-    // Not needed for the default *.workers.dev URL — same-origin connections are always allowed.
-    "ALLOWED_ORIGINS": "",
+    // Extra origins allowed to open the game socket (comma-separated). Same-origin connections (the default
+    // *.workers.dev page) are always allowed. "https://*.crazygames.com" lets the CrazyGames build connect for
+    // co-op (the portal serves the game from its own subdomains; see docs/CRAZYGAMES.md).
+    "ALLOWED_ORIGINS": "https://*.crazygames.com",
     "LOG_LEVEL": "warn",
   },
   "observability": { "enabled": true },

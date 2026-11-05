@@ -46,6 +46,12 @@ Auto-fire starts **off** in advanced missions. Tap **AUTO FIRE** (top right) or 
 | Gravity well      | pulls you sideways toward the pit below it (you can always run out); bends shots    |
 | Magnetic storm    | every shot curves (drawn as an aurora)                                              |
 
+## Astra Saga
+
+Ten stages built around one astra each, plus bosses that call astras of their own (serpents, the Narayanastra storm,
+the vaishnava orb, the brahmashirsha). Every astra, every boss astra and its counter, the stages and the progress
+rules are in [ASTRA_SAGA.md](ASTRA_SAGA.md).
+
 ## Worlds
 
 Every mission after the first has its own enemies, bosses, ground, props, gates, sky and shot colours. Rules do not change: each faction has the same six troop types and the same three boss behaviours (the beast charges and stomps like WARHOUND, the flyer bombs and fires slow missiles like VULTURE, the final boss fires low/high beams in three phases like the IRON FORTRESS).
@@ -101,6 +107,25 @@ The meter fills from damage dealt (0.45 per point), kills (+6) and hits taken. A
 | Viper, Ghost | Viper Strike / Shadow Cut | Slashes the 7 nearest enemies within 620 px for 20 each                          |
 
 **SYNC:** a super fired within 2.5 s of a friend's hits 50% harder (overdrive lasts 30% longer).
+
+## Hero passives
+
+Every hero also has one always-on passive (`perk` in `shared/src/heroes.ts`, applied by the simulation, so it works
+the same solo and online). They are sidegrades: each one helps a different play style, none is strictly better.
+
+| Hero   | Passive       | Effect                                                          |
+| ------ | ------------- | --------------------------------------------------------------- |
+| Blaze  | FRONTLINE     | takes 12% less damage                                           |
+| Nova   | SKYBORNE      | gun shots fired in mid-air deal 25% more damage                 |
+| Tusk   | IRON HEART    | out-of-combat healing runs twice as fast                        |
+| Viper  | VENOM BLADE   | knife hits deal 35% more damage                                 |
+| Sparky | OVERCHARGE    | super meter fills 25% faster                                    |
+| Ghost  | PHASE STEP    | stays untouchable 0.12 s longer after a dash (twice the normal) |
+| Kiki   | QUICK TRIGGER | fires 12% faster with every gun                                 |
+| Sarge  | NEVER DOWN    | back from a KO 40% sooner                                       |
+
+Quick Trigger keeps the leftover fraction of a tick from shot to shot while Fire is held, so even the rapid gun (a
+3-tick gap) really fires about 12% faster; without a fire-rate passive the timing is exactly as before.
 
 ## Combo and style
 

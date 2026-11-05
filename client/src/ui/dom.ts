@@ -6,7 +6,7 @@ export function $<T extends HTMLElement = HTMLElement>(id: string): T {
   return el as T;
 }
 
-export type ScreenName = 'menu' | 'create' | 'join' | 'practice' | 'lobby' | 'game' | 'results';
+export type ScreenName = 'menu' | 'saga' | 'create' | 'join' | 'practice' | 'lobby' | 'game' | 'results';
 
 export function showScreen(name: ScreenName, focus = true): void {
   for (const el of document.querySelectorAll<HTMLElement>('[data-screen]')) {

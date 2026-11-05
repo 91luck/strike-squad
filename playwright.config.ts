@@ -22,7 +22,8 @@ const webServer = remote
         timeout: 180_000,
       }
     : {
-        command: 'npm run build && NODE_ENV=development node server/dist/index.js',
+        command:
+          'npm run build && npm run build:crazygames && NODE_ENV=development node server/dist/index.js',
         url: `http://127.0.0.1:${PORT}/health`,
         reuseExistingServer: !process.env.CI,
         timeout: 120_000,

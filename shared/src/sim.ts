@@ -20,8 +20,17 @@ import {
   isPower,
   type PowerKind,
 } from './config';
-import { heroOf } from './heroes';
-import { fieldAt, levelHeight, levelWidth, type ArenaDef, type LevelDef, type MissionMods } from './level';
+import { heroOf, heroPerk } from './heroes';
+import {
+  BOSS_RULES,
+  fieldAt,
+  levelHeight,
+  levelWidth,
+  type ArenaDef,
+  type BossRule,
+  type LevelDef,
+  type MissionMods,
+} from './level';
 import { getMission } from './missions';
 import {
   NEUTRAL_INPUT,
@@ -170,6 +179,38 @@ export interface Enemy {
   aim: number;
   /** Ring buffer of recent positions for lag-compensated hit tests. */
   hist: Float32Array;
+  /** Boss astras (Astra Saga): null for everything else. */
+  rule: RuleState | null;
+}
+
+/**
+ * A boss's own astras. One cast at a time: `kind` is what it is calling right now (null between casts), `start` the
+ * tick the call began; a narayanastra storm follows its wind-up (`storm`).
+ */
+export interface RuleState {
+  rules: BossRule[];
+  kind: BossRule | null;
+  start: number;
+  storm: boolean;
+  nextNaga: number;
+  nextOrb: number;
+  nextNar: number;
+  nextShirsha: number;
+  /** Narayanastra calls so far, and whether the last storm passed with nobody fighting it. */
+  narCalls: number;
+  narPerfect: boolean;
+  stunUntil: number;
+  /** Spent after a storm: takes extra damage until this tick. */
+  spentUntil: number;
+}
+
+/** A spirit ally (pashupata): follows its summoner and fires sparks at the nearest foe. */
+export interface Spirit {
+  x: number;
+  y: number;
+  until: number;
+  next: number;
+  owner: string;
 }
 
 export interface Bullet {
@@ -197,6 +238,13 @@ export interface Bullet {
   blast: number;
   /** Extra hit radius around the point. */
   size: number;
+  /** Homing turn rate (rad/s; 0 = flies straight). Player shots seek foes, enemy shots seek soldiers. */
+  turn: number;
+  /** Sudarshana: foes it may still hit before it flies home; `ret` once it is on its way back. */
+  hitsLeft: number;
+  ret: boolean;
+  /** The boss that fired it (a vaishnava orb turned back flies to this enemy id). -1: none. */
+  src: number;
 }
 
 export type SimEvent =
@@ -226,8 +274,18 @@ export type SimEvent =
       hits?: number[];
     }
   | { e: 'boom'; x: number; y: number; r: number }
-  /** A power was used (x, y: the user's feet; f: facing). */
-  | { e: 'astra'; id: string; kind: PowerKind; x: number; y: number; f: 1 | -1 }
+  /**
+   * A power was used (x, y: the user's feet; f: facing). `v`: pashupata's form (0 trident, 1 spirit, 2 fire rain),
+   * vaishnava 1 = a boss's orb turned back.
+   */
+  | { e: 'astra'; id: string; kind: PowerKind; x: number; y: number; f: 1 | -1; v?: number }
+  /**
+   * A boss astra: phase 0 = the call (wind-up), 1 = released, 2 = countered by the squad's brahmastra,
+   * 3 = rebound on the boss (narayanastra), 4 = over.
+   */
+  | { e: 'bossAstra'; kind: BossRule; phase: 0 | 1 | 2 | 3 | 4; x: number; y: number }
+  /** A hit that did nothing: the boss is untouchable right now (narayanastra storm). */
+  | { e: 'immune'; id: number; x: number; y: number }
   /** The team brahmastra: phase 0 = wind-up (sky darkens), 1 = the strike. */
   | { e: 'brahma'; id: string; x: number; y: number; phase: 0 | 1 }
   | { e: 'style'; id: string; t: StyleTag; x: number; y: number }
@@ -281,11 +339,16 @@ export interface PlayerSnapshot {
   /** Held power (index into POWER_KINDS, -1 none) and charges. */
   pw: number;
   pn: number;
+  /** Narayanastra: how hard this soldier is resisting (arrows per volley at them; 0 = surrendered/spared). */
+  rs: number;
 }
 
-/** Lasting power effects on screen: burning ground (k 0: x..x+w at y) and black holes (k 1: centre x,y). */
+/**
+ * Lasting power effects on screen: burning ground (k 0: x..x+w at y), black holes (k 1: centre x,y) and
+ * pashupata spirits (k 2: centre x,y).
+ */
 export interface FxSnapshot {
-  k: 0 | 1;
+  k: 0 | 1 | 2;
   x: number;
   y: number;
   w: number;
@@ -312,6 +375,13 @@ export interface EnemySnapshot {
   tt: number;
   p: number;
   ph: number;
+  /** Boss astra being called (index into BOSS_RULES, -1 none), ticks since the call, 1 = narayana storm on. */
+  ra: number;
+  rt: number;
+  rs: 0 | 1;
+  /** Stunned (spent after a storm, or its brahmashirsha countered) / untouchable (storm). */
+  sn: 0 | 1;
+  im: 0 | 1;
 }
 
 export interface BulletSnapshot {
@@ -425,6 +495,9 @@ export class Sim {
   private brahmaStrike: { at: number; id: string; x: number; y: number } | null = null;
   burns: Burn[] = [];
   holes: Hole[] = [];
+  spirits: Spirit[] = [];
+  /** Narayanastra: ticks each soldier has spent fighting during the current storm. */
+  readonly resist = new Map<string, number>();
   /** The final boss (the mission is won when it falls). */
   boss: Enemy | null = null;
   private events: SimEvent[] = [];
@@ -464,6 +537,22 @@ export class Sim {
       const e = this.spawnEnemy(9_000 + i, b.kind, b.x, b.y);
       e.arena = b.arena;
       e.hpMul = b.hpMul;
+      const rules = this.level.arenas[b.arena]?.rules ?? [];
+      if (rules.length)
+        e.rule = {
+          rules,
+          kind: null,
+          start: 0,
+          storm: false,
+          nextNaga: 0,
+          nextOrb: 0,
+          nextNar: 0,
+          nextShirsha: 0,
+          narCalls: 0,
+          narPerfect: false,
+          stunUntil: 0,
+          spentUntil: 0,
+        };
       if (b.kind === 'boss') this.boss = e;
     }
     this.updateLimit();
@@ -605,6 +694,7 @@ export class Sim {
       burst: 0,
       aim: Math.PI,
       hist: new Float32Array(HIST * 2),
+      rule: null,
     };
     e.body.facing = -1;
     this.enemies.set(id, e);
@@ -690,6 +780,10 @@ export class Sim {
       grav: o.grav ?? 0,
       blast: o.blast ?? 0,
       size: o.size ?? 2,
+      turn: 0,
+      hitsLeft: 0,
+      ret: false,
+      src: -1,
     };
     this.bullets.push(b);
     return b;
@@ -720,6 +814,13 @@ export class Sim {
       const bc = E[e.kind];
       e.hp = e.maxHp = (bc.baseHp + bc.hpPerPlayer * this.squadSize()) * this.mods.bossHp * e.hpMul;
       e.nextAtk = this.tick + this.ticks(1.4);
+      if (e.rule) {
+        const BA = GAME_CONFIG.bossAstra;
+        e.rule.nextNaga = this.tick + this.ruleTicks(BA.naga.everySec * 0.6);
+        e.rule.nextOrb = this.tick + this.ruleTicks(BA.vaishnava.everySec * 0.5);
+        e.rule.nextNar = this.tick + this.ruleTicks(BA.narayana.firstAtSec);
+        e.rule.nextShirsha = this.tick;
+      }
       if (e.arena >= 0) this.arenaBossMax[e.arena] = (this.arenaBossMax[e.arena] ?? 0) + e.maxHp;
       this.emit({ e: 'bossWake', kind: e.kind, arena: e.arena });
     } else if (!e.fromBoss) {
@@ -747,6 +848,7 @@ export class Sim {
         if (b.y > levelHeight(this.level) + 200) this.enemies.delete(e.id);
         continue;
       }
+      if (e.rule && this.stepBossRule(e)) continue; // calling an astra, or stunned: no normal attacks
       switch (e.kind) {
         case 'soldier':
         case 'shield':
@@ -1201,6 +1303,216 @@ export class Sim {
     }
   }
 
+  // ------------------------------------------------------------ boss astras (Astra Saga)
+
+  /** Boss astra timers follow the mission's boss tempo, like the rests between attacks. */
+  private ruleTicks(sec: number): number {
+    return this.ticks(sec / this.mods.bossTempo);
+  }
+
+  /** Where a boss's astras leave from: the walker's head, the gunship's nose, the top of the throne. */
+  castPoint(e: Enemy): { x: number; y: number } {
+    const b = e.body;
+    if (e.kind === 'boss') return { x: b.x - b.w / 2 - 10, y: b.y - 170 };
+    if (e.kind === 'gunship') return { x: b.x + b.facing * 60, y: b.y + 10 };
+    return { x: b.x + b.facing * 54, y: b.y - 88 };
+  }
+
+  /**
+   * A boss's own astras. Returns true while it is busy with one (calling it, its narayanastra storm, or stunned
+   * afterwards), which pauses its normal attacks: every call has a clear wind-up and nothing else lands meanwhile.
+   */
+  private stepBossRule(e: Enemy): boolean {
+    const r = e.rule as RuleState;
+    const BA = GAME_CONFIG.bossAstra;
+    if (this.tick < r.stunUntil) return true;
+    const c = this.castPoint(e);
+    if (r.kind === null) {
+      if (e.atk !== ATTACK.none) return false; // the current attack finishes first
+      const has = (k: BossRule): boolean => r.rules.includes(k);
+      const frac = e.hp / e.maxHp;
+      let next: BossRule | null = null;
+      if (
+        has('narayana') &&
+        ((r.narCalls === 0 && this.tick >= r.nextNar) || (r.narCalls === 1 && frac < BA.narayana.secondBelow))
+      )
+        next = 'narayana';
+      else if (has('brahmashirsha') && frac < BA.brahmashirsha.firstBelow && this.tick >= r.nextShirsha)
+        next = 'brahmashirsha';
+      else if (has('vaishnava') && this.tick >= r.nextOrb && !this.bullets.some((b) => b.kind === 'orb'))
+        next = 'vaishnava';
+      else if (has('naga') && this.tick >= r.nextNaga) next = 'naga';
+      if (!next) return false;
+      r.kind = next;
+      r.start = this.tick;
+      r.storm = false;
+      if (next === 'narayana') {
+        r.narCalls++;
+        this.resist.clear();
+      }
+      this.emit({ e: 'bossAstra', kind: next, phase: 0, x: r1(c.x), y: r1(c.y) });
+      return true;
+    }
+    const t = this.tick - r.start;
+    const release = (): void =>
+      this.emit({ e: 'bossAstra', kind: r.kind as BossRule, phase: 1, x: r1(c.x), y: r1(c.y) });
+    switch (r.kind) {
+      case 'naga': {
+        const N = BA.naga;
+        if (t < this.ticks(N.windupSec)) return true;
+        release();
+        const target = this.nearestAlive(c.x, c.y, 1600);
+        const base = target
+          ? Math.atan2(target.y - P.height / 2 - c.y, target.x - c.x)
+          : e.body.facing > 0
+            ? 0
+            : Math.PI;
+        for (let i = 0; i < N.serpents; i++) {
+          const b = this.shoot(c.x, c.y, base + (i - (N.serpents - 1) / 2) * 0.55, N.damage, {
+            kind: 'serpent',
+            speed: N.speed,
+            size: 6,
+            life: N.lifeSec,
+          });
+          b.turn = N.turn;
+          b.src = e.id;
+        }
+        r.kind = null;
+        r.nextNaga = this.tick + this.ruleTicks(N.everySec);
+        return false;
+      }
+      case 'vaishnava': {
+        const V = BA.vaishnava;
+        if (t < this.ticks(V.windupSec)) return true;
+        release();
+        const target = this.nearestAlive(c.x, c.y, 1600);
+        const a = target ? Math.atan2(target.y - P.height / 2 - c.y, target.x - c.x) : Math.PI;
+        const b = this.shoot(c.x, c.y, a, V.damage, {
+          kind: 'orb',
+          speed: V.speed,
+          size: 14,
+          blast: V.blast,
+          life: V.lifeSec,
+        });
+        b.turn = V.turn;
+        b.src = e.id;
+        r.kind = null;
+        r.nextOrb = this.tick + this.ruleTicks(V.everySec);
+        return false;
+      }
+      case 'narayana': {
+        const N = BA.narayana;
+        const wind = this.ticks(N.windupSec);
+        if (t < wind) return true;
+        if (t === wind) {
+          if (r.narCalls >= 2 && r.narPerfect) {
+            // Called a second time after a storm nobody fought: it rebounds on its caller.
+            r.kind = null;
+            this.emit({ e: 'bossAstra', kind: 'narayana', phase: 3, x: r1(c.x), y: r1(c.y) });
+            r.stunUntil = r.spentUntil = this.tick + this.ticks(N.spentSec);
+            this.damageEnemy(e, e.maxHp * N.reboundShare, '', e.body.x, e.body.y - e.body.h / 2, 'astra');
+            return true;
+          }
+          r.storm = true;
+          release();
+        }
+        const st = t - wind;
+        if (st < this.ticks(N.stormSec)) {
+          for (const p of this.players.values()) {
+            if (p.state !== 'alive') continue;
+            const i = p.input;
+            if (i.fire || i.melee || i.ult || i.astra)
+              this.resist.set(p.id, (this.resist.get(p.id) ?? 0) + 1);
+          }
+          if (st % this.ticks(N.volleySec) === 0) {
+            for (const p of this.players.values()) {
+              if (p.state !== 'alive') continue;
+              const n = this.arrowsFor(p);
+              for (let k = 0; k < n; k++) {
+                const x = p.x + this.rng.range(-80, 80);
+                const y = -20 - k * 36;
+                const a = Math.atan2(p.y - P.height / 2 - y, p.x + p.vx * 0.4 - x);
+                const b = this.shoot(x, y, a, N.damage, { kind: 'arrow', speed: 560, size: 3, life: 2.2 });
+                b.src = e.id;
+              }
+            }
+          }
+          return true;
+        }
+        // The storm has passed: the boss is spent.
+        r.narPerfect = [...this.resist.values()].every((v) => v === 0);
+        r.kind = null;
+        r.storm = false;
+        r.stunUntil = r.spentUntil = this.tick + this.ticks(N.spentSec);
+        this.emit({ e: 'bossAstra', kind: 'narayana', phase: 4, x: r1(c.x), y: r1(c.y) });
+        return true;
+      }
+      case 'brahmashirsha': {
+        const B = BA.brahmashirsha;
+        if (t < this.ticks(B.windupSec)) return true;
+        // Nobody answered it with the brahmastra: it lands on everyone not dodging, and (it cannot be called
+        // back) scorches its caller too.
+        release();
+        r.kind = null;
+        r.nextShirsha = this.tick + this.ruleTicks(B.everySec);
+        for (const p of this.players.values()) this.hurtPlayer(p, B.damage);
+        this.damageEnemy(e, e.maxHp * B.backfireShare, '', e.body.x, e.body.y - e.body.h / 2, 'astra');
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Narayanastra: arrows per volley at this soldier (0 while they have not fought the storm at all). */
+  arrowsFor(p: Player): number {
+    const N = GAME_CONFIG.bossAstra.narayana;
+    const r = this.resist.get(p.id) ?? 0;
+    if (r === 0) return 0;
+    return Math.min(N.maxArrows, N.base + Math.floor(r / this.ticks(N.resistStepSec)));
+  }
+
+  /** The boss astra being called right now (bots and the HUD read it). */
+  bossCast(): { e: Enemy; kind: BossRule; t: number; storm: boolean } | null {
+    for (const e of this.enemies.values())
+      if (e.rule?.kind && e.awake)
+        return { e, kind: e.rule.kind, t: this.tick - e.rule.start, storm: e.rule.storm };
+    return null;
+  }
+
+  /** A boss charging its brahmashirsha (the squad's brahmastra answers it). */
+  private shirshaCharging(): Enemy[] {
+    const out: Enemy[] = [];
+    for (const e of this.enemies.values()) if (e.rule?.kind === 'brahmashirsha') out.push(e);
+    return out;
+  }
+
+  /** Enemy shots any shield, gust, parry or black hole can stop: everything but a vaishnava orb and arrows. */
+  private clearable(b: Bullet): boolean {
+    return b.enemy && b.kind !== 'orb' && b.kind !== 'arrow';
+  }
+
+  /**
+   * Continue after the squad ran out of lives (solo: a rewarded video or astra shards). Undoes the defeat and
+   * brings everyone back with `lives` team lives. Returns false when there is nothing to continue.
+   */
+  revive(lives: number): boolean {
+    if (this.pendingResult !== 'failed' || this.failReason !== 'lives') return false;
+    this.pendingResult = null;
+    this.result = null;
+    this.failReason = null;
+    this.endAt = -1;
+    this.phase = 'playing';
+    let dead = 0;
+    for (const p of this.players.values())
+      if (p.state === 'dead') {
+        dead++;
+        p.respawnAt = this.tick + 1;
+      }
+    this.lives = Math.min(GAME_CONFIG.mission.maxLives, Math.max(1, lives) + dead);
+    this.emit({ e: 'life', lives: this.lives });
+    return true;
+  }
+
   private recordHistory(): void {
     const slot = (this.tick % HIST) * 2;
     for (const e of this.enemies.values()) {
@@ -1264,7 +1576,7 @@ export class Sim {
       const wasDashing = p.dashTicks > 0;
       stepPlayerMovement(this.world, p, p.input, this.dt);
       if (!wasDashing && p.dashTicks > 0)
-        p.dodgeUntil = this.tick + p.dashTicks + this.ticks(P.dash.iframeSec);
+        p.dodgeUntil = this.tick + p.dashTicks + this.ticks(P.dash.iframeSec + heroPerk(p.hero).dodgeSec);
       if (!wasSliding || p.slideTicks === 0) p.slideHits.clear();
       const aim = aimOf(p, p.input);
       p.aimX = aim.ax;
@@ -1290,7 +1602,7 @@ export class Sim {
       }
       // Health refills out of combat.
       if (p.hp < P.maxHp && this.tick - p.lastHurt >= this.ticks(P.regenDelaySec))
-        p.hp = Math.min(P.maxHp, p.hp + P.regenPerSec * this.dt);
+        p.hp = Math.min(P.maxHp, p.hp + P.regenPerSec * heroPerk(p.hero).regen * this.dt);
       if (p.combo > 0 && this.tick > p.comboUntil) p.combo = 0;
       if (p.slideTicks > 0) this.slideHits(p);
 
@@ -1326,13 +1638,18 @@ export class Sim {
   private fire(p: Player): void {
     const w = GAME_CONFIG.weapons[p.weapon];
     const od = this.overdrive(p);
+    const perk = heroPerk(p.hero);
     const cd = od ? w.cooldown / U.overdrive.fireRate : w.cooldown;
-    p.nextFireTick = this.tick + Math.max(1, this.ticks(cd));
+    // A faster trigger shortens the gap by a fraction of a tick; held fire carries the fraction from shot to shot
+    // (scheduled from the planned time, not the tick it landed on), so even the 3-tick rapid gun really is faster.
+    // With no fire-rate passive this is exactly `tick + ticks(cd)`.
+    const held = p.nextFireTick > this.tick - 1;
+    p.nextFireTick = (held ? p.nextFireTick : this.tick) + Math.max(1, this.ticks(cd)) / perk.fireRate;
     const base = Math.atan2(p.aimY, p.aimX);
     const crouch = p.crouch && p.aimY === 0;
     const mx = p.x + (p.aimY === 0 ? p.facing * 16 : p.aimX * 10);
     const my = p.y - (crouch ? 12 : p.aimY < 0 ? P.height + 2 : p.aimY > 0 ? 8 : 22);
-    const dmg = w.damage * (od ? U.overdrive.damage : 1);
+    const dmg = w.damage * (od ? U.overdrive.damage : 1) * (p.onGround ? 1 : perk.airGunDamage);
     for (let i = 0; i < w.pellets; i++) {
       const a = w.pellets === 1 ? base : base + (i / (w.pellets - 1) - 0.5) * w.spreadRad;
       const pierce = w.pierce || od;
@@ -1356,6 +1673,10 @@ export class Sim {
         grav: 0,
         blast: 0,
         size: 0,
+        turn: 0,
+        hitsLeft: 0,
+        ret: false,
+        src: -1,
       });
     }
   }
@@ -1391,7 +1712,7 @@ export class Sim {
     p.nextMelee = this.tick + this.ticks(m.cooldownSec);
     p.nextFireTick = Math.max(p.nextFireTick, p.meleeUntil);
     const box = this.meleeBox(p, m.range);
-    const dmg = m.damage * (this.overdrive(p) ? U.overdrive.damage : 1);
+    const dmg = m.damage * (this.overdrive(p) ? U.overdrive.damage : 1) * heroPerk(p.hero).meleeDamage;
     for (const e of [...this.enemies.values()]) {
       if (!e.awake || !this.overlapsEnemy(box, e)) continue;
       if (e.shield > 0 && this.facesToward(e, p.x)) {
@@ -1410,7 +1731,7 @@ export class Sim {
     // Parry: a swing knocks enemy bullets, grenades and missiles out of the air.
     let parried = false;
     this.bullets = this.bullets.filter((b) => {
-      if (!b.enemy || b.kind === 'wave') return true;
+      if (!this.clearable(b) || b.kind === 'wave') return true;
       if (b.x < box.x0 - 6 || b.x > box.x1 + 6 || b.y < box.y0 - 6 || b.y > box.y1) return true;
       parried = true;
       return false;
@@ -1438,7 +1759,7 @@ export class Sim {
 
   private gainUlt(p: Player, n: number): void {
     if (p.state !== 'alive') return;
-    p.ult = Math.min(U.max, p.ult + n);
+    p.ult = Math.min(U.max, p.ult + n * heroPerk(p.hero).ultGain);
   }
 
   /** Hero super move. */
@@ -1477,7 +1798,9 @@ export class Sim {
           this.damageEnemy(e, this.ultDamage(e, U.nova.damage * mult), p.id, ex, ey, 'ult');
         }
         const cr = U.nova.clearRadius ** 2;
-        this.bullets = this.bullets.filter((b) => !b.enemy || (b.x - cx) ** 2 + (b.y - cy) ** 2 > cr);
+        this.bullets = this.bullets.filter(
+          (b) => !this.clearable(b) || (b.x - cx) ** 2 + (b.y - cy) ** 2 > cr,
+        );
         break;
       }
       case 'airstrike': {
@@ -1504,6 +1827,10 @@ export class Sim {
             grav: 0,
             blast: a.blast,
             size: 4,
+            turn: 0,
+            hitsLeft: 0,
+            ret: false,
+            src: -1,
           });
         }
         break;
@@ -1538,13 +1865,18 @@ export class Sim {
   /** The ASTRA button: use the held power, or (with none) the team brahmastra once it is charged. */
   private useAstra(p: Player): void {
     const PW = GAME_CONFIG.powers;
-    if (p.power && p.powerN > 0) {
+    // A boss is charging its brahmashirsha: the button answers it with the brahmastra first, if it is ready.
+    const answer = this.brahma >= PW.brahma.max && !this.brahmaStrike && this.shirshaCharging().length > 0;
+    if (p.power && p.powerN > 0 && !answer) {
       const kind = p.power;
       p.powerN--;
       if (p.powerN === 0) p.power = null;
       const f = p.facing;
       const fy = p.y;
-      this.emit({ e: 'astra', id: p.id, kind, x: r1(p.x), y: r1(fy), f });
+      let v: number | undefined;
+      if (kind === 'pashupata') v = this.rng.int(3);
+      else if (kind === 'vaishnava') v = this.reflectableOrbs(p).length ? 1 : 0;
+      this.emit({ e: 'astra', id: p.id, kind, x: r1(p.x), y: r1(fy), f, ...(v === undefined ? {} : { v }) });
       switch (kind) {
         case 'agni': {
           // A rolling wall of flame, then the ground ahead keeps burning.
@@ -1569,6 +1901,10 @@ export class Sim {
             grav: 0,
             blast: 0,
             size: 16,
+            turn: 0,
+            hitsLeft: 0,
+            ret: false,
+            src: -1,
           });
           const x0 = p.x + f * 30;
           const x1 = p.x + f * (30 + a.burnLength);
@@ -1616,7 +1952,7 @@ export class Sim {
             if (e.body.onGround) e.body.vy = -260;
             this.damageEnemy(e, w.damage, p.id, e.body.x, e.body.y - e.body.h / 2, 'astra');
           }
-          this.bullets = this.bullets.filter((b) => !b.enemy || !inGust(b.x, b.y));
+          this.bullets = this.bullets.filter((b) => !this.clearable(b) || !inGust(b.x, b.y));
           break;
         }
         case 'singularity': {
@@ -1630,12 +1966,110 @@ export class Sim {
           });
           break;
         }
+        case 'naga': {
+          // Serpents that never miss: each one steers toward the nearest foe.
+          const N = PW.naga;
+          for (let i = 0; i < N.serpents; i++) {
+            const a = (f > 0 ? 0 : Math.PI) + (i - (N.serpents - 1) / 2) * 0.5;
+            this.playerShot(p, 'serpent', p.x + f * 14, fy - 24, a, N.speed, N.damage, {
+              life: N.lifeSec,
+              turn: N.turn,
+              size: 6,
+            });
+          }
+          break;
+        }
+        case 'garuda': {
+          // The eagle dives: serpents and shots vanish from the sky, flyers are crushed, the caller is shielded.
+          const g = PW.garuda;
+          const near = (x: number): boolean => Math.abs(x - p.x) <= g.range;
+          this.bullets = this.bullets.filter((b) => !this.clearable(b) || !near(b.x));
+          for (const e of [...this.enemies.values()]) {
+            if (!e.awake || !near(e.body.x)) continue;
+            const flyer = e.kind === 'drone' || e.kind === 'jetpack' || e.kind === 'gunship';
+            this.damageEnemy(
+              e,
+              this.ultDamage(e, flyer ? g.flyerDamage : g.damage),
+              p.id,
+              e.body.x,
+              e.body.y - e.body.h / 2,
+              'astra',
+            );
+          }
+          p.invulnUntil = Math.max(p.invulnUntil, this.tick + this.ticks(g.shieldSec));
+          break;
+        }
+        case 'sudarshana': {
+          const S = PW.sudarshana;
+          const b = this.playerShot(
+            p,
+            'chakra',
+            p.x + f * 16,
+            fy - 26,
+            f > 0 ? 0 : Math.PI,
+            S.speed,
+            S.damage,
+            {
+              life: S.maxSec,
+              turn: S.turn,
+              size: 10,
+              pierce: true,
+            },
+          );
+          b.hitsLeft = S.hits;
+          break;
+        }
+        case 'pashupata':
+          this.pashupata(p, v ?? 0);
+          break;
+        case 'vaishnava': {
+          const V = PW.vaishnava;
+          const orbs = this.reflectableOrbs(p);
+          for (const b of orbs) {
+            // Only a vaishnava stops a vaishnava: the orb turns and flies back at the boss that called it.
+            const boss = this.enemies.get(b.src);
+            b.enemy = false;
+            b.owner = p.id;
+            b.turn = 5;
+            b.blast = 0;
+            b.size = 18;
+            b.pierce = false;
+            b.hit = null;
+            b.dmg = boss ? boss.maxHp * V.reflectShare : V.boltDamage;
+            b.expires = this.tick + this.ticks(4);
+            const tx = boss ? boss.body.x - (boss.kind === 'boss' ? boss.body.w / 2 : 0) : b.x - b.vx;
+            const ty = boss ? boss.body.y - boss.body.h / 2 : b.y;
+            const a = Math.atan2(ty - b.y, tx - b.x);
+            b.vx = Math.cos(a) * V.speed * 0.8;
+            b.vy = Math.sin(a) * V.speed * 0.8;
+          }
+          if (orbs.length) {
+            this.addCombo(p, C.parry * 2);
+            this.emit({ e: 'style', id: p.id, t: 'parry', x: r1(p.x), y: r1(p.y - 40) });
+          } else
+            this.playerShot(p, 'orb', p.x + f * 16, fy - 24, f > 0 ? 0 : Math.PI, V.speed, V.boltDamage, {
+              life: 1.6,
+              size: 12,
+            });
+          break;
+        }
       }
       return;
     }
     if (this.brahma >= PW.brahma.max && !this.brahmaStrike) {
       this.brahma = 0;
       this.brahmaStrike = { at: this.tick + this.ticks(PW.brahma.windupSec), id: p.id, x: p.x, y: p.y };
+      // Brahmastra meets brahmashirsha: both are spent, and the boss that called it reels.
+      const B = GAME_CONFIG.bossAstra.brahmashirsha;
+      for (const e of this.shirshaCharging()) {
+        const r = e.rule as RuleState;
+        const c = this.castPoint(e);
+        r.kind = null;
+        r.nextShirsha = this.tick + this.ruleTicks(B.everySec);
+        r.stunUntil = this.tick + this.ticks(B.stunSec);
+        this.emit({ e: 'bossAstra', kind: 'brahmashirsha', phase: 2, x: r1(c.x), y: r1(c.y) });
+        this.damageEnemy(e, e.maxHp * B.counterShare, p.id, e.body.x, e.body.y - e.body.h / 2, 'astra');
+      }
       // The whole squad is shielded through the strike.
       for (const q of this.players.values())
         if (q.state === 'alive')
@@ -1649,7 +2083,113 @@ export class Sim {
 
   private chargeBrahma(n: number): void {
     if (this.brahmaStrike) return;
-    this.brahma = Math.min(GAME_CONFIG.powers.brahma.max, this.brahma + n);
+    const boost = this.shirshaCharging().length ? GAME_CONFIG.bossAstra.brahmashirsha.chargeBoost : 1;
+    this.brahma = Math.min(GAME_CONFIG.powers.brahma.max, this.brahma + n * boost);
+  }
+
+  /** A player projectile (astras use this; plain gunfire builds its own in `fire`). */
+  private playerShot(
+    p: Player,
+    kind: BulletKind,
+    x: number,
+    y: number,
+    angle: number,
+    speed: number,
+    dmg: number,
+    o: { life: number; turn?: number; size?: number; pierce?: boolean; blast?: number },
+  ): Bullet {
+    const b: Bullet = {
+      id: this.nextBulletId++,
+      enemy: false,
+      owner: p.id,
+      kind,
+      x,
+      y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      dmg,
+      pierce: o.pierce ?? false,
+      expires: this.tick + this.ticks(o.life),
+      born: this.tick,
+      lag: 0,
+      weapon: null,
+      power: false,
+      hit: o.pierce ? new Set() : null,
+      grav: 0,
+      blast: o.blast ?? 0,
+      size: o.size ?? 4,
+      turn: o.turn ?? 0,
+      hitsLeft: 0,
+      ret: false,
+      src: -1,
+    };
+    this.bullets.push(b);
+    return b;
+  }
+
+  /** A boss's vaishnava orbs close enough to this soldier to be turned back. */
+  private reflectableOrbs(p: Player): Bullet[] {
+    const R = GAME_CONFIG.powers.vaishnava.reflectRange;
+    return this.bullets.filter(
+      (b) => b.enemy && b.kind === 'orb' && Math.hypot(b.x - p.x, b.y - (p.y - 20)) <= R,
+    );
+  }
+
+  /** Pashupata takes a different form each call: 0 a trident strike, 1 a spirit ally, 2 a rain of fire. */
+  private pashupata(p: Player, form: number): void {
+    const PP = GAME_CONFIG.powers.pashupata;
+    if (form === 0) {
+      const list = [...this.enemies.values()]
+        .filter((e) => e.awake && Math.hypot(e.body.x - p.x, e.body.y - p.y) < PP.strike.range)
+        .sort((a, b) => Math.abs(a.body.x - p.x) - Math.abs(b.body.x - p.x))
+        .slice(0, PP.strike.targets);
+      for (const e of list) {
+        const ey = e.body.y - e.body.h / 2;
+        e.shield = 0;
+        this.emit({ e: 'boom', x: r1(e.body.x), y: r1(ey), r: 40 });
+        this.damageEnemy(e, this.ultDamage(e, PP.strike.damage), p.id, e.body.x, ey, 'astra');
+      }
+    } else if (form === 1) {
+      this.spirits.push({
+        x: p.x - p.facing * 30,
+        y: p.y - 62,
+        until: this.tick + this.ticks(PP.spirit.sec),
+        next: this.tick + this.ticks(0.3),
+        owner: p.id,
+      });
+    } else {
+      const R = PP.rain;
+      for (let i = 0; i < R.bolts; i++) {
+        const x = p.x + p.facing * (-40 + (i / (R.bolts - 1)) * R.spread) + this.rng.range(-20, 20);
+        const b = this.playerShot(p, 'meteor', x, -30 - i * 44, Math.PI / 2, 720, R.damage, {
+          life: 3,
+          size: 4,
+          blast: R.blast,
+        });
+        b.vx = p.facing * 30;
+      }
+    }
+  }
+
+  /** The nearest awake foe to a point within `range` (centre of its body; the final boss's front). */
+  private nearestFoe(x: number, y: number, range: number, skip?: Set<number> | null): Enemy | null {
+    let best: Enemy | null = null;
+    let bd = range * range;
+    for (const e of this.enemies.values()) {
+      if (!e.awake || skip?.has(e.id)) continue;
+      const a = this.aimPoint(e);
+      const d = (a.x - x) ** 2 + (a.y - y) ** 2;
+      if (d < bd) {
+        bd = d;
+        best = e;
+      }
+    }
+    return best;
+  }
+
+  private aimPoint(e: Enemy): { x: number; y: number } {
+    const b = e.body;
+    return e.kind === 'boss' ? { x: b.x - b.w / 2 + 10, y: b.y - 120 } : { x: b.x, y: b.y - b.h / 2 };
   }
 
   /** Burning ground, black holes and the brahmastra strike, once per tick. */
@@ -1708,6 +2248,29 @@ export class Sim {
       }
       this.holes = this.holes.filter((h) => h.until > this.tick);
     }
+    if (this.spirits.length) {
+      const S = PW.pashupata.spirit;
+      for (const sp of this.spirits) {
+        const o = this.players.get(sp.owner);
+        if (o) {
+          sp.x += (o.x - o.facing * 30 - sp.x) * Math.min(1, this.dt * 5);
+          sp.y += (o.y - 62 - sp.y) * Math.min(1, this.dt * 5);
+        }
+        if (o && this.tick >= sp.next) {
+          sp.next = this.tick + this.ticks(S.everySec);
+          const e = this.nearestFoe(sp.x, sp.y, S.range);
+          if (e) {
+            const a = this.aimPoint(e);
+            this.playerShot(o, 'spark', sp.x, sp.y, Math.atan2(a.y - sp.y, a.x - sp.x), 640, S.damage, {
+              life: 1.2,
+              turn: 4,
+              size: 3,
+            });
+          }
+        }
+      }
+      this.spirits = this.spirits.filter((sp) => sp.until > this.tick && this.players.has(sp.owner));
+    }
     const st = this.brahmaStrike;
     if (st && this.tick >= st.at) {
       this.brahmaStrike = null;
@@ -1741,7 +2304,7 @@ export class Sim {
       b.vx += ((cx - b.x) / d) * f.power * 6 * this.dt;
       b.vy += ((cy - b.y) / d) * f.power * 6 * this.dt;
     }
-    if (b.enemy)
+    if (this.clearable(b))
       for (const h of this.holes) {
         const d = Math.hypot(h.x - b.x, h.y - b.y);
         if (d > GAME_CONFIG.powers.singularity.radius) continue;
@@ -1779,7 +2342,9 @@ export class Sim {
     const keep: Bullet[] = [];
     const W = levelWidth(this.level);
     const H = levelHeight(this.level);
-    const targets = this.bullets.filter((b) => b.enemy && (b.kind === 'missile' || b.kind === 'grenade'));
+    const targets = this.bullets.filter(
+      (b) => b.enemy && (b.kind === 'missile' || b.kind === 'grenade' || b.kind === 'serpent'),
+    );
     const gone = new Set<Bullet>();
     for (const b of this.bullets) {
       if (gone.has(b)) continue;
@@ -1788,6 +2353,7 @@ export class Sim {
         continue;
       }
       if (b.kind === 'missile') this.steerMissile(b);
+      else if (b.turn > 0 && !this.steerHoming(b)) continue; // a discus caught by its thrower
       if (b.grav) b.vy += b.grav * this.dt;
       if (this.level.fields.length || this.holes.length) {
         if (!this.bendBullet(b)) continue; // swallowed by a black hole
@@ -1800,8 +2366,9 @@ export class Sim {
         b.x += (b.vx * this.dt) / steps;
         b.y += (b.vy * this.dt) / steps;
         if (b.x < 0 || b.x > W || b.y > H) alive = false;
-        else if (b.y < -40 && b.kind !== 'rocket') alive = false;
-        else if (solidAtPoint(this.world, b.x, b.y)) {
+        else if (b.y < -40 && b.kind !== 'rocket' && b.kind !== 'meteor' && b.kind !== 'arrow') alive = false;
+        // Homing astras (serpents, the discus, orbs, sparks) fly through rock: they never miss.
+        else if (b.turn === 0 && solidAtPoint(this.world, b.x, b.y)) {
           alive = false;
           if (b.blast > 0) this.explode(b);
         } else if (b.enemy) alive = this.bulletVsPlayers(b);
@@ -1810,6 +2377,61 @@ export class Sim {
       if (alive) keep.push(b);
     }
     this.bullets = gone.size ? keep.filter((b) => !gone.has(b)) : keep;
+  }
+
+  /**
+   * Homing projectiles: player serpents, sparks and the discus seek foes (the discus flies home once it has hit
+   * enough of them or flown long enough), a turned-back orb seeks the boss that called it, and enemy serpents and
+   * orbs seek soldiers. Returns false when the projectile is done (the discus is back in its thrower's hand).
+   */
+  private steerHoming(b: Bullet): boolean {
+    let tx: number;
+    let ty: number;
+    if (b.kind === 'chakra') {
+      const S = GAME_CONFIG.powers.sudarshana;
+      if (!b.ret && this.tick - b.born >= this.ticks(S.outSec)) b.ret = true;
+      if (b.ret) {
+        const o = this.players.get(b.owner);
+        if (!o || o.state !== 'alive') return false;
+        const dx = o.x - b.x;
+        const dy = o.y - P.height / 2 - b.y;
+        const d = Math.hypot(dx, dy);
+        if (d < 28) return false;
+        const sp = S.speed * 1.25;
+        b.vx = (dx / d) * sp;
+        b.vy = (dy / d) * sp;
+        return true;
+      }
+    }
+    if (b.enemy) {
+      const t = this.nearestAlive(b.x, b.y, 1600);
+      if (!t) return true;
+      tx = t.x;
+      ty = t.y - P.height / 2;
+    } else {
+      const src = b.src >= 0 ? this.enemies.get(b.src) : undefined;
+      const seek =
+        b.kind === 'chakra'
+          ? GAME_CONFIG.powers.sudarshana.seek
+          : b.kind === 'serpent'
+            ? GAME_CONFIG.powers.naga.seek
+            : 700;
+      const e = src ?? this.nearestFoe(b.x, b.y, seek, b.hit);
+      if (!e) return true;
+      const a = this.aimPoint(e);
+      tx = a.x;
+      ty = a.y;
+    }
+    const want = Math.atan2(ty - b.y, tx - b.x);
+    const cur = Math.atan2(b.vy, b.vx);
+    let d = want - cur;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    const turn = Math.max(-b.turn * this.dt, Math.min(b.turn * this.dt, d));
+    const sp = Math.hypot(b.vx, b.vy);
+    b.vx = Math.cos(cur + turn) * sp;
+    b.vy = Math.sin(cur + turn) * sp;
+    return true;
   }
 
   /** Missiles turn gently toward the nearest soldier for their first second and a half. */
@@ -1865,6 +2487,7 @@ export class Sim {
 
   /** Returns false when the bullet is used up. */
   private bulletVsEnemies(b: Bullet): boolean {
+    if (b.ret) return true; // the discus on its way home hits nothing
     for (const e of this.enemies.values()) {
       if (!e.awake || b.hit?.has(e.id)) continue;
       const pos = this.enemyPastPosition(e, b.lag);
@@ -1883,16 +2506,29 @@ export class Sim {
         this.emit({ e: 'ehit', id: e.id, x: r1(b.x), y: r1(b.y) });
         return false;
       }
-      const dmg = b.power && isBoss(e.kind) ? b.dmg / U.overdrive.damage : b.dmg;
+      let dmg = b.power && isBoss(e.kind) ? b.dmg / U.overdrive.damage : b.dmg;
+      // A plain vaishnava bolt is an astra, not a boss killer (a turned-back orb carries its own damage).
+      if (b.kind === 'orb' && b.src < 0) dmg = this.ultDamage(e, dmg);
       this.damageEnemy(e, dmg, b.owner, b.x, b.y, 'gun');
+      if (b.kind === 'orb' && b.src >= 0) this.emit({ e: 'boom', x: r1(b.x), y: r1(b.y), r: 90 });
       if (!b.pierce) return false;
       b.hit?.add(e.id);
+      if (b.kind === 'chakra' && --b.hitsLeft <= 0) {
+        b.ret = true;
+        return true;
+      }
     }
     return true;
   }
 
   private damageEnemy(e: Enemy, dmg: number, by: string, x: number, y: number, src: DamageSource): void {
     if (!this.enemies.has(e.id)) return;
+    if (e.rule?.storm) {
+      // Narayanastra: nothing touches its caller while the storm rages.
+      if (this.tick % 4 === 0) this.emit({ e: 'immune', id: e.id, x: r1(x), y: r1(y) });
+      return;
+    }
+    if (e.rule && this.tick < e.rule.spentUntil) dmg *= GAME_CONFIG.bossAstra.narayana.spentDamage;
     e.hp -= dmg;
     e.hitTick = this.tick;
     const p = this.players.get(by);
@@ -1962,6 +2598,7 @@ export class Sim {
     if (this.tick < p.invulnUntil || this.dodging(p)) return;
     let d = dmg * GAME_CONFIG.mission.enemyDamage[this.settings.difficulty] * this.mods.enemyDamage;
     if (this.overdrive(p)) d *= U.overdrive.damageTaken;
+    d *= heroPerk(p.hero).damageTaken;
     p.hp -= d;
     p.lastHurt = this.tick;
     p.invulnUntil = this.tick + this.ticks(P.hurtInvulnSec);
@@ -1982,7 +2619,7 @@ export class Sim {
     p.weapon = 'blaster'; // like the arcade classics: going down costs your special gun
     p.stats.deaths++;
     this.breakCombo(p);
-    p.respawnAt = this.tick + this.ticks(P.respawnSec);
+    p.respawnAt = this.tick + this.ticks(P.respawnSec * heroPerk(p.hero).respawn);
     this.emit({ e: 'ko', id: p.id });
   }
 
@@ -2222,6 +2859,7 @@ export class Sim {
 
   snapshot(): Snapshot {
     const mask = (arr: boolean[]): number => arr.reduce((m, v, i) => (v ? m | (1 << i) : m), 0);
+    const storm = this.bossCast()?.storm === true;
     const players: PlayerSnapshot[] = [...this.players.values()].map((p) => ({
       id: p.id,
       n: p.name,
@@ -2268,6 +2906,7 @@ export class Sim {
       pd: p.prevDash ? 1 : 0,
       pw: p.power ? POWER_KINDS.indexOf(p.power) : -1,
       pn: p.powerN,
+      rs: storm ? this.arrowsFor(p) : 0,
     }));
     // Only enemies near somebody are sent: a long level would otherwise bloat every packet.
     const near = (x: number, w: number): boolean => {
@@ -2292,6 +2931,11 @@ export class Sim {
         tt: boss && e.awake && e.atk !== ATTACK.none ? this.tick - e.atkStart : 0,
         p: boss ? e.atkParam : 0,
         ph: e.phase,
+        ra: e.rule?.kind ? BOSS_RULES.indexOf(e.rule.kind) : -1,
+        rt: e.rule?.kind ? this.tick - e.rule.start : 0,
+        rs: e.rule?.storm ? 1 : 0,
+        sn: e.rule && this.tick < e.rule.stunUntil ? 1 : 0,
+        im: e.rule?.storm ? 1 : 0,
       });
     }
     const ai = this.activeArena();
@@ -2359,6 +3003,13 @@ export class Sim {
           y: r1(h.y),
           w: GAME_CONFIG.powers.singularity.radius,
           t: r1((h.until - this.tick) / this.tickRate),
+        })),
+        ...this.spirits.map((sp) => ({
+          k: 2 as const,
+          x: r1(sp.x),
+          y: r1(sp.y),
+          w: 0,
+          t: r1((sp.until - this.tick) / this.tickRate),
         })),
       ],
     };

@@ -3,6 +3,7 @@ import {
   ATTACK_WINDUP,
   BEAM,
   BEAM_SEC,
+  BOSS_RULES,
   BULLET_KINDS,
   GAME_CONFIG,
   MISSION_1,
@@ -65,6 +66,18 @@ import {
   type ZoneStyle,
 } from './world-art';
 import { drawThemedColossus, drawThemedGunship, drawThemedWalker, type BossKit } from './boss-art';
+import {
+  RULE_COLOR,
+  drawArrow,
+  drawBossCast,
+  drawChakra,
+  drawDazed,
+  drawImmune,
+  drawMeteor,
+  drawOrb,
+  drawSerpent,
+  drawSpark,
+} from './astra-fx';
 import {
   SHOT_COLORS,
   drawCritter,
@@ -461,6 +474,17 @@ export class Renderer {
     this.ctx.imageSmoothingEnabled = false;
   }
 
+  private enemyCanvas: HTMLCanvasElement | null = null;
+  /** The off-screen layer saga enemies are drawn on before their tint (same size as the screen). */
+  private enemyLayer(): HTMLCanvasElement {
+    const c = this.enemyCanvas ?? (this.enemyCanvas = document.createElement('canvas'));
+    if (c.width !== this.canvas.width || c.height !== this.canvas.height) {
+      c.width = this.canvas.width;
+      c.height = this.canvas.height;
+    }
+    return c;
+  }
+
   /** World x at the left edge of the screen (tests). */
   get cameraX(): number {
     return this.camX;
@@ -523,8 +547,31 @@ export class Renderer {
         s.fx.filter((f) => f.k === 0),
         o.nowMs,
       );
-    for (const e of s.enemies) if (isBoss(e.k)) this.drawBossOf(e, s, o.nowMs);
-    for (const e of s.enemies) if (!isBoss(e.k)) this.drawEnemy(e, o.nowMs);
+    // Saga stages tint their asura host (cosmetic; browsers without canvas filters show the base colours).
+    // Enemies are drawn onto one layer and the layer is filtered once: a filter per draw call is slow.
+    if (this.lvl.tint && s.enemies.length) {
+      const layer = this.enemyLayer();
+      const lctx = layer.getContext('2d') as CanvasRenderingContext2D;
+      lctx.setTransform(1, 0, 0, 1, 0, 0);
+      lctx.clearRect(0, 0, layer.width, layer.height);
+      lctx.setTransform(ctx.getTransform());
+      lctx.imageSmoothingEnabled = false;
+      this.ctx = lctx;
+      try {
+        for (const e of s.enemies) if (isBoss(e.k)) this.drawBossOf(e, s, o.nowMs);
+        for (const e of s.enemies) if (!isBoss(e.k)) this.drawEnemy(e, o.nowMs);
+      } finally {
+        this.ctx = ctx;
+      }
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.filter = `hue-rotate(${this.lvl.tint}deg)`;
+      ctx.drawImage(layer, 0, 0);
+      ctx.restore();
+    } else {
+      for (const e of s.enemies) if (isBoss(e.k)) this.drawBossOf(e, s, o.nowMs);
+      for (const e of s.enemies) if (!isBoss(e.k)) this.drawEnemy(e, o.nowMs);
+    }
     this.drawTrails(dt);
     for (const p of players) if (p.id !== o.meId) this.drawPlayer(p, false, o.nowMs);
     if (me) this.drawPlayer(me, true, o.nowMs);
@@ -534,9 +581,10 @@ export class Renderer {
     if (s.fx.length)
       drawFx(
         ctx,
-        s.fx.filter((f) => f.k === 1),
+        s.fx.filter((f) => f.k !== 0),
         o.nowMs,
       );
+    this.drawBossAstras(s, o.nowMs);
     this.drawAstraFx(dt, o.nowMs);
     this.stepParticles(dt);
     this.drawProps(true);
@@ -1907,6 +1955,7 @@ export class Renderer {
     for (const b of s.bullets) {
       if (b.x < this.camX - 40 || b.x > this.camX + this.viewW + 40) continue;
       const kind = KIND(b.k);
+      if (this.drawAstraShot(kind, b, nowMs)) continue;
       if (b.e === 1) {
         ctx.globalCompositeOperation = 'source-over';
         if (
@@ -2095,12 +2144,113 @@ export class Renderer {
     if (this.styleFloats.length > 12) this.styleFloats.shift();
   }
 
+  /** Astra Saga projectiles (either side). Returns false for everything else. */
+  private drawAstraShot(kind: string, b: Snapshot['bullets'][number], nowMs: number): boolean {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.globalCompositeOperation = 'source-over';
+    let drawn = true;
+    if (kind === 'serpent') drawSerpent(ctx, b.x, b.y, b.vx, b.vy, b.e === 1, nowMs);
+    else if (kind === 'chakra') drawChakra(ctx, b.x, b.y, nowMs, false);
+    else if (kind === 'orb') drawOrb(ctx, b.x, b.y, b.e === 1, nowMs);
+    else if (kind === 'arrow') drawArrow(ctx, b.x, b.y, b.vx, b.vy);
+    else if (kind === 'spark') drawSpark(ctx, b.x, b.y, b.vx, b.vy);
+    else if (kind === 'meteor') drawMeteor(ctx, b.x, b.y, b.vx, b.vy, nowMs);
+    else drawn = false;
+    ctx.restore();
+    return drawn;
+  }
+
+  /** Bosses calling their astras (the wind-up tell), stunned bosses and untouchable ones. */
+  private drawBossAstras(s: Snapshot, nowMs: number): void {
+    for (const e of s.enemies) {
+      if (!isBoss(e.k)) continue;
+      const w = GAME_CONFIG.enemies[e.k].width;
+      const h = GAME_CONFIG.enemies[e.k].height;
+      const cx = e.k === 'boss' ? e.x - w / 2 - 10 : e.k === 'gunship' ? e.x + e.f * 60 : e.x + e.f * 54;
+      const cy = e.k === 'boss' ? e.y - 170 : e.k === 'gunship' ? e.y + 10 : e.y - 88;
+      if (e.ra >= 0) {
+        const kind = BOSS_RULES[e.ra];
+        if (kind) drawBossCast(this.ctx, kind, cx, cy, e.rt / 30, e.rs === 1, nowMs, this.viewW, this.camX);
+      }
+      if (e.im === 1) drawImmune(this.ctx, e.k === 'boss' ? e.x - w / 4 : e.x, e.y, w, h, nowMs);
+      if (e.sn === 1) drawDazed(this.ctx, e.k === 'boss' ? e.x - w / 2 : e.x, e.y - h - 12, nowMs);
+    }
+  }
+
+  /** A boss astra event: the call, its release, a counter, a rebound, the end of a storm. */
+  bossAstraEffect(ev: Extract<SimEvent, { e: 'bossAstra' }>, reduce: boolean): void {
+    const col = RULE_COLOR[ev.kind];
+    if (ev.phase === 0) {
+      this.rings.push({ x: ev.x, y: ev.y, r: 120, life: 0.5, max: 0.5, color: col });
+      if (ev.kind === 'narayana' || ev.kind === 'brahmashirsha') this.darkTarget = 0.6;
+      return;
+    }
+    if (ev.phase === 1) {
+      this.flash(col, ev.kind === 'brahmashirsha' ? 0.8 : 0.2);
+      if (!reduce) this.shake(ev.kind === 'brahmashirsha' ? 22 : 6);
+      if (ev.kind === 'brahmashirsha') {
+        this.darkTarget = 0;
+        this.pillar = { x: ev.x, ground: ev.y + 170, life: 0.9, strike: true };
+      }
+      return;
+    }
+    this.darkTarget = 0;
+    if (ev.phase === 2 || ev.phase === 3) {
+      // Countered or rebounded: the boss takes it.
+      this.flash(ev.phase === 2 ? '#ffffff' : '#fde047', 0.7);
+      if (!reduce) this.shake(18);
+      for (let i = 0; i < 5; i++)
+        this.rings.push({
+          x: ev.x,
+          y: ev.y,
+          r: 10 + i * 50,
+          life: 0.4 + i * 0.1,
+          max: 0.9,
+          color: i % 2 ? col : '#ffffff',
+        });
+      this.explosion(ev.x, ev.y, true, reduce);
+    }
+  }
+
   /** A power was used: start its effect. */
   astraEffect(ev: Extract<SimEvent, { e: 'astra' }>, reduce: boolean): void {
     const [hi, lo] = POWER_COLOR[ev.kind];
     const cy = ev.y - 24;
     this.rings.push({ x: ev.x, y: cy, r: 6, life: 0.4, max: 0.4, color: hi });
     this.spark(ev.x + ev.f * 16, cy, lo, 12, reduce, 220);
+    if (ev.kind === 'naga' || ev.kind === 'sudarshana') {
+      this.flash(lo, 0.12);
+      return;
+    }
+    if (ev.kind === 'garuda') {
+      // The eagle's dive: a sweep of wind and a ring that clears the sky.
+      this.winds.push({ x: ev.x - ev.f * 300, y: cy - 120, f: ev.f, life: 0.7 });
+      for (let i = 0; i < 3; i++)
+        this.rings.push({ x: ev.x, y: cy - 60, r: 40 + i * 140, life: 0.5 + i * 0.1, max: 0.8, color: hi });
+      this.flash('#fb923c', 0.25);
+      if (!reduce) this.shake(8);
+      return;
+    }
+    if (ev.kind === 'pashupata') {
+      this.flash(ev.v === 2 ? '#f97316' : '#7dd3fc', 0.3);
+      if (!reduce) this.shake(ev.v === 0 ? 14 : 6);
+      return;
+    }
+    if (ev.kind === 'vaishnava') {
+      this.flash('#fde047', ev.v === 1 ? 0.55 : 0.2);
+      if (ev.v === 1)
+        for (let i = 0; i < 4; i++)
+          this.rings.push({
+            x: ev.x,
+            y: cy,
+            r: 20 + i * 45,
+            life: 0.4 + i * 0.1,
+            max: 0.8,
+            color: '#fde047',
+          });
+      return;
+    }
     if (ev.kind === 'agni') {
       this.flash('#ff7a1a', 0.18);
       if (!reduce) this.shake(6);

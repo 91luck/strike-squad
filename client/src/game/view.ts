@@ -1,9 +1,13 @@
 import {
+  BOSS_RULES,
+  BULLET_KINDS,
   GAME_CONFIG,
   WEAPON_KINDS,
+  isSagaId,
   heroOf,
   rankName,
   type BossKind,
+  type BossRule,
   type Faction,
   type LevelDef,
   POWER_KINDS,
@@ -56,12 +60,53 @@ const FACTION_SUB: Record<Exclude<Faction, 'army'>, Record<BossKind, string>> = 
   void: { walker: 'Xeno crawler', gunship: 'Alien saucer', boss: 'Hive queen · 3 phases' },
 };
 
+/** Saga boss subtitles: the asura host's champions. */
+const SAGA_SUB: Record<BossKind, string> = {
+  walker: 'Asura champion',
+  gunship: 'Sky rakshasa',
+  boss: 'Asura lord · 3 phases',
+};
+
 /** Power names, icons and what they do (HUD and pickup banners). */
 export const POWER_INFO: Record<PowerKind, { name: string; icon: string; tip: string }> = {
   agni: { name: 'AGNI ASTRA', icon: '🔥', tip: 'Fire wave + burning ground' },
   varuna: { name: 'VARUNA ASTRA', icon: '🌧', tip: 'Rain: puts out walls of fire' },
   vayu: { name: 'VAYU ASTRA', icon: '🌪', tip: 'Gust: blows enemies and shots away' },
   singularity: { name: 'BLACK HOLE', icon: '🕳', tip: 'Swallows enemies and their shots' },
+  naga: { name: 'NAGASTRA', icon: '🐍', tip: 'Three serpents that hunt the nearest foes' },
+  garuda: {
+    name: 'GARUDASTRA',
+    icon: '🦅',
+    tip: 'Wipes enemy serpents and shots from the sky, crushes flyers',
+  },
+  sudarshana: {
+    name: 'SUDARSHANA CHAKRA',
+    icon: '☸',
+    tip: 'The discus: hits six foes in turn, then comes back',
+  },
+  pashupata: {
+    name: 'PASHUPATASTRA',
+    icon: '🔱',
+    tip: 'A new form every call: trident, spirit or fire rain',
+  },
+  vaishnava: { name: 'VAISHNAVASTRA', icon: '☀', tip: 'Turns a boss’s golden orb back on the boss' },
+};
+
+/** Wire index of a vaishnava orb. */
+const ORB = BULLET_KINDS.indexOf('orb');
+
+/** What each pashupata form is called on screen. */
+const PASHUPATA_FORM = ['TRIDENT STRIKE', 'SPIRIT ALLY', 'RAIN OF FIRE'];
+
+/** Boss astra banners: the call, and what to do about it. */
+const BOSS_ASTRA_TEXT: Record<BossRule, { call: string; tip: string }> = {
+  naga: { call: '🐍 NAGASTRA!', tip: 'Serpents incoming: shoot them, dash, or call GARUDA' },
+  narayana: { call: '🏹 NARAYANASTRA!', tip: 'STOP FIRING: lay down your weapons and it spares you' },
+  vaishnava: { call: '☀ VAISHNAVASTRA!', tip: 'Grab the VAISHNAVA altar and turn the orb back' },
+  brahmashirsha: {
+    call: '✴ BRAHMASHIRSHA!',
+    tip: 'Answer it with the BRAHMASTRA, or dash at the last moment',
+  },
 };
 
 const STYLE_TEXT: Record<StyleTag, string> = {
@@ -245,6 +290,7 @@ export class MatchView {
           this.notice('🚩 Checkpoint reached');
           break;
         case 'bossWake':
+          this.bossArena = this.renderer.level.arenas[ev.arena]?.name ?? null;
           this.bossIntro(ev.kind, this.renderer.level.arenas[ev.arena]?.name);
           break;
         case 'bossPhase':
@@ -287,9 +333,34 @@ export class MatchView {
           this.sfx.play(ev.kind === 'singularity' ? 'explode' : 'powerup');
           const info = POWER_INFO[ev.kind];
           const who = ev.id === this.meId ? '' : `${this.nameOf(ev.id)}: `;
-          this.showBanner(`${who}${info.icon} ${info.name}!`);
+          const extra =
+            ev.kind === 'pashupata' && ev.v !== undefined
+              ? ` ${PASHUPATA_FORM[ev.v] ?? ''}`
+              : ev.kind === 'vaishnava' && ev.v === 1
+                ? ' The orb turns back!'
+                : '';
+          this.showBanner(`${who}${info.icon} ${info.name}!${extra}`);
           break;
         }
+        case 'bossAstra': {
+          r.bossAstraEffect(ev, reduce);
+          const text = BOSS_ASTRA_TEXT[ev.kind];
+          if (ev.phase === 0) {
+            this.sfx.play('beep');
+            this.showBanner(text.call, true);
+          } else if (ev.phase === 1) this.sfx.play('explode');
+          else if (ev.phase === 2) {
+            this.sfx.play('victory');
+            this.showBanner('BRAHMASTRA ANSWERS IT! The boss reels!');
+          } else if (ev.phase === 3) {
+            this.sfx.play('victory');
+            this.showBanner('NARAYANASTRA REBOUNDS on its caller!');
+          } else if (ev.phase === 4) this.showBanner('The storm has passed: the boss is spent. STRIKE NOW!');
+          break;
+        }
+        case 'immune':
+          if (Math.random() < 0.3) r.styleText(ev.x, ev.y, 'IMMUNE', false);
+          break;
         case 'brahma':
           r.brahmaEffect(ev, reduce);
           if (ev.phase === 0) {
@@ -313,6 +384,9 @@ export class MatchView {
     }
   }
 
+  /** Told when a narayanastra starts or ends (the input holds auto-fire during it). */
+  onStorm: ((on: boolean) => void) | null = null;
+
   private heroIds = new Map<string, number>();
   private heroOfPlayer(id: string): number {
     return this.heroIds.get(id) ?? 0;
@@ -321,16 +395,29 @@ export class MatchView {
   /** `title`: the arena's name (e.g. TWIN SCORPIONS) when it differs from the boss's own. */
   /** The boss's own name in this mission's faction. */
   private bossName(kind: BossKind): string {
+    // Saga bosses are named by their arenas (JWALA-ASUR, VISHARAJ, ...).
+    if (isSagaId(this.renderer.level.id) && this.bossArena) return this.bossArena;
     const faction = this.renderer.level.faction;
     return faction === 'army' ? BOSS_INFO[kind].name : FACTION_NAME[faction][kind];
   }
+
+  private bossArena: string | null = null;
 
   private bossIntro(kind: BossKind, title = this.bossName(kind)): void {
     const info = BOSS_INFO[kind];
     const faction = this.renderer.level.faction;
     $('boss-intro-name').textContent = title;
-    $('boss-intro-sub').textContent = faction === 'army' ? info.sub : FACTION_SUB[faction][kind];
-    $('boss-intro-tip').textContent = info.tip;
+    const rules = this.renderer.level.arenas.find((a) => a.name === title)?.rules ?? [];
+    $('boss-intro-sub').textContent =
+      faction === 'army'
+        ? info.sub
+        : isSagaId(this.renderer.level.id)
+          ? SAGA_SUB[kind]
+          : FACTION_SUB[faction][kind];
+    // A boss that calls astras: its card says how to answer them.
+    $('boss-intro-tip').textContent = rules.length
+      ? rules.map((r) => `${BOSS_ASTRA_TEXT[r].call} ${BOSS_ASTRA_TEXT[r].tip}`).join(' · ')
+      : info.tip;
     $('boss-name').textContent = title;
     const card = $('boss-intro');
     card.hidden = false;
@@ -478,6 +565,27 @@ export class MatchView {
 
   /** Held power chip, the ASTRA button glow, and the team brahmastra meter. */
   private updatePowers(s: Snapshot, me: PlayerSnapshot | undefined): void {
+    // A boss astra is being called (or its orb is out): one big, plain instruction on what to do about it.
+    const cast = s.enemies.find((e) => e.ra >= 0);
+    const rule: BossRule | undefined =
+      cast !== undefined
+        ? BOSS_RULES[cast.ra]
+        : s.bullets.some((b) => b.e === 1 && b.k === ORB)
+          ? 'vaishnava'
+          : undefined;
+    const box = document.getElementById('hud-samarpan');
+    if (box) {
+      box.hidden = !rule;
+      const rs = me?.rs ?? 0;
+      if (rule === 'narayana')
+        box.textContent =
+          rs > 0
+            ? `🏹 YOU ARE FIGHTING IT: ${rs} ARROWS EACH VOLLEY · STOP FIRING`
+            : '🙏 SAMARPAN · LOWER YOUR WEAPONS: STOP FIRING AND IT SPARES YOU';
+      else if (rule) box.textContent = `${BOSS_ASTRA_TEXT[rule].call} ${BOSS_ASTRA_TEXT[rule].tip}`;
+      box.classList.toggle('resist', rule === 'narayana' && rs > 0);
+    }
+    this.onStorm?.(rule === 'narayana');
     const chip = $('hud-power');
     const kind = me && me.pw >= 0 ? POWER_KINDS[me.pw] : undefined;
     const btn = document.getElementById('btn-touch-astra');

@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Lint and formatting
+        run: npm run lint
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Unit + integration + security tests
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: Dependency audit (high and above)
+        run: npm run audit:deps
+
+  e2e:
+    runs-on: ubuntu-latest
+    needs: verify
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        # node = Render/Docker/VPS path, cloudflare = Worker + Durable Object in local workerd
+        target: [node, cloudflare]
+    env:
+      E2E_TARGET: ${{ matrix.target }}
+      WRANGLER_SEND_METRICS: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Browser end-to-end tests
+        run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report-${{ matrix.target }}
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

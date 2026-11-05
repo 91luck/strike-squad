@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GAME_CONFIG, PROTOCOL_VERSION } from '@strikesquad/shared';
-import { ConfigError, loadConfig } from '../../src/config';
+import { ConfigError, isOriginAllowed, loadConfig, wildcardMatch } from '../../src/config';
 import { TestClient, advance, createRoom, startMatch, startTestServer, type TestServer } from '../helpers';
 
 let ts: TestServer;
@@ -551,6 +551,29 @@ describe('configuration safety', () => {
     expect(
       loadConfig({ NODE_ENV: 'production', ALLOWED_ORIGINS: 'https://a.example/' }).allowedOrigins,
     ).toEqual(['https://a.example']);
+  });
+
+  it("lets a game portal's subdomains in with https://*.domain, and nothing wider", () => {
+    const cfg = loadConfig({ NODE_ENV: 'production', ALLOWED_ORIGINS: 'https://*.crazygames.com' });
+    const ok = (o: string): boolean => isOriginAllowed(cfg, o, 'strike-squad.example.workers.dev');
+    expect(ok('https://strike-squad.game-files.crazygames.com')).toBe(true);
+    expect(ok('https://www.crazygames.com')).toBe(true);
+    expect(ok('https://crazygames.com')).toBe(false); // the bare domain is not a subdomain
+    expect(ok('http://www.crazygames.com')).toBe(false); // https only
+    expect(ok('https://www.crazygames.com:8443')).toBe(false); // no other ports
+    expect(ok('https://crazygames.com.evil.example')).toBe(false);
+    expect(ok('https://evilcrazygames.com')).toBe(false);
+    expect(wildcardMatch('https://*.crazygames.com', 'https://a.b.crazygames.com/path')).toBe(false); // not an origin
+    // Only a leading "*." on a real domain is a wildcard.
+    expect(() => loadConfig({ NODE_ENV: 'production', ALLOWED_ORIGINS: 'https://*' })).toThrow(
+      /ALLOWED_ORIGINS/,
+    );
+    expect(() => loadConfig({ NODE_ENV: 'production', ALLOWED_ORIGINS: 'https://a.*.com' })).toThrow(
+      /ALLOWED_ORIGINS/,
+    );
+    expect(() => loadConfig({ NODE_ENV: 'production', ALLOWED_ORIGINS: 'http://*.example.com' })).toThrow(
+      /ALLOWED_ORIGINS/,
+    );
   });
 
   it('refuses "*" and test-only settings in production', () => {
