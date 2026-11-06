@@ -170,6 +170,7 @@ const bossScale = (W * L.bossW) / GAME_CONFIG.enemies.walker.width;
     rs: 0,
     sn: 0,
     im: 0,
+    el: 0,
   };
   ctx.save();
   ctx.translate(bossX, groundY);

@@ -38,7 +38,7 @@ import { Connection, type ConnState } from './net/connection';
 import { POWER_INFO } from './game/view';
 import { initPlatform, type AdHooks } from './platform/platform';
 import { registerPwa } from './pwa';
-import { CONTINUE_COST, ProgressStore } from './progress';
+import { CONTINUE_COST, ProgressStore, SECRET_SHARDS } from './progress';
 import {
   HERO_UNLOCK_LEVEL,
   ProfileStore,
@@ -136,6 +136,12 @@ function squadLink(code: string): string {
 // Narayanastra: auto-fire holds off while the storm rages (laying down your weapons is how you get through it).
 view.onStorm = (on) => {
   input.holdAutoFire = on;
+};
+// A hidden stash found in a saga stage: remembered once, and it pays shards.
+view.onSecret = () => {
+  const id = currentMission().id;
+  if (isSagaId(id) && progress.foundSecret(id))
+    view.notice(`✦ +${SECRET_SHARDS} astra shards for the secret`);
 };
 
 /** While an ad plays: the game is paused and silent. */
@@ -1288,7 +1294,8 @@ function showSaga(): void {
 }
 
 function renderSaga(): void {
-  $('saga-stars').textContent = `★ ${progress.sagaStars()} / ${SAGA.length * 3}`;
+  $('saga-stars').textContent =
+    `★ ${progress.sagaStars()} / ${SAGA.length * 3} · 🗝 ${progress.secretsFound()} / ${SAGA.length}`;
   $('saga-shards').textContent = `✦ ${progress.shards} shard${progress.shards === 1 ? '' : 's'}`;
   const next = progress.nextSagaStage();
   $('saga-grid').replaceChildren(
@@ -1324,6 +1331,13 @@ function renderSaga(): void {
           text: [0, 1, 2].map((i) => (i < (rec?.stars ?? 0) ? '★' : '☆')).join(''),
           attrs: { 'aria-hidden': 'true' },
         }),
+        open
+          ? el('span', {
+              class: `saga-secret${progress.hasSecret(st.id) ? ' found' : ''}`,
+              text: progress.hasSecret(st.id) ? '🗝 Secret found' : '🗝 Secret: ?',
+              attrs: { 'data-testid': `saga-secret-${st.num}` },
+            })
+          : el('span', { class: 'saga-secret', text: '' }),
       );
       if (open) b.addEventListener('click', () => void playSaga(st.id));
       else b.disabled = true;

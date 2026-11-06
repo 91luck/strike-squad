@@ -527,15 +527,19 @@ async function trackDuring(page: Page, action: () => Promise<void>): Promise<{ d
 test('@mobile Controls and Settings fit on screen on short landscape phones, and open from the pause menu', async ({
   page,
 }) => {
-  // 290 px tall: a 360 px landscape phone minus the browser's address bar.
+  // 290 px tall: a 360 px landscape phone minus the browser's address bar. 664 / 640: upright phones with browser
+  // bars, where the menu is taller than the screen and must scroll to its last buttons.
   for (const size of [
     { width: 740, height: 290 },
     { width: 915, height: 412 },
     { width: 412, height: 839 },
+    { width: 390, height: 664 },
+    { width: 360, height: 640 },
   ]) {
     await page.setViewportSize(size);
     await gotoMenu(page, 'Thumbs');
     for (const id of ['btn-howto', 'btn-settings', 'btn-practice', 'btn-create']) {
+      await page.getByTestId(id).scrollIntoViewIfNeeded();
       const box = await page.getByTestId(id).boundingBox();
       expect(box, id).not.toBeNull();
       expect(box!.y + box!.height, `${id} bottom at ${size.width}x${size.height}`).toBeLessThanOrEqual(
@@ -809,6 +813,15 @@ test('@mobile portrait phone gets a rotate prompt that can be dismissed', async 
   await page.locator('#btn-portrait-dismiss').click();
   await expect(prompt).toBeHidden();
   await expect(page.getByTestId('touch-jump')).toBeVisible();
+  // Upright: the world on top, the control deck under it; no button covers the view, all stay on screen.
+  const view = (await page.getByTestId('canvas').boundingBox())!;
+  const vh = page.viewportSize()!.height;
+  for (const id of ['touch-jump', 'touch-fire', 'touch-dash', 'touch-melee', 'touch-ult']) {
+    const b = (await page.getByTestId(id).boundingBox())!;
+    expect(b.y, `${id} under the view`).toBeGreaterThanOrEqual(view.y + view.height - 1);
+    expect(b.y + b.height, `${id} on screen`).toBeLessThanOrEqual(vh);
+  }
+  await expect(page.getByTestId('btn-pause')).toBeInViewport();
 });
 
 test('Astra Saga: one click into stage 1; later stages stay locked until cleared; the codex explains each astra', async ({
@@ -820,6 +833,7 @@ test('Astra Saga: one click into stage 1; later stages stay locked until cleared
   await expect(page.getByTestId('saga-1')).toBeEnabled();
   await expect(page.getByTestId('saga-2')).toBeDisabled();
   await expect(page.getByTestId('saga-10')).toBeDisabled();
+  await expect(page.getByTestId('saga-secret-1')).toHaveText('🗝 Secret: ?'); // every open stage hides one
   await page.getByTestId('btn-codex').click();
   await expect(page.getByTestId('codex-list')).toContainText('Agneyastra');
   await expect(page.getByTestId('codex-list')).toContainText('Reach this stage');

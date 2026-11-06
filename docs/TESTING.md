@@ -62,6 +62,11 @@ Vitest breakdown: shared simulation **57**, server multiplayer **32**, server se
 26. **A cave shelf sat under a stalactite** with less headroom than a soldier, so bots (and players) got stuck on it. Found by playtest; the shelf is lower.
 27. **A stash pocket in a cave roof could trap a soldier** (rock on both sides, the only way out was drop-through). Found by playtest; its floor now stops short so you walk off it.
 
+28. **Upright phones could not reach Stages, Controls or Settings**: the menu was taller than the screen and could not scroll (iPhone 13: buttons 10 px below the bottom; 360×640: 85 px). Reported by the owner, reproduced in Playwright; the menu panel now scrolls, and the e2e test covers 390×664 and 360×640.
+29. **In a mission on an upright phone the touch buttons covered the world and the HUD overlapped itself.** Seen in screenshots; upright phones now get a console layout (the view on top, a control deck under it) and a compact HUD.
+30. **A final boss was drawn with the old art** because the look was looked up by arena bounds and a final boss stands past its arena's edge. Seen in screenshots; the nearest boss arena is used.
+31. **A portal effect drew an ellipse with a negative radius** in its first frame (a console error). Seen in the browser log; radii are clamped.
+
 ## Not verified
 
 Real phones, Firefox/Safari, sound by ear, a live deployment, the Docker image build, GitHub Actions, and how fun/difficult it is for people (the playtest uses computer players).

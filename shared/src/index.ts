@@ -9,3 +9,4 @@ export * from './sim';
 export * from './protocol';
 export * from './autopilot';
 export * from './heroes';
+export * from './boss-styles';

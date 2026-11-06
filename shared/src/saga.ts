@@ -247,7 +247,7 @@ const AGNIVAN: CourseDef = {
       art: 'vana',
       len: 28,
       cp: true,
-      arena: { name: 'ASURA AMBUSH', room: 'twin', waves: ['3SR SL', '2SR GR', '3SL HR'] },
+      arena: { name: 'ASURA AMBUSH', room: 'twin', waves: ['3SR SL', '2SR GR', '3SL S*R'] },
     },
     {
       zone: 'Ember Trench',
@@ -315,7 +315,7 @@ const SAGAR_SETU: CourseDef = {
       art: 'sagar',
       len: 30,
       cp: true,
-      arena: { name: 'TIDE AMBUSH', room: 'high', waves: ['3SL 2SR', 'HR GR 2J^', '2SR 2SL J^'] },
+      arena: { name: 'TIDE AMBUSH', room: 'high', waves: ['3SL 2SR', '2SU HR GR', '2SR 2SU J^'] },
     },
     {
       zone: 'Sea Wall',
@@ -331,7 +331,7 @@ const SAGAR_SETU: CourseDef = {
       len: 36,
       cp: true,
       loot: '+4 w10*',
-      arena: { name: 'MAKARA', room: 'twin', bosses: ['gunship'], waves: ['J^ SR', '2J^ SL'] },
+      arena: { name: 'MAKARA', room: 'twin', bosses: ['gunship'], waves: ['J^ SR', '2J^ SU'] },
     },
     {
       zone: 'Coral Steps',
@@ -355,7 +355,7 @@ const SAGAR_SETU: CourseDef = {
         bosses: ['boss'],
         hp: 0.85,
         final: true,
-        waves: ['2SL', 'J^ GL', 'HL 2J^'],
+        waves: ['2SU', 'J^ GL', 'HL 2J^'],
       },
     },
   ],
@@ -392,7 +392,7 @@ const VAYU_SHIKHAR: CourseDef = {
       art: 'shikhar',
       len: 30,
       cp: true,
-      arena: { name: 'GALE AMBUSH', room: 'tiers', waves: ['2SR 2J^ SL', '2HL 2HR', 'GR 3J^'] },
+      arena: { name: 'GALE AMBUSH', room: 'tiers', waves: ['2SR 2J^ SL', '2SP 2HR', 'GR 3J^ H*L'] },
     },
     {
       zone: 'Thin Air',
@@ -412,7 +412,7 @@ const VAYU_SHIKHAR: CourseDef = {
       len: 36,
       cp: true,
       loot: '+4 v9',
-      arena: { name: 'GARJAN-RAKSHAS', room: 'high', bosses: ['gunship'], waves: ['2J^', 'J^ SR GL'] },
+      arena: { name: 'GARJAN-RAKSHAS', room: 'high', bosses: ['gunship'], waves: ['2J^', 'J^ SP GL'] },
     },
     {
       zone: 'Lightning Peaks',
@@ -443,7 +443,7 @@ const VAYU_SHIKHAR: CourseDef = {
         bosses: ['boss'],
         hp: 0.9,
         final: true,
-        waves: ['SL 2J^', 'HL GR', '3J^'],
+        waves: ['SP 2J^', 'HL GR', '3J^'],
       },
     },
   ],
@@ -479,7 +479,7 @@ const NAAG_LOK: CourseDef = {
       art: 'naglok',
       len: 30,
       cp: true,
-      arena: { name: 'COIL AMBUSH', room: 'twin', waves: ['2SR 2SL', 'HR GR 2J^', '2SL HR GL'] },
+      arena: { name: 'COIL AMBUSH', room: 'twin', waves: ['2SU 2SL', 'HR GU 2J^', '2SU HR G*L'] },
     },
     {
       zone: 'Root Halls',
@@ -495,7 +495,7 @@ const NAAG_LOK: CourseDef = {
       len: 38,
       cp: true,
       loot: '+4 g8*',
-      arena: { name: 'VISH-NAAG', bosses: ['walker'], hp: 1, rules: ['naga'], waves: ['SR GR'] },
+      arena: { name: 'VISH-NAAG', bosses: ['walker'], hp: 1, rules: ['naga'], waves: ['SU GR'] },
     },
     {
       zone: 'Jewel Caverns',
@@ -510,7 +510,7 @@ const NAAG_LOK: CourseDef = {
       art: 'naglok',
       len: 30,
       cp: true,
-      arena: { name: 'NEST AMBUSH', room: 'tiers', waves: ['2HR 2HL J^', '2GR 3J^', '3SR 3SL'] },
+      arena: { name: 'NEST AMBUSH', room: 'tiers', waves: ['2HR 2HL J^', '2GU 3J^', '3SU 3SL'] },
     },
     {
       zone: 'Sunken Temple',
@@ -533,7 +533,7 @@ const NAAG_LOK: CourseDef = {
         hp: 0.9,
         rules: ['naga'],
         final: true,
-        waves: ['2SL', 'J^ HL', 'GL 2J^'],
+        waves: ['2SL', 'J^ HU', 'GL 2J^'],
       },
     },
   ],
@@ -565,7 +565,7 @@ const MAYA_NAGRI: CourseDef = {
       arena: {
         name: 'ILLUSION AMBUSH',
         room: 'twin',
-        waves: ['3SR 2SL', '2HL 2J^ GR', '2SL 3SR', 'HR HL 2GR'],
+        waves: ['3SP 2SL', '2HL 2J^ GP', '2SP 3SR', 'HR HP 2G*P'],
       },
     },
     { zone: 'Golden Bridge', art: 'maya', land: 'bridge', len: 32, foes: 'D6 S11 J15 H21 D26', loot: 'n16' },
@@ -575,7 +575,7 @@ const MAYA_NAGRI: CourseDef = {
       len: 34,
       cp: true,
       loot: '+4 a10',
-      arena: { name: 'CHHAYA-ASUR', room: 'tiers', bosses: ['gunship'], waves: ['J^ SL', 'SR GR J^'] },
+      arena: { name: 'CHHAYA-ASUR', room: 'tiers', bosses: ['gunship'], waves: ['J^ SP', 'SR GP J^'] },
     },
     {
       zone: 'Palace Terraces',
@@ -594,7 +594,7 @@ const MAYA_NAGRI: CourseDef = {
       arena: {
         name: 'ENDLESS CORRIDOR',
         room: 'high',
-        waves: ['3SR 2SL', '2HR 2HL J^', '3GR 2J^', '3SR 3SL'],
+        waves: ['3SP 2SL', '2HP 2HL J^', '3GR 2J^', '3SR 3SP'],
       },
     },
     {
@@ -617,7 +617,7 @@ const MAYA_NAGRI: CourseDef = {
         bosses: ['boss'],
         hp: 0.95,
         final: true,
-        waves: ['SL 2J^', 'HL GL J^'],
+        waves: ['SP 2J^', 'HL GP J^'],
       },
     },
   ],
@@ -644,7 +644,7 @@ const BHASM_PARVAT: CourseDef = {
       art: 'bhasm',
       len: 30,
       cp: true,
-      arena: { name: 'GHOST AMBUSH', room: 'high', waves: ['2SR 2SL J^', 'HR 2GR', '2J^ SL HR'] },
+      arena: { name: 'GHOST AMBUSH', room: 'high', waves: ['2SU 2SL J^', 'HR 2GU', '2J^ SU HR'] },
     },
     { zone: 'Cinder Gorge', art: 'bhasm', land: 'chasm', len: 32, foes: 'S6 D12 J18 S24', loot: '+13' },
     {
@@ -653,7 +653,7 @@ const BHASM_PARVAT: CourseDef = {
       len: 38,
       cp: true,
       loot: '+4 p8',
-      arena: { name: 'BHASMA-PRET', room: 'twin', bosses: ['walker'], hp: 1.1, waves: ['SR GR', 'J^ SL'] },
+      arena: { name: 'BHASMA-PRET', room: 'twin', bosses: ['walker'], hp: 1.1, waves: ['SU GR', 'J^ SU'] },
     },
     {
       zone: 'Burnt Shrine',
@@ -677,7 +677,7 @@ const BHASM_PARVAT: CourseDef = {
       art: 'bhasm',
       len: 30,
       cp: true,
-      arena: { name: 'WRAITH AMBUSH', waves: ['2HR HL 2J^', '2GR 2J^ SL', '3SR 3SL'] },
+      arena: { name: 'WRAITH AMBUSH', waves: ['2HU HL 2J^', '2GR 2J^ SU', '3SU 3S*L'] },
     },
     {
       zone: 'Crown of Ash',
@@ -691,7 +691,7 @@ const BHASM_PARVAT: CourseDef = {
         bosses: ['boss'],
         hp: 0.95,
         final: true,
-        waves: ['SL J^', 'GL HL', 'J^ SR'],
+        waves: ['SU J^', 'GL HU', 'J^ SR'],
       },
     },
   ],
@@ -718,7 +718,7 @@ const SAMARPAN_MAIDAN: CourseDef = {
       art: 'kurukshetra',
       len: 30,
       cp: true,
-      arena: { name: 'CONCH AMBUSH', room: 'open', waves: ['3SR 2SL', 'HR 2J^ GL', '2SL 2SR J^'] },
+      arena: { name: 'CONCH AMBUSH', room: 'open', waves: ['3SR 2SL', 'HR 2J^ G*L', '2SL 2SR J^'] },
     },
     {
       zone: 'Chariot Wall',
@@ -741,7 +741,7 @@ const SAMARPAN_MAIDAN: CourseDef = {
         bosses: ['walker'],
         hp: 1.05,
         rules: ['narayana'],
-        waves: ['SR SL'],
+        waves: ['S*R SL'],
       },
     },
     {
@@ -757,7 +757,7 @@ const SAMARPAN_MAIDAN: CourseDef = {
       art: 'kurukshetra',
       len: 32,
       cp: true,
-      arena: { name: 'WAR DRUMS', room: 'tiers', waves: ['3SR 2SL', '2HR HL 2J^', '3GR 2J^', '3SR 3SL'] },
+      arena: { name: 'WAR DRUMS', room: 'tiers', waves: ['3SR 2SL', '2HR HL 2J^', '3GR 2J^', '3SR 3SL H*R'] },
     },
     {
       zone: 'Field of Arrows',
@@ -808,7 +808,7 @@ const CHAKRA_DURG: CourseDef = {
       art: 'chakra',
       len: 30,
       cp: true,
-      arena: { name: 'SECOND RING', room: 'twin', waves: ['2SR 2SL HR', '2HL 2J^ SR', 'GR GL 2SR'] },
+      arena: { name: 'SECOND RING', room: 'twin', waves: ['2SR 2SL HP', '2HL 2J^ SP', 'GR GL 2S*P'] },
     },
     {
       zone: 'Blade Pillars',
@@ -824,7 +824,7 @@ const CHAKRA_DURG: CourseDef = {
       len: 40,
       cp: true,
       loot: '+4 c10',
-      arena: { name: 'CHAKRAVYUH', bosses: ['walker', 'walker'], hp: 0.65, waves: ['SR SL', 'GR GL'] },
+      arena: { name: 'CHAKRAVYUH', bosses: ['walker', 'walker'], hp: 0.65, waves: ['SR SL', 'GP GL'] },
     },
     {
       zone: 'Inner Wall',
@@ -841,7 +841,7 @@ const CHAKRA_DURG: CourseDef = {
       len: 34,
       cp: true,
       loot: '+4 c8',
-      arena: { name: 'CHAKRA-VIMANA', room: 'high', bosses: ['gunship'], waves: ['2J^', 'SL J^ GR'] },
+      arena: { name: 'CHAKRA-VIMANA', room: 'high', bosses: ['gunship'], waves: ['2J^', 'SP J^ GR'] },
     },
     {
       zone: 'Core Bridge',
@@ -863,7 +863,7 @@ const CHAKRA_DURG: CourseDef = {
         bosses: ['boss'],
         hp: 1,
         final: true,
-        waves: ['2SL J^', 'HL GL 2J^'],
+        waves: ['2SL J^', 'HP GL 2J^'],
       },
     },
   ],
@@ -882,7 +882,7 @@ const DWAND_BHOOMI: CourseDef = {
       art: 'dwand',
       len: 26,
       cp: true,
-      arena: { name: 'FIRST CHALLENGE', room: 'open', waves: ['HR SR', 'GR HL'] },
+      arena: { name: 'FIRST CHALLENGE', room: 'open', waves: ['HR SR', 'GR H*L'] },
     },
     {
       zone: 'Golden Stairs',
@@ -900,7 +900,7 @@ const DWAND_BHOOMI: CourseDef = {
       arena: {
         name: 'HERALD AMBUSH',
         room: 'tiers',
-        waves: ['2SR 2SL', 'HR 2J^ GL', '2SL SR J^', 'HR HL GR'],
+        waves: ['2SR 2SL', 'HR 2J^ GL', '2SL S*R J^', 'HR HL GR'],
       },
     },
     {
@@ -928,7 +928,7 @@ const DWAND_BHOOMI: CourseDef = {
       arena: {
         name: 'CHAMPION AMBUSH',
         room: 'twin',
-        waves: ['2SR 2SL', '2HR 2HL J^', '2GR 2J^', '3SR 3SL HR'],
+        waves: ['2SR 2SL', '2HR 2HL J^', '2GR 2J^', '3SR 3SL 2H*R'],
       },
     },
     {
@@ -953,7 +953,7 @@ const DWAND_BHOOMI: CourseDef = {
         rules: ['vaishnava'],
         altars: 'x8',
         final: true,
-        waves: ['SL J^', 'GL 2J^', 'HL SL'],
+        waves: ['SL J^', 'GL 2J^', 'H*L SL'],
       },
     },
   ],
@@ -985,7 +985,7 @@ const MAHAYUDDH: CourseDef = {
       arena: {
         name: 'HOST OF ASURAS',
         room: 'tiers',
-        waves: ['3SR 2SL', '2HR 2HL J^', '3GR 2J^', '2HR SL 2GL J^', '3SR 3SL'],
+        waves: ['3SR 2SL', '2HU 2HL J^', '3GP 2J^', '2HR SL 2GL J^', '3SU 3SP S*L'],
       },
     },
     {
@@ -1008,7 +1008,7 @@ const MAHAYUDDH: CourseDef = {
         bosses: ['walker'],
         hp: 1.1,
         rules: ['naga'],
-        waves: ['SL SR'],
+        waves: ['SL SU'],
       },
     },
     {
@@ -1032,7 +1032,7 @@ const MAHAYUDDH: CourseDef = {
         bosses: ['gunship'],
         rules: ['vaishnava'],
         altars: 'x9',
-        waves: ['J^ SL', 'J^ SR'],
+        waves: ['J^ SP', 'J^ SR'],
       },
     },
     {
@@ -1056,7 +1056,7 @@ const MAHAYUDDH: CourseDef = {
         hp: 1.1,
         rules: ['brahmashirsha', 'naga'],
         final: true,
-        waves: ['SL 2J^', 'GL HL', 'J^ 2SL'],
+        waves: ['SL 2J^', 'GU HL', 'J^ 2SP'],
       },
     },
   ],

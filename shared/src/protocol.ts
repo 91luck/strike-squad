@@ -5,8 +5,9 @@ import type { FailReason, MissionResult, SimEvent, Snapshot } from './sim';
  * Bumped whenever the wire protocol changes incompatibly, or the missions change shape (the server and the page
  * build the same level from shared code, so an old server and a new page must not play together).
  * 6: the Astra Saga stages were rebuilt.
+ * 7: saga boss styles and moves, portal / ground / elite waves, secret pickups (new events and snapshot fields).
  */
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 
 /** Unambiguous alphabet (no I, L, O, 0, 1). */
 export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';

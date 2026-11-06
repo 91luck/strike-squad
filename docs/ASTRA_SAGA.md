@@ -45,7 +45,9 @@ Data: `shared/src/saga.ts` (stages), `shared/src/config.ts` (`powers`, `bossAstr
 | 10  | Mahayuddh, the last war                | Brahmashirsha (boss) + everything | Shesh-Daitya, Vajra-Vimana, Maha-Asur Kaal           |
 
 Each stage has its own art style (`vana`, `sagar`, `shikhar`, `naglok`, `maya`, `bhasm`, `kurukshetra`, `chakra`,
-`dwand`, `mahayuddh`) and its own enemy colour (`tint`, a hue shift of the asura host).
+`dwand`, `mahayuddh`) and its own army (`SAGA_HOSTS` in `client/src/game/sprites.ts`): fire asuras with horns, sea
+rakshasas with fin crests, hooded storm riders, naga warriors, maya palace guards, ash ghosts in grave wraps, helmeted
+war-field soldiers, horned fort guards, golden duellists, and the black-and-gold last host.
 
 ### Stage shapes
 
@@ -84,6 +86,84 @@ walk out of). It is never needed to finish, it rewards players who look around a
 least two of the new shapes and more than one arena shape, no enemy list or wave set may be copied anywhere in the
 saga, and every stage must have a stash with loot on it.
 
+## Bosses: a body and a fighting style each
+
+Every saga boss has its own **style** (`shared/src/boss-styles.ts`, picked by its arena's name): which attacks it
+uses, in what order, phase by phase. Styles mix each body's classic attacks with six saga moves, so no two saga
+bosses fight alike (a test checks every attack order is different):
+
+| Move   | What happens                                                          | How to answer                             |
+| ------ | --------------------------------------------------------------------- | ----------------------------------------- |
+| rain   | fireballs fall on a line of spots around you; red rings mark each one | step off the rings                        |
+| ring   | a ring of shots (two from phase 2, the gaps shifted)                  | slip through a gap                        |
+| spiral | a spinning two-armed stream for 1.6 s                                 | circle round it, or wait in a gap         |
+| leap   | (walkers) a huge jump at you, shockwaves both ways on landing         | jump the shockwave                        |
+| blink  | (walkers, flyers) vanishes and reappears on your other side           | turn round fast                           |
+| summon | calls 2 warriors through portals or out of the ground (max 4)         | the portal shows 0.9 s before they arrive |
+
+Each boss is also **drawn** as its own creature (`client/src/game/asura-art.ts`), built from parts: a head (horns,
+lion mane, cobra hood, tusks, bird beak, skull, crown, mask, makara jaw, matted locks), one to five heads, two to six
+arms, a weapon (trident, mace, sword, axe, bow, chakra, conch, noose, vajra), an aura (embers, droplets, wind, venom,
+ash, illusion sparkles, lightning, gold, blood, cosmos) and, for final bosses, a throne that sets the mood (lava rock,
+coral, cloud, serpent coils, maya palace, bone pile, war chariot, fort wall, golden seat, a dark lotus). Walkers come
+as a beast, a serpent, a warrior or a floating wraith; flyers as a makara, a storm rider on a cloud, a shadow mask or
+a sky chariot. To see them all: `npm run dev -w client`, then open `/tools/bosses.html` (`?at=14` shows the ring tell).
+
+| Stage | Boss (body)                      | Moves it adds                     |
+| ----- | -------------------------------- | --------------------------------- |
+| 1     | Jwala-Asur (fire lion)           | fire rain                         |
+| 1     | Agni-Daitya (4-armed king)       | fire rain                         |
+| 2     | Makara (flying sea beast)        | rings                             |
+| 2     | Samudra-Rakshas (tide king)      | rings, tidal slams                |
+| 3     | Garjan-Rakshas (storm rider)     | lightning rain, jetpack portals   |
+| 3     | Vayu-Daitya (bird lord)          | spirals, rain                     |
+| 4     | Vish-Naag (cobra)                | leaps, spirals                    |
+| 4     | Visharaj (5-hooded king)         | warriors from the ground, spirals |
+| 5     | Chhaya-Asur (shadow mask)        | vanishes, spirals                 |
+| 5     | Maya-Senapati (6 arms, 3 faces)  | rings, shield guards via portals  |
+| 6     | Bhasma-Pret (ash wraith)         | vanishes, rings                   |
+| 6     | Kaal-Pret (3 skulls)             | ash rain, the dead rise           |
+| 7     | Ran-Bhairav (tusked giant)       | leaps, shield guards              |
+| 7     | Ran-Guru (archer king)           | grenadiers, rain, rings           |
+| 8     | Chakravyuh (twin blade wheels)   | spirals, leaps                    |
+| 8     | Chakra-Vimana (sky chariot)      | spirals                           |
+| 8     | Vyuh-Senani (6-armed keeper)     | spirals, shield guards, rings     |
+| 9     | Dwand-Yodha (champion)           | leaps, vanishes, rings            |
+| 9     | Dwand-Raj (3-faced king)         | rings, rain, spirals              |
+| 10    | Shesh-Daitya (5-headed serpent)  | spirals, leaps, rain, rings       |
+| 10    | Vajra-Vimana (thunder chariot)   | rain, rings                       |
+| 10    | Maha-Asur Kaal (5 heads, 6 arms) | everything, the dead rise         |
+
+Final bosses with a style no longer send the classic drones in phase 2; they bring their own reinforcements. The
+boss's WARNING card shows its title and up to three of its moves with how to answer them.
+
+## Waves: where enemies come from
+
+Wave tokens gained two entrances and an elite mark (`shared/src/course.ts`, `parseWave`):
+
+- `P`: through a portal inside the arena, `U`: out of the ground next to a soldier. Both are announced (a swirling
+  portal or cracking ground) 0.9 s before the enemy steps out, and the arena counts them before it can clear.
+- `*` after the kind (`S*R`): an **elite** trooper with three times the health, a glowing halo and an ELITE star.
+  Its killer gets ult charge, 15 health and triple score.
+
+Each stage uses them its own way: the sea rises out of the water (2), storm portals (3), nagas out of the ground (4),
+illusions everywhere through portals (5), the dead rising (6), elite champions on the war field (7, 9), portal
+pincers in the fort (8), and all of it in the last war (10).
+
+## Secrets
+
+Every stage hides one stash on a high perch. Its loot is marked `secret` (`PickupSpawn.secret`, set by the course
+builder for loot standing on the stash column), and the client calls attention to it: a shaft of light over the perch
+that can be seen from below, sparkles, and once a soldier is within 9 tiles a bobbing 🗝 SECRET sign and a dotted arc
+of the last jump. Taking it fires a `secret` event: a gold flash, a banner, and (first time per stage) 2 astra shards.
+The stage card shows `🗝 Secret: ?` until found, and the saga screen counts secrets out of 10.
+
+## Astra cut-in
+
+Calling an astra plays a short cut-in (1.25 s, the game keeps running): black bars close in, and a band in the astra's
+colour sweeps across with its name in English and Devanagari (आग्नेयास्त्र, वरुणास्त्र, नागास्त्र, सुदर्शन चक्र …). It plays for your
+own astras, for the team Brahmastra, and in red when a saga boss calls one of its astras.
+
 ## Progress and continues
 
 - Stage 1 is open; each stage opens when the one before it is cleared. The menu's big button plays the next stage in
@@ -92,6 +172,7 @@ saga, and every stage must have a stash with loot on it.
 - Every win pays astra shards equal to its stars. A new player starts with 3.
 - Out of lives in a solo run: once per run, continue with 3 squad lives by watching a video (portal builds only) or for
   3 shards.
+- Finding a stage's hidden stash pays 2 shards, once per stage.
 
 ## Balance checks
 
@@ -103,6 +184,14 @@ A measurement after the stage redesign (3 seeds each, normal; not a test, number
 - 1 soldier: 26 of 30 runs won, 3.5 to 8 minutes per stage.
 - 2 soldiers (you + 1 buddy): 30 of 30 runs won, 2 to 6 minutes per stage.
 - 4 soldiers: 30 of 30 runs won, 2 to 4.5 minutes per stage.
+
+After the boss styles, new waves and elites (4 seeds each, normal; again one run, not a test):
+
+- 1 soldier: 39 of 40 runs won, 4.4 to 6.8 minutes per stage on average.
+- 4 soldiers: 40 of 40 runs won, 1.9 to 4.4 minutes per stage on average.
+
+`shared/tests/boss-styles.test.ts` fights every saga boss with computer players and checks that every move of its
+first phase shows up and does what it says (meteors fall, rings fill the air, blinks move it, portals open).
 
 Real players are slower to react than the bots and better at reading the tells, so treat these as a rough guide and
 watch the portal's playtime and retention numbers.

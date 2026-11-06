@@ -170,7 +170,7 @@ const LOOT: Record<string, PickupKind> = {
   x: 'vaishnava',
 };
 const LOOT_TOKEN = /^([sml+awvbngcpx])(\d+)([\^_]?)(\*?)$/;
-const SIDE: Record<string, WaveSpawn['side']> = { L: 'L', R: 'R', '^': 'sky' };
+const SIDE: Record<string, WaveSpawn['side']> = { L: 'L', R: 'R', '^': 'sky', P: 'P', U: 'U' };
 
 const tokens = (s: string | undefined): string[] => (s ? s.trim().split(/\s+/) : []);
 
@@ -178,11 +178,12 @@ const tokens = (s: string | undefined): string[] => (s ? s.trim().split(/\s+/) :
 export function parseWave(s: string): WaveSpawn[] {
   const out: WaveSpawn[] = [];
   for (const tok of tokens(s)) {
-    const m = /^(\d*)([SHGJTD])([LR^])$/.exec(tok);
+    const m = /^(\d*)([SHGJTD])(\*?)([LR^PU])$/.exec(tok);
     if (!m) throw new Error(`bad wave token "${tok}"`);
     const kind = FOE[m[2] as string] as TrooperKind;
-    const side = SIDE[m[3] as string] as WaveSpawn['side'];
-    for (let i = 0; i < Number(m[1] || 1); i++) out.push({ kind, side });
+    const side = SIDE[m[4] as string] as WaveSpawn['side'];
+    const elite = m[3] === '*';
+    for (let i = 0; i < Number(m[1] || 1); i++) out.push(elite ? { kind, side, elite } : { kind, side });
   }
   return out;
 }
@@ -543,7 +544,9 @@ export function buildCourse(def: CourseDef): LevelDef {
       const col = x + Number(m[2]);
       const row = standOn(b, col, m[3] as string);
       if (Number(m[2]) >= s.len || row >= ROWS) throw new Error(`${where}: loot "${tok}" is over a pit`);
-      b.pickup(LOOT[m[1] as string] as PickupKind, col, row, m[4] === '*');
+      // Loot standing on the stash perch is the stage's secret.
+      const secret = s.stash !== undefined && Number(m[2]) === s.stash && m[3] === '^';
+      b.pickup(LOOT[m[1] as string] as PickupKind, col, row, m[4] === '*', secret);
     }
     x += s.len;
   }

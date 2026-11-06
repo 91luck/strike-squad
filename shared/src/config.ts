@@ -85,6 +85,14 @@ export const ATTACK = {
   beamLow: 10,
   beamHigh: 11,
   slam: 12,
+  /** Astra Saga boss moves (any body): fire falling from the sky on marked spots, a ring of shots, a spinning
+   * stream, a leap that lands with shockwaves, a vanish-and-reappear, and a call for reinforcements. */
+  rain: 13,
+  ring: 14,
+  spiral: 15,
+  leap: 16,
+  blink: 17,
+  summon: 18,
 } as const;
 export type AttackId = (typeof ATTACK)[keyof typeof ATTACK];
 
@@ -448,6 +456,25 @@ export const GAME_CONFIG = {
    * Astra Saga boss rules: astras the bosses themselves call, layered on top of their normal attacks. Each has a
    * counter the squad can learn (see docs/ASTRA_SAGA.md). Times in seconds, scaled by the mission's boss tempo.
    */
+  /**
+   * Astra Saga boss moves (see boss-styles.ts) and wave extras. Damage numbers sit next to the classic attacks':
+   * a rain fireball hurts like a walker shell, a ring or spiral shot like a fortress bullet.
+   */
+  bossMoves: {
+    /** Fire from the sky: `count` (+1 per phase after the first) drops `gap` px apart, falling from `drop` px up. */
+    rain: { count: 3, gap: 92, drop: 600, speed: 430, dmg: 14, blast: 44 },
+    ring: { count: 12, speed: 190, dmg: 9 },
+    /** Spinning stream: `arms` shots every `everyTicks` ticks for `sec`, the aim turning `turn` rad per tick. */
+    spiral: { sec: 1.6, everyTicks: 3, arms: 2, turn: 0.21, speed: 210, dmg: 8 },
+    leap: { jump: 720, speed: 340, waveDmg: 16 },
+    /** Reappears this far from the target, on its other side. */
+    blink: { dist: 230 },
+    summon: { count: 2, max: 4 },
+    /** Delay between the portal (or cracking ground) and the enemy stepping out. */
+    portalSec: 0.9,
+    /** Elite troopers: health ×hp; the killer gets ult charge, a heal, and score ×score. */
+    elite: { hp: 3, ult: 30, heal: 15, score: 3 },
+  },
   bossAstra: {
     /** Serpents that hunt the squad: shoot them down, dash through them, or call garuda. */
     naga: { everySec: 6.5, windupSec: 0.9, serpents: 4, speed: 175, turn: 2.2, damage: 14, lifeSec: 5 },

@@ -518,11 +518,20 @@ input[type='range'] {
   z-index: 2;
   display: flex;
   flex-direction: column;
-  justify-content: center;
   max-width: 460px;
-  min-height: 100%;
+  /* The panel scrolls on its own when it is taller than the screen (phones held upright): the menu behind it
+     keeps overflow hidden so the attract mission stays put. */
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: calc(28px + env(safe-area-inset-top)) var(--gutter) calc(20px + env(safe-area-inset-bottom))
     calc(48px + env(safe-area-inset-left));
+}
+
+.menu-panel::before,
+.menu-panel::after {
+  content: '';
+  flex: 1 0 0;
 }
 
 .logo {
@@ -2133,8 +2142,11 @@ body[data-current='game'] .toast {
     background: linear-gradient(180deg, rgba(8, 11, 24, 0.45) 0%, rgba(8, 11, 24, 0.94) 45%);
   }
 
+  .menu-panel::after {
+    flex-grow: 0; /* buttons sit at the bottom, near the thumbs */
+  }
+
   .menu-panel {
-    justify-content: flex-end;
     max-width: none;
     padding-left: calc(var(--gutter) + env(safe-area-inset-left));
   }
@@ -2160,10 +2172,11 @@ body[data-current='game'] .toast {
 /* phones in landscape: compact HUD, keep the world visible */
 @media (max-height: 500px) {
   .menu-panel {
-    justify-content: flex-start;
     padding-top: 14px;
-    max-height: 100%;
-    overflow-y: auto;
+  }
+
+  .menu-panel::before {
+    flex-grow: 0;
   }
 
   .menu-panel .field {
@@ -3037,4 +3050,290 @@ textarea {
 .weekly-count {
   font: 400 var(--step--1) var(--display);
   color: var(--primary);
+}
+
+/* ------------------------------------------------------------------ phones held upright: console layout */
+/* The world on top, a control deck underneath: thumbs never cover the action, and the HUD fits a narrow view.
+   --view is the height of the game view; the deck gets the rest (at least 216 px for the buttons). */
+@media (orientation: portrait) and (pointer: coarse) {
+  .screen.game {
+    --view: min(calc(100% - 216px - env(safe-area-inset-bottom)), 96vw);
+    background: #060914;
+  }
+
+  #game,
+  .hud {
+    bottom: auto;
+    height: var(--view);
+  }
+
+  .touch {
+    top: var(--view);
+    background:
+      radial-gradient(120% 80% at 50% 0%, rgba(255, 201, 60, 0.08), transparent 60%),
+      linear-gradient(180deg, #121a33 0%, #070a16 100%);
+    border-top: 2px solid rgba(255, 201, 60, 0.35);
+    box-shadow: 0 -8px 18px rgba(0, 0, 0, 0.45);
+  }
+
+  .joy-zone {
+    width: 36%;
+    height: 100%;
+  }
+
+  .joy-hint {
+    left: calc(12px + env(safe-area-inset-left));
+    bottom: calc(26px + env(safe-area-inset-bottom));
+  }
+
+  .touch.lefty .joy-hint {
+    right: calc(12px + env(safe-area-inset-right));
+  }
+
+  /* Buttons: a thumb cluster in the right two thirds of the deck. */
+  .touch .touch-btn {
+    opacity: 0.95;
+  }
+
+  .touch-btn.dash {
+    --x: 14px;
+    --y: 14px;
+    width: 72px;
+    height: 72px;
+  }
+
+  .touch-btn.fire {
+    --x: 12px;
+    --y: 98px;
+    width: 84px;
+    height: 84px;
+  }
+
+  .touch-btn.jump {
+    --x: 98px;
+    --y: 12px;
+    width: 94px;
+    height: 94px;
+  }
+
+  .touch-btn.ult {
+    --x: 108px;
+    --y: 118px;
+    width: 68px;
+    height: 68px;
+  }
+
+  .touch-btn.astra {
+    --x: 186px;
+    --y: 104px;
+    width: 64px;
+    height: 64px;
+  }
+
+  .touch-btn.melee {
+    --x: 202px;
+    --y: 20px;
+    width: 60px;
+    height: 60px;
+  }
+
+  .touch-toggle {
+    top: 10px;
+    right: calc(12px + env(safe-area-inset-right));
+  }
+
+  .touch.lefty .touch-toggle {
+    right: auto;
+    left: calc(12px + env(safe-area-inset-left));
+  }
+
+  /* HUD in a narrow view: zone and score drop under the hero card; feed and tips stay small. */
+  .hud {
+    padding: calc(6px + env(safe-area-inset-top)) 8px 6px;
+  }
+
+  .hud-left {
+    max-width: calc(100% - 60px);
+  }
+
+  .hud-mid {
+    left: auto;
+    right: 8px;
+    top: calc(64px + env(safe-area-inset-top));
+    transform: none;
+    gap: 6px;
+  }
+
+  .hud-zone {
+    display: none;
+  }
+
+  .boss-bar {
+    top: calc(100px + env(safe-area-inset-top));
+    width: 94%;
+  }
+
+  .killfeed {
+    top: auto;
+    bottom: 8px;
+    right: 8px;
+    max-width: 80%;
+  }
+
+  /* Tips sit in the free strip at the top of the deck, under the auto-fire pill, clear of the world. */
+  .coach {
+    top: calc(var(--view) + 50px);
+    width: 94%;
+    max-width: 94%;
+    padding: 5px 10px;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .banner {
+    font-size: var(--step-2);
+  }
+}
+
+/* ------------------------------------------------------------------ astra cut-in */
+/* A short cinematic when an astra is called: bars close in, a band sweeps across with the astra's name (English
+   and Devanagari) over light rays in the astra's colour. The game keeps running underneath. */
+.cutin {
+  --cut: #f97316;
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.cutin::before,
+.cutin::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 9%;
+  background: #000;
+  animation: cutbars 1.25s ease-in-out both;
+}
+
+.cutin::before {
+  top: 0;
+}
+
+.cutin::after {
+  bottom: 0;
+}
+
+.cutin-band {
+  position: absolute;
+  left: -10%;
+  right: -10%;
+  top: 44%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  padding: 10px 0;
+  transform: skewY(-6deg);
+  background:
+    repeating-linear-gradient(100deg, transparent 0 18px, rgba(255, 255, 255, 0.08) 18px 22px),
+    linear-gradient(
+      90deg,
+      transparent,
+      color-mix(in srgb, var(--cut) 85%, #000) 18%,
+      var(--cut) 50%,
+      color-mix(in srgb, var(--cut) 85%, #000) 82%,
+      transparent
+    );
+  box-shadow:
+    0 0 0 3px rgba(255, 255, 255, 0.25),
+    0 0 40px var(--cut);
+  animation: cutband 1.25s cubic-bezier(0.2, 0.9, 0.2, 1) both;
+}
+
+.cutin-icon {
+  font-size: clamp(2rem, 7vw, 3.4rem);
+  filter: drop-shadow(0 0 12px #fff);
+}
+
+.cutin-text {
+  display: grid;
+  line-height: 1;
+  text-align: left;
+}
+
+.cutin-text b {
+  font: 400 clamp(1.5rem, 5.6vw, 3rem) var(--display);
+  color: #fff;
+  letter-spacing: 0.04em;
+  -webkit-text-stroke: 1.5px #1a0a00;
+  text-shadow: 0 4px 0 rgba(0, 0, 0, 0.55);
+}
+
+.cutin-deva {
+  font:
+    700 clamp(1rem, 3.6vw, 1.6rem) 'Noto Sans Devanagari',
+    'Kohinoor Devanagari',
+    'Mangal',
+    sans-serif;
+  color: #fff7d6;
+  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5);
+}
+
+.cutin-text small {
+  margin-top: 3px;
+  font-weight: 800;
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.cutin.boss {
+  --cut: #dc2626;
+}
+
+@keyframes cutband {
+  0% {
+    transform: translateX(-110%) skewY(-6deg);
+    opacity: 0;
+  }
+  18% {
+    transform: translateX(0) skewY(-6deg);
+    opacity: 1;
+  }
+  78% {
+    transform: translateX(2%) skewY(-6deg);
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(110%) skewY(-6deg);
+    opacity: 0;
+  }
+}
+
+@keyframes cutbars {
+  0%,
+  100% {
+    transform: scaleY(0);
+  }
+  20%,
+  80% {
+    transform: scaleY(1);
+  }
+}
+
+body.reduce-motion .cutin-band,
+body.reduce-motion .cutin::before,
+body.reduce-motion .cutin::after {
+  animation: none;
+}
+
+@media (orientation: portrait) and (pointer: coarse) {
+  .cutin {
+    bottom: auto;
+    height: var(--view);
+  }
 }

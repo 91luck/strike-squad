@@ -18,7 +18,7 @@ import { Predictor } from '../src/game/predict';
 import { Timeline } from '../src/game/timeline';
 import { stickToAxes } from '../src/input/input';
 import { backoffMs } from '../src/net/connection';
-import { CONTINUE_COST, ProgressStore } from '../src/progress';
+import { CONTINUE_COST, ProgressStore, SECRET_SHARDS } from '../src/progress';
 import {
   DAILY_MAX_SHARDS,
   HERO_UNLOCK_LEVEL,
@@ -376,6 +376,27 @@ describe('astra saga progress', () => {
     const again = new ProgressStore(store);
     expect(again.shards).toBe(start + 2 - CONTINUE_COST);
     expect(again.unlocked('astra-2')).toBe(true);
+  });
+
+  it('remembers each hidden stash once, pays for it once, and ignores junk in storage', () => {
+    const store = mem();
+    const p = new ProgressStore(store);
+    const start = p.shards;
+    expect(p.hasSecret('astra-3')).toBe(false);
+    expect(p.foundSecret('astra-3')).toBe(true);
+    expect(p.foundSecret('astra-3')).toBe(false); // the same stash again: nothing new
+    expect(p.shards).toBe(start + SECRET_SHARDS);
+    const again = new ProgressStore(store);
+    expect(again.hasSecret('astra-3')).toBe(true);
+    expect(again.secretsFound()).toBe(1);
+    const junk = mem();
+    junk.setItem(
+      'strikesquad.saga.v1',
+      JSON.stringify({ shards: 5, secrets: ['astra-2', 'nope', 7, 'astra-2'] }),
+    );
+    const j = new ProgressStore(junk);
+    expect(j.secretsFound()).toBe(1);
+    expect(j.hasSecret('astra-2')).toBe(true);
   });
 });
 

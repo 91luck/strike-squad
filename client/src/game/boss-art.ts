@@ -55,7 +55,7 @@ type Themed = Exclude<Faction, 'army'>;
 
 // ------------------------------------------------------------------ drawing helpers
 
-function poly(ctx: Ctx, pts: number[], fill: string, ink = true): void {
+export function poly(ctx: Ctx, pts: number[], fill: string, ink = true): void {
   ctx.beginPath();
   ctx.moveTo(pts[0] as number, pts[1] as number);
   for (let i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i] as number, pts[i + 1] as number);
@@ -70,7 +70,7 @@ function poly(ctx: Ctx, pts: number[], fill: string, ink = true): void {
   ctx.fill();
 }
 
-function ell(
+export function ell(
   ctx: Ctx,
   x: number,
   y: number,
@@ -92,7 +92,7 @@ function ell(
 }
 
 /** A limb or tail: an inked stroke through the points. */
-function limb(ctx: Ctx, pts: number[], width: number, color: string): void {
+export function limb(ctx: Ctx, pts: number[], width: number, color: string): void {
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   ctx.beginPath();
@@ -107,7 +107,7 @@ function limb(ctx: Ctx, pts: number[], width: number, color: string): void {
 }
 
 /** Hit flash: lighten a colour while the boss is being hit. */
-const lit = (flash: boolean) => (c: string) => (flash ? tone(c, 0.28) : c);
+export const lit = (flash: boolean) => (c: string) => (flash ? tone(c, 0.28) : c);
 
 /** Phase-2 damage particles in the faction's flavour (sand, frost, sparks, embers, slime). */
 const DAMAGE_PUFF: Record<Themed, string> = {
@@ -393,7 +393,7 @@ export function drawThemedWalker(
   if (e.ph >= 2) puff(k, faction, e.x, e.y - c.height + 10, 0.3);
 }
 
-function prog(a: AtkInfo): number {
+export function prog(a: AtkInfo): number {
   return Math.min(1, a.t / Math.max(0.01, a.wind));
 }
 
@@ -911,7 +911,7 @@ function mounts(k: BossKit, left: number, floor: number, draw: (y: number) => vo
   void k;
 }
 
-function drawEyes(
+export function drawEyes(
   k: BossKit,
   at: [number, number],
   color: string,

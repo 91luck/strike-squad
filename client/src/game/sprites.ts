@@ -233,6 +233,203 @@ export const FACTION_LOOKS: Record<Faction, Record<TrooperLook, Look>> = {
   },
 };
 
+/**
+ * Astra Saga hosts: each stage fights its own army (fire asuras, sea rakshasas, storm riders, naga warriors, maya
+ * guards, ash ghosts, war-field soldiers, fort guards, duellists, the last great host), so stages never look like
+ * the same level again. Index = stage number - 1.
+ */
+const host = (b: Omit<Look, 'enemy'>, shield: Partial<Look>, jet: Partial<Look>, gren: Partial<Look>) => {
+  const base: Look = { ...b, enemy: true };
+  return {
+    soldier: base,
+    shield: { ...base, ...shield },
+    jet: { ...base, ...jet },
+    gren: { ...base, ...gren },
+  } satisfies Record<TrooperLook, Look>;
+};
+export const SAGA_HOSTS: readonly Record<TrooperLook, Look>[] = [
+  // 1 Agnivan: fire asuras
+  host(
+    {
+      color: '#3b0d14',
+      shade: '#260709',
+      skin: '#c2410c',
+      hair: '#120507',
+      pants: '#1c0a0c',
+      accent: '#fde047',
+      headgear: 'horns',
+      vest: '#7c2d12',
+      weapon: 'staff',
+      torso: 'plain',
+    },
+    { color: '#1c1917', accent: '#fb923c', weapon: 'spear' },
+    { skin: '#ea580c', accent: '#fef08a' },
+    { skin: '#9a3412', color: '#451a03', accent: '#fdba74' },
+  ),
+  // 2 Sagar Setu: sea rakshasas with fin crests
+  host(
+    {
+      color: '#155e75',
+      shade: '#0e3a4a',
+      skin: '#0f766e',
+      hair: '#042f2e',
+      pants: '#083344',
+      accent: '#67e8f9',
+      headgear: 'crest',
+      vest: '#0e7490',
+      weapon: 'spear',
+      torso: 'plain',
+    },
+    { color: '#1e3a8a', accent: '#a5f3fc' },
+    { skin: '#14b8a6', accent: '#f0abfc', weapon: 'staff' },
+    { skin: '#065f46', color: '#134e4a', accent: '#5eead4', weapon: 'staff' },
+  ),
+  // 3 Vayu Shikhar: storm riders in hoods
+  host(
+    {
+      color: '#cbd5e1',
+      shade: '#94a3b8',
+      skin: '#64748b',
+      hair: '#1e293b',
+      pants: '#334155',
+      accent: '#38bdf8',
+      headgear: 'hood',
+      vest: '#e2e8f0',
+      weapon: 'staff',
+      torso: 'plain',
+    },
+    { color: '#475569', accent: '#facc15', weapon: 'spear' },
+    { color: '#f1f5f9', skin: '#94a3b8', accent: '#93c5fd' },
+    { color: '#1e293b', accent: '#fde047' },
+  ),
+  // 4 Naag Lok: naga warriors
+  host(
+    {
+      color: '#166534',
+      shade: '#14532d',
+      skin: '#4d7c0f',
+      hair: '#052e16',
+      pants: '#14532d',
+      accent: '#bef264',
+      headgear: 'hood',
+      vest: '#facc15',
+      weapon: 'spear',
+      torso: 'ribs',
+    },
+    { color: '#052e16', accent: '#fde047' },
+    { skin: '#65a30d', accent: '#a3e635', weapon: 'staff' },
+    { skin: '#3f6212', color: '#1a2e05', accent: '#d9f99d', weapon: 'staff' },
+  ),
+  // 5 Maya Nagri: palace guards of illusion
+  host(
+    {
+      color: '#6b21a8',
+      shade: '#4c1d95',
+      skin: '#c4b5fd',
+      hair: '#1e1b4b',
+      pants: '#312e81',
+      accent: '#f0abfc',
+      headgear: 'nemes',
+      vest: '#f9a8d4',
+      weapon: 'staff',
+      torso: 'plain',
+    },
+    { color: '#1e1b4b', accent: '#e879f9', weapon: 'spear' },
+    { skin: '#e9d5ff', accent: '#fbcfe8' },
+    { color: '#86198f', accent: '#f5d0fe' },
+  ),
+  // 6 Bhasm Parvat: ash ghosts in grave wraps
+  host(
+    {
+      color: '#a8a29e',
+      shade: '#78716c',
+      skin: '#d6d3d1',
+      hair: '#1c1917',
+      pants: '#44403c',
+      accent: '#5eead4',
+      headgear: 'wraps',
+      vest: '#57534e',
+      weapon: 'staff',
+      torso: 'ribs',
+    },
+    { color: '#44403c', accent: '#2dd4bf', weapon: 'spear' },
+    { color: '#d6d3d1', accent: '#99f6e4' },
+    { color: '#292524', accent: '#a7f3d0' },
+  ),
+  // 7 Samarpan Maidan: soldiers of the war field
+  host(
+    {
+      color: '#991b1b',
+      shade: '#7f1d1d',
+      skin: '#a16207',
+      hair: '#1c1917',
+      pants: '#44403c',
+      accent: '#fde047',
+      headgear: 'helmet',
+      vest: '#d6d3d1',
+      weapon: 'spear',
+      torso: 'vest',
+    },
+    { color: '#78350f', accent: '#fbbf24' },
+    { color: '#b91c1c', accent: '#fecaca', weapon: 'staff' },
+    { color: '#713f12', accent: '#fde68a', weapon: 'staff' },
+  ),
+  // 8 Chakra Durg: iron fort guards
+  host(
+    {
+      color: '#334155',
+      shade: '#1e293b',
+      skin: '#9a3412',
+      hair: '#0f172a',
+      pants: '#1e293b',
+      accent: '#f87171',
+      headgear: 'viking',
+      vest: '#64748b',
+      weapon: 'spear',
+      torso: 'fur',
+    },
+    { color: '#0f172a', accent: '#fca5a5' },
+    { color: '#475569', accent: '#fdba74', weapon: 'staff' },
+    { color: '#7f1d1d', accent: '#fecaca', weapon: 'staff' },
+  ),
+  // 9 Dwand Bhoomi: golden duellists
+  host(
+    {
+      color: '#1d4ed8',
+      shade: '#1e3a8a',
+      skin: '#b45309',
+      hair: '#1c1917',
+      pants: '#1e3a8a',
+      accent: '#fde047',
+      headgear: 'crest',
+      vest: '#fde68a',
+      weapon: 'spear',
+      torso: 'plain',
+    },
+    { color: '#ca8a04', accent: '#fef9c3' },
+    { color: '#7c2d12', accent: '#fde68a', weapon: 'staff' },
+    { color: '#0f766e', accent: '#fef08a', weapon: 'staff' },
+  ),
+  // 10 Mahayuddh: the last great host
+  host(
+    {
+      color: '#1c1917',
+      shade: '#0c0a09',
+      skin: '#7f1d1d',
+      hair: '#000000',
+      pants: '#0c0a09',
+      accent: '#ef4444',
+      headgear: 'horns',
+      vest: '#fbbf24',
+      weapon: 'spear',
+      torso: 'plain',
+    },
+    { color: '#3b0764', accent: '#c4b5fd' },
+    { skin: '#1e3a8a', accent: '#93c5fd', weapon: 'staff' },
+    { skin: '#14532d', color: '#052e16', accent: '#bef264', weapon: 'staff' },
+  ),
+];
+
 export function heroLook(id: number): Look {
   const h = heroOf(id);
   return { ...h, vest: '#3d4434' };

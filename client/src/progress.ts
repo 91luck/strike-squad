@@ -29,6 +29,8 @@ const SAGA_KEY = 'strikesquad.saga.v1';
 const RANK: Record<Difficulty, number> = { easy: 0, normal: 1, hard: 2 };
 /** Shards a continue costs (the alternative to watching a video). */
 export const CONTINUE_COST = 3;
+/** Shards for finding a stage's hidden stash (once per stage). */
+export const SECRET_SHARDS = 2;
 /** A new player starts with enough shards for one continue. */
 const STARTING_SHARDS = CONTINUE_COST;
 
@@ -36,14 +38,18 @@ type Store = Pick<Storage, 'getItem' | 'setItem'> | null;
 
 export class ProgressStore {
   private data: Partial<Record<MissionId, MissionRecord>>;
-  private sagaData: { shards: number };
+  private sagaData: { shards: number; secrets: SagaId[] };
 
   constructor(private readonly storage: Store = safeStorage()) {
     this.data = sanitize(read(storage, KEY));
-    const saga = read(storage, SAGA_KEY) as { shards?: unknown } | null;
+    const saga = read(storage, SAGA_KEY) as { shards?: unknown; secrets?: unknown } | null;
     const shards =
       typeof saga?.shards === 'number' && Number.isFinite(saga.shards) ? saga.shards : STARTING_SHARDS;
-    this.sagaData = { shards: Math.max(0, Math.min(999, Math.floor(shards))) };
+    const secrets = Array.isArray(saga?.secrets) ? saga.secrets.filter(isSagaId) : [];
+    this.sagaData = {
+      shards: Math.max(0, Math.min(999, Math.floor(shards))),
+      secrets: [...new Set(secrets)],
+    };
   }
 
   get(id: MissionId): MissionRecord | undefined {
@@ -75,6 +81,27 @@ export class ProgressStore {
     if (!Number.isFinite(n) || n <= 0) return;
     this.sagaData.shards = Math.min(999, this.sagaData.shards + Math.floor(n));
     this.save();
+  }
+
+  /**
+   * The player found this stage's hidden stash. Returns true the first time (it then pays SECRET_SHARDS); finding
+   * it again changes nothing.
+   */
+  foundSecret(id: SagaId): boolean {
+    if (this.sagaData.secrets.includes(id)) return false;
+    this.sagaData.secrets.push(id);
+    this.sagaData.shards = Math.min(999, this.sagaData.shards + SECRET_SHARDS);
+    this.save();
+    return true;
+  }
+
+  hasSecret(id: SagaId): boolean {
+    return this.sagaData.secrets.includes(id);
+  }
+
+  /** Hidden stashes found over the whole saga (out of 10). */
+  secretsFound(): number {
+    return this.sagaData.secrets.length;
   }
 
   /** Saga stages cleared at least once. */

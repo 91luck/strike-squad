@@ -11,7 +11,9 @@ import {
   WEAPON_KINDS,
   heroOf,
   isBoss,
+  isSagaId,
   levelHeight,
+  styleOf,
   levelWidth,
   tileAt,
   type EnemySnapshot,
@@ -34,6 +36,7 @@ import type { Pose as PredictedPose } from './predict';
 import {
   CENTER_X,
   FACTION_LOOKS,
+  SAGA_HOSTS,
   FEET_Y,
   RUN_FRAMES,
   aimFrom,
@@ -66,6 +69,7 @@ import {
   type ZoneStyle,
 } from './world-art';
 import { drawThemedColossus, drawThemedGunship, drawThemedWalker, type BossKit } from './boss-art';
+import { ASURA_LOOKS, drawAsuraFlyer, drawAsuraKing, drawAsuraWalker, type AsuraLook } from './asura-art';
 import {
   RULE_COLOR,
   drawArrow,
@@ -289,6 +293,8 @@ export class Renderer {
   private readonly white = new WeakMap<HTMLCanvasElement, HTMLCanvasElement>();
   private seenBullets = new Set<number>();
   private enemyPrevX = new Map<number, number>();
+  /** Saga boss id → its look (found once from the arena it stands in). */
+  private bossLooks = new Map<number, AsuraLook | null>();
   private trails: Trail[] = [];
   private slashes: Slash[] = [];
   private lastTrail = new Map<string, number>();
@@ -324,6 +330,7 @@ export class Renderer {
   setLevel(level: LevelDef): void {
     if (level === this.lvl) return;
     this.lvl = level;
+    this.bossLooks.clear();
     this.props = buildProps(level);
     this.ambient = [];
     this.reset();
@@ -340,6 +347,8 @@ export class Renderer {
     this.camReady = false;
     this.seenBullets.clear();
     this.enemyPrevX.clear();
+    this.portals = [];
+    this.glowBurst = [];
     this.trails = [];
     this.slashes = [];
     this.styleFloats = [];
@@ -444,6 +453,80 @@ export class Renderer {
     if (!reduce) this.shakeMag = Math.max(this.shakeMag, big ? 16 : 5);
   }
 
+  /** Portals and cracking ground where wave enemies are about to appear (Sim 'portal' events). */
+  private portals: { x: number; y: number; how: 0 | 1; born: number; until: number }[] = [];
+
+  portal(x: number, y: number, how: 0 | 1, nowMs: number): void {
+    const ms = GAME_CONFIG.bossMoves.portalSec * 1000 + 250;
+    this.portals.push({ x, y, how, born: nowMs, until: nowMs + ms });
+  }
+
+  /** A boss vanishing into (out) or stepping out of a burst of its aura. */
+  blink(x: number, y: number, color: string, reduce: boolean): void {
+    this.spark(x, y, color, reduce ? 6 : 26, reduce, 260);
+    this.glowBurst.push({ x, y, color, until: performance.now() + 260 });
+  }
+  private glowBurst: { x: number; y: number; color: string; until: number }[] = [];
+
+  private drawPortals(nowMs: number): void {
+    if (!this.portals.length && !this.glowBurst.length) return;
+    const ctx = this.ctx;
+    this.portals = this.portals.filter((p) => p.until > nowMs);
+    for (const p of this.portals) {
+      const k = Math.min(1, (nowMs - p.born) / 500);
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      if (p.how === 0) {
+        // A swirling ring standing on the floor.
+        const r = 10 + 24 * k;
+        ctx.translate(p.x, p.y - 30);
+        for (let i = 0; i < 3; i++) {
+          ctx.strokeStyle = i === 1 ? 'rgba(255,255,255,0.8)' : 'rgba(192,132,252,0.85)';
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.ellipse(
+            0,
+            0,
+            Math.max(1, r * 0.55 - i * 4),
+            Math.max(1, r - i * 5),
+            0,
+            nowMs / 150 + i,
+            nowMs / 150 + i + 4.6,
+          );
+          ctx.stroke();
+        }
+        ctx.restore();
+        this.glow(p.x, p.y - 30, r + 10, 'rgba(168,85,247,0.45)');
+      } else {
+        // Cracks spreading over the ground, light leaking out.
+        ctx.strokeStyle = 'rgba(253,186,116,0.9)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        for (let i = 0; i < 5; i++) {
+          const a = Math.PI + (i / 4) * Math.PI;
+          ctx.moveTo(p.x, p.y - 2);
+          ctx.lineTo(p.x + Math.cos(a) * 28 * k, p.y - 2 + Math.sin(a) * 6 * k);
+        }
+        ctx.stroke();
+        ctx.restore();
+        this.glow(p.x, p.y - 4, 14 + 16 * k, 'rgba(251,146,60,0.5)');
+        if (!this.reduce && Math.random() < 0.5)
+          this.add({
+            x: p.x + (Math.random() - 0.5) * 30,
+            y: p.y - 4,
+            vy: -60,
+            life: 0.5,
+            size: 4,
+            color: 'rgba(168,162,158,0.8)',
+            grow: 6,
+          });
+      }
+    }
+    const now = performance.now();
+    this.glowBurst = this.glowBurst.filter((g) => g.until > now);
+    for (const g of this.glowBurst) this.glow(g.x, g.y, 70 * ((g.until - now) / 260), g.color);
+  }
+
   floatText(x: number, y: number, text: string, color: string): void {
     this.floats.push({ x, y, text, color, life: 1.1 });
     if (this.floats.length > 30) this.floats.shift();
@@ -469,6 +552,8 @@ export class Renderer {
     this.canvas.height = Math.round(h * this.dpr);
     // Short screens (phones in landscape): zoom in, so a soldier is ~45 px tall instead of ~25.
     this.viewH = h < 520 ? 400 : FULL_H;
+    // Upright phones (console layout, a near-square view): zoom out a little so ~460 px of world fit across.
+    if (h > w * 0.7) this.viewH = Math.min(FULL_H, Math.max(this.viewH, Math.round((460 * h) / w)));
     this.scale = this.canvas.height / this.viewH;
     this.viewW = this.canvas.width / this.scale;
     this.ctx.imageSmoothingEnabled = false;
@@ -541,6 +626,7 @@ export class Renderer {
     this.drawTiles(s, o.nowMs);
     this.drawCheckpoints(s, o.nowMs);
     this.drawPickups(s, o.nowMs);
+    this.drawPortals(o.nowMs);
     if (s.fx.length)
       drawFx(
         ctx,
@@ -549,7 +635,7 @@ export class Renderer {
       );
     // Saga stages tint their asura host (cosmetic; browsers without canvas filters show the base colours).
     // Enemies are drawn onto one layer and the layer is filtered once: a filter per draw call is slow.
-    if (this.lvl.tint && s.enemies.length) {
+    if (this.lvl.tint && s.enemies.length && !isSagaId(this.lvl.id)) {
       const layer = this.enemyLayer();
       const lctx = layer.getContext('2d') as CanvasRenderingContext2D;
       lctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -994,6 +1080,53 @@ export class Renderer {
     }
   }
 
+  /**
+   * A hidden stash calls from above: a shaft of light over the perch that anyone below can see, sparkles, and once
+   * a soldier is close, a bobbing key sign and a dotted line up the climb (step ledge, then perch).
+   */
+  private secretHint(x: number, y: number, s: Snapshot, nowMs: number): void {
+    const ctx = this.ctx;
+    const pulse = 0.6 + 0.4 * Math.sin(nowMs / 260);
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const g = ctx.createLinearGradient(0, y - 220, 0, y + 10);
+    g.addColorStop(0, 'rgba(253,224,71,0)');
+    g.addColorStop(1, `rgba(253,224,71,${0.22 * pulse})`);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(x - 14, y + 10);
+    ctx.lineTo(x + 14, y + 10);
+    ctx.lineTo(x + 34, y - 220);
+    ctx.lineTo(x - 34, y - 220);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+    if (!this.reduce && Math.random() < 0.25)
+      this.add({
+        x: x + (Math.random() - 0.5) * 40,
+        y: y - Math.random() * 120,
+        vy: -20,
+        life: 0.8,
+        size: 2,
+        color: '#fde047',
+        add: true,
+      });
+    const near = s.players.some((p) => p.st === 0 && Math.abs(p.x - x) < 9 * T);
+    if (!near) return;
+    this.label('🗝 SECRET', x, y - 40 + Math.sin(nowMs / 200) * 4, '#fde047', 12);
+    // the last jump: from the step ledge (four rows under the perch, three tiles to its left) up to the perch
+    ctx.save();
+    ctx.strokeStyle = `rgba(253,224,71,${0.35 + 0.3 * pulse})`;
+    ctx.lineWidth = 2;
+    ctx.setLineDash([4, 6]);
+    ctx.lineDashOffset = -nowMs / 40;
+    ctx.beginPath();
+    ctx.moveTo(x - 3 * T, y + 22 + 4 * T - 8);
+    ctx.quadraticCurveTo(x - 3 * T, y - 20, x - 8, y + 10);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   private drawPickups(s: Snapshot, nowMs: number): void {
     const ctx = this.ctx;
     for (const pk of this.level.pickups) {
@@ -1001,6 +1134,7 @@ export class Renderer {
       const taken = (s.taken & (1 << pk.id)) !== 0;
       if (pk.respawn) drawAltar(ctx, pk.x, pk.y + 22, !taken);
       if (taken) continue;
+      if (pk.secret) this.secretHint(pk.x, pk.y, s, nowMs);
       if (isPowerKind(pk.kind)) {
         const yy = pk.y - (pk.respawn ? 6 : 0) + Math.round(Math.sin(nowMs / 300 + pk.id) * 3);
         drawPowerPickup(ctx, pk.kind, pk.x, yy, pk.respawn, nowMs, (t, x, y, c, sz) =>
@@ -1305,28 +1439,49 @@ export class Renderer {
     ctx.restore();
   }
 
+  /** Elite troopers: a pulsing halo behind them and a star over their head. */
+  private eliteAura(e: EnemySnapshot, color: string, nowMs: number): void {
+    const pulse = 0.75 + 0.25 * Math.sin(nowMs / 140 + e.id);
+    this.glow(e.x, e.y - 22, 34 * pulse, `${color}88`);
+    this.label('★ ELITE', e.x, e.y - 58, '#fde047', 10);
+    if (!this.reduce && Math.random() < 0.3)
+      this.add({
+        x: e.x + (Math.random() - 0.5) * 24,
+        y: e.y - Math.random() * 40,
+        vy: -50,
+        life: 0.5,
+        size: 3,
+        color,
+        add: true,
+      });
+  }
+
   private drawEnemy(e: EnemySnapshot, nowMs: number): void {
     const ctx = this.ctx;
     if (e.x < this.camX - 80 || e.x > this.camX + this.viewW + 80) return;
     const flash = e.h === 1;
     const faction = this.lvl.faction;
-    const looks = FACTION_LOOKS[faction];
-    if (e.k === 'soldier') this.trooper(e, looks.soldier, `${faction}-enemy`, nowMs);
+    // Saga stages each field their own host (sprites.ts SAGA_HOSTS); keys keep their sprites apart.
+    const sagaN = isSagaId(this.lvl.id) ? Number(this.lvl.id.slice(6)) : 0;
+    const looks = SAGA_HOSTS[sagaN - 1] ?? FACTION_LOOKS[faction];
+    const key = sagaN ? this.lvl.id : faction;
+    if (e.el === 1) this.eliteAura(e, looks.soldier.accent, nowMs);
+    if (e.k === 'soldier') this.trooper(e, looks.soldier, `${key}-enemy`, nowMs);
     else if (e.k === 'grenadier') {
-      this.trooper(e, looks.gren, `${faction}-gren`, nowMs);
+      this.trooper(e, looks.gren, `${key}-gren`, nowMs);
       if (faction === 'army') {
         // grenade belt
         ctx.fillStyle = '#3f6212';
         for (let i = 0; i < 3; i++) ctx.fillRect(Math.round(e.x - 6 + i * 4), Math.round(e.y - 16), 3, 3);
       }
     } else if (e.k === 'shield') {
-      this.trooper(e, looks.shield, `${faction}-shield`, nowMs);
+      this.trooper(e, looks.shield, `${key}-shield`, nowMs);
       if (e.sh === 1) drawShield(ctx, faction, Math.round(e.x + e.f * 13), Math.round(e.y - 40), flash);
     } else if (e.k === 'jetpack') {
       const bob = Math.round(Math.sin(nowMs / 160 + e.id) * 2);
       const ey = e.y + bob;
       drawFlyer(ctx, faction, e.x, ey, e.f, nowMs);
-      this.trooper({ ...e, y: ey }, looks.jet, `${faction}-jet`, nowMs, 'fall');
+      this.trooper({ ...e, y: ey }, looks.jet, `${key}-jet`, nowMs, 'fall');
     } else if (e.k === 'turret' && faction !== 'army') {
       drawTotem(ctx, faction, Math.round(e.x), Math.round(e.y), e.a / 100, flash);
     } else if (e.k === 'turret') {
@@ -1375,6 +1530,23 @@ export class Renderer {
     // Themed missions: same boss behaviour, a different creature (boss-art.ts).
     const kit = this.bossKit();
     const atk = this.atk(e);
+    // Astra Saga: every boss has its own body (asura-art.ts).
+    const look = this.sagaLook(e);
+    if (look) {
+      if (e.k === 'walker') drawAsuraWalker(kit, look, e, nowMs, atk);
+      else if (e.k === 'gunship') drawAsuraFlyer(kit, look, e, nowMs, atk);
+      else
+        drawAsuraKing(
+          kit,
+          look,
+          e,
+          e.hp <= 0 || s.result === 'won',
+          nowMs,
+          atk,
+          e.at === ATTACK.beamHigh ? BEAM.highY : BEAM.lowY,
+        );
+      return;
+    }
     if (e.k === 'walker') drawThemedWalker(kit, faction, e, nowMs, atk);
     else if (e.k === 'gunship') drawThemedGunship(kit, faction, e, nowMs, atk);
     else
@@ -1387,6 +1559,28 @@ export class Renderer {
         atk,
         e.at === ATTACK.beamHigh ? BEAM.highY : BEAM.lowY,
       );
+  }
+
+  /** The saga look of a boss: the style of the arena it fights in (null outside the saga). */
+  private sagaLook(e: EnemySnapshot): AsuraLook | null {
+    if (!isSagaId(this.lvl.id)) return null;
+    const known = this.bossLooks.get(e.id);
+    if (known !== undefined) return known;
+    // The boss arena nearest to it (a final boss stands past its arena's right edge, against the back wall).
+    let a: (typeof this.lvl.arenas)[number] | undefined;
+    let best = Infinity;
+    for (const x of this.lvl.arenas) {
+      if (!x.boss) continue;
+      const d = e.x < x.left ? x.left - e.x : e.x > x.right ? e.x - x.right : 0;
+      if (d < best) {
+        best = d;
+        a = x;
+      }
+    }
+    const style = a ? styleOf(a.name) : null;
+    const look = style ? (ASURA_LOOKS[style.id] ?? null) : null;
+    this.bossLooks.set(e.id, look);
+    return look;
   }
 
   /** The renderer's drawing helpers, handed to the themed boss painters. */
@@ -1916,6 +2110,24 @@ export class Renderer {
           this.spark(x0 + Math.random() * (x1 - x0), y, '#ff8fa3', 2, this.reduce, 120);
         if (!this.reduce) this.shakeMag = Math.max(this.shakeMag, 2.5);
       } else ctx.restore();
+    }
+    // Where boss rain will land: a red ring on the ground under every falling meteor.
+    for (const b of s.bullets) {
+      if (b.e !== 1 || KIND(b.k) !== 'meteor') continue;
+      let r = Math.max(0, Math.floor(b.y / T));
+      while (r < this.level.rows && tileAt(this.level, Math.floor(b.x / T), r) !== Tile.Solid) r++;
+      const gy = r * T;
+      const near = Math.max(0, Math.min(1, 1 - (gy - b.y) / 640));
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = `rgba(255,70,50,${0.35 + near * 0.6})`;
+      ctx.lineWidth = 2 + near * 2;
+      ctx.beginPath();
+      ctx.ellipse(b.x, gy - 2, 30 + near * 10, 6, 0, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = `rgba(255,70,50,${0.08 + near * 0.18})`;
+      ctx.fill();
+      ctx.restore();
     }
     // Where lobbed ordnance will land.
     for (const b of s.bullets) {

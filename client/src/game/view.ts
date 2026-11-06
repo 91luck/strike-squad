@@ -17,7 +17,9 @@ import {
   type SimEvent,
   type Snapshot,
   type StyleTag,
+  styleOf,
 } from '@strikesquad/shared';
+import { ASURA_LOOKS, BOSS_TITLES, sagaMoveTips, type AsuraLook } from './asura-art';
 import type { Sfx } from '../audio/sfx';
 import type { Settings } from '../settings';
 import { $, el } from '../ui/dom';
@@ -90,6 +92,22 @@ export const POWER_INFO: Record<PowerKind, { name: string; icon: string; tip: st
     tip: 'A new form every call: trident, spirit or fire rain',
   },
   vaishnava: { name: 'VAISHNAVASTRA', icon: '☀', tip: 'Turns a boss’s golden orb back on the boss' },
+};
+
+/** Each astra's cut-in: its colour and its name in Devanagari. */
+const ASTRA_CUT: Record<PowerKind | 'brahma' | BossRule, { color: string; deva: string }> = {
+  agni: { color: '#ea580c', deva: 'आग्नेयास्त्र' },
+  varuna: { color: '#0284c7', deva: 'वरुणास्त्र' },
+  vayu: { color: '#64748b', deva: 'वायव्यास्त्र' },
+  singularity: { color: '#6d28d9', deva: 'कृष्ण विवर' },
+  naga: { color: '#15803d', deva: 'नागास्त्र' },
+  garuda: { color: '#b45309', deva: 'गरुडास्त्र' },
+  sudarshana: { color: '#ca8a04', deva: 'सुदर्शन चक्र' },
+  pashupata: { color: '#0f766e', deva: 'पाशुपतास्त्र' },
+  vaishnava: { color: '#d97706', deva: 'वैष्णवास्त्र' },
+  brahma: { color: '#f59e0b', deva: 'ब्रह्मास्त्र' },
+  narayana: { color: '#b91c1c', deva: 'नारायणास्त्र' },
+  brahmashirsha: { color: '#991b1b', deva: 'ब्रह्मशिरास्त्र' },
 };
 
 /** Wire index of a vaishnava orb. */
@@ -298,11 +316,15 @@ export class MatchView {
           if (!reduce) r.shake(10);
           this.sfx.play('explode');
           this.showBanner(
-            ev.kind === 'boss'
-              ? ev.phase === 2
-                ? 'PHASE 2 — drones and ground slams!'
-                : 'FINAL PHASE — it’s enraged!'
-              : `${this.bossName(ev.kind)} is enraged!`,
+            isSagaId(this.renderer.level.id)
+              ? ev.phase >= 3
+                ? `FINAL PHASE — ${this.bossName(ev.kind)} unleashes everything!`
+                : `${this.bossName(ev.kind)} grows stronger: new moves!`
+              : ev.kind === 'boss'
+                ? ev.phase === 2
+                  ? 'PHASE 2 — drones and ground slams!'
+                  : 'FINAL PHASE — it’s enraged!'
+                : `${this.bossName(ev.kind)} is enraged!`,
             true,
           );
           break;
@@ -330,6 +352,12 @@ export class MatchView {
         }
         case 'astra': {
           r.astraEffect(ev, reduce);
+          if (ev.id === this.meId) {
+            const info = POWER_INFO[ev.kind];
+            this.cutIn(ev.kind, info.icon, info.name, 'Your astra');
+            r.flash(ASTRA_CUT[ev.kind].color, 0.3);
+            if (!reduce) r.shake(7);
+          }
           this.sfx.play(ev.kind === 'singularity' ? 'explode' : 'powerup');
           const info = POWER_INFO[ev.kind];
           const who = ev.id === this.meId ? '' : `${this.nameOf(ev.id)}: `;
@@ -345,6 +373,14 @@ export class MatchView {
         case 'bossAstra': {
           r.bossAstraEffect(ev, reduce);
           const text = BOSS_ASTRA_TEXT[ev.kind];
+          if (ev.phase === 0 && isSagaId(this.renderer.level.id))
+            this.cutIn(
+              ev.kind,
+              text.call.split(' ')[0] ?? '✴',
+              text.call.replace(/^\S+\s/, '').replace('!', ''),
+              `${this.bossArena ?? 'The boss'} calls`,
+              true,
+            );
           if (ev.phase === 0) {
             this.sfx.play('beep');
             this.showBanner(text.call, true);
@@ -365,6 +401,12 @@ export class MatchView {
           r.brahmaEffect(ev, reduce);
           if (ev.phase === 0) {
             this.sfx.play('beep');
+            this.cutIn(
+              'brahma',
+              '☀',
+              'BRAHMASTRA',
+              ev.id === this.meId ? 'Your squad calls' : `${this.nameOf(ev.id)} calls`,
+            );
             this.showBanner(`${ev.id === this.meId ? '' : `${this.nameOf(ev.id)}: `}☀ BRAHMASTRA!`, true);
           } else {
             this.sfx.play('explode');
@@ -378,10 +420,44 @@ export class MatchView {
         case 'start':
           this.sfx.play('go');
           break;
+        case 'portal':
+          r.portal(ev.x, ev.y, ev.how, performance.now());
+          break;
+        case 'blink': {
+          const look = this.bossLook();
+          r.blink(ev.x, ev.y, look?.glow ?? '#c084fc', reduce);
+          if (ev.out === 0) this.sfx.play('beep');
+          break;
+        }
+        case 'elite':
+          r.explosion(ev.x, ev.y, true, reduce);
+          if (ev.by === this.meId) {
+            this.sfx.play('powerup');
+            this.showBanner('★ ELITE DOWN! Super charged, health back');
+          } else this.notice(`★ ${this.nameOf(ev.by)} took down an elite`);
+          break;
+        case 'secret':
+          r.flash('#fde047', 0.35);
+          r.spark(ev.x, ev.y, '#fde047', reduce ? 8 : 30, reduce, 220);
+          this.sfx.play('victory');
+          if (ev.by === this.meId) {
+            this.showBanner('🗝 SECRET FOUND! Hidden astra stash');
+            this.onSecret?.();
+          } else this.notice(`🗝 ${this.nameOf(ev.by)} found the hidden stash!`);
+          break;
         default:
           break;
       }
     }
+  }
+
+  /** Told when this player finds a stage's hidden stash. */
+  onSecret: (() => void) | null = null;
+
+  /** The look of the boss now fighting (saga), for effect colours. */
+  private bossLook(): AsuraLook | null {
+    const st = this.bossArena ? styleOf(this.bossArena) : null;
+    return st ? (ASURA_LOOKS[st.id] ?? null) : null;
   }
 
   /** Told when a narayanastra starts or ends (the input holds auto-fire during it). */
@@ -408,16 +484,19 @@ export class MatchView {
     const faction = this.renderer.level.faction;
     $('boss-intro-name').textContent = title;
     const rules = this.renderer.level.arenas.find((a) => a.name === title)?.rules ?? [];
+    const style = isSagaId(this.renderer.level.id) ? styleOf(title) : null;
     $('boss-intro-sub').textContent =
       faction === 'army'
         ? info.sub
-        : isSagaId(this.renderer.level.id)
-          ? SAGA_SUB[kind]
-          : FACTION_SUB[faction][kind];
-    // A boss that calls astras: its card says how to answer them.
-    $('boss-intro-tip').textContent = rules.length
-      ? rules.map((r) => `${BOSS_ASTRA_TEXT[r].call} ${BOSS_ASTRA_TEXT[r].tip}`).join(' · ')
-      : info.tip;
+        : style
+          ? (BOSS_TITLES[style.id] ?? SAGA_SUB[kind])
+          : isSagaId(this.renderer.level.id)
+            ? SAGA_SUB[kind]
+            : FACTION_SUB[faction][kind];
+    // A boss that calls astras: its card says how to answer them; a saga boss also names its own moves.
+    const tips = rules.map((r) => `${BOSS_ASTRA_TEXT[r].call} ${BOSS_ASTRA_TEXT[r].tip}`);
+    if (style) tips.push(...sagaMoveTips(style));
+    $('boss-intro-tip').textContent = tips.length ? tips.join(' · ') : info.tip;
     $('boss-name').textContent = title;
     const card = $('boss-intro');
     card.hidden = false;
@@ -432,6 +511,27 @@ export class MatchView {
     this.renderer.shake(8);
     this.bossLag = 1;
     $('boss-bar').hidden = false;
+  }
+
+  private cutTimer = 0;
+
+  /** The astra cut-in (see .cutin in style.css): 1.25 s, the game runs on underneath. */
+  cutIn(kind: keyof typeof ASTRA_CUT, icon: string, name: string, who: string, boss = false): void {
+    const c = $('cutin');
+    const info = ASTRA_CUT[kind];
+    c.style.setProperty('--cut', info.color);
+    c.classList.toggle('boss', boss);
+    $('cutin-icon').textContent = icon;
+    $('cutin-name').textContent = name;
+    $('cutin-deva').textContent = info.deva;
+    $('cutin-who').textContent = who;
+    c.hidden = true;
+    void c.offsetWidth; // restart the animations
+    c.hidden = false;
+    window.clearTimeout(this.cutTimer);
+    this.cutTimer = window.setTimeout(() => {
+      c.hidden = true;
+    }, 1300);
   }
 
   showBanner(text: string, bad = false): void {

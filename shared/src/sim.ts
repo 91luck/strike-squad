@@ -20,6 +20,7 @@ import {
   isPower,
   type PowerKind,
 } from './config';
+import { nextStyleAttack, styleOf, type BossStyle } from './boss-styles';
 import { heroOf, heroPerk } from './heroes';
 import {
   BOSS_RULES,
@@ -30,6 +31,7 @@ import {
   type BossRule,
   type LevelDef,
   type MissionMods,
+  type WaveSpawn,
 } from './level';
 import { getMission } from './missions';
 import {
@@ -181,6 +183,23 @@ export interface Enemy {
   hist: Float32Array;
   /** Boss astras (Astra Saga): null for everything else. */
   rule: RuleState | null;
+  /** Astra Saga boss style (its own attack order); null: the body's classic cycle. */
+  style: BossStyle | null;
+  /** Elite trooper: tougher, glowing, a big reward when it falls. */
+  elite: boolean;
+  /** Leap target x (walker leap). */
+  leapX: number;
+}
+
+/** A wave enemy on its way in (portal or rising from the ground): it appears at `at`. */
+interface PendingSpawn {
+  kind: TrooperKind;
+  x: number;
+  y: number;
+  arena: number;
+  at: number;
+  elite: boolean;
+  fromBoss: boolean;
 }
 
 /**
@@ -289,6 +308,14 @@ export type SimEvent =
   /** The team brahmastra: phase 0 = wind-up (sky darkens), 1 = the strike. */
   | { e: 'brahma'; id: string; x: number; y: number; phase: 0 | 1 }
   | { e: 'style'; id: string; t: StyleTag; x: number; y: number }
+  /** An enemy is about to come through a portal (`how` 0) or rise out of the ground (1) here. */
+  | { e: 'portal'; x: number; y: number; how: 0 | 1 }
+  /** A boss vanished here (`out` 1) or reappeared here (0). */
+  | { e: 'blink'; x: number; y: number; out: 0 | 1 }
+  /** An elite trooper fell (`by` its killer). */
+  | { e: 'elite'; x: number; y: number; by: string }
+  /** A hidden stash was found (`id` the pickup). */
+  | { e: 'secret'; id: number; x: number; y: number; by: string }
   | { e: 'start' }
   | { e: 'end'; result: MissionResult; reason?: FailReason };
 
@@ -382,6 +409,8 @@ export interface EnemySnapshot {
   /** Stunned (spent after a storm, or its brahmashirsha countered) / untouchable (storm). */
   sn: 0 | 1;
   im: 0 | 1;
+  /** Elite trooper. */
+  el: 0 | 1;
 }
 
 export interface BulletSnapshot {
@@ -456,6 +485,12 @@ export const ATTACK_WINDUP: Record<number, number> = {
   [ATTACK.beamLow]: 1.0,
   [ATTACK.beamHigh]: 1.0,
   [ATTACK.slam]: 0.6,
+  [ATTACK.rain]: 0.7,
+  [ATTACK.ring]: 0.65,
+  [ATTACK.spiral]: 0.55,
+  [ATTACK.leap]: 0.6,
+  [ATTACK.blink]: 0.45,
+  [ATTACK.summon]: 0.6,
 };
 /** How long a beam burns once it fires. */
 export const BEAM_SEC = 0.5;
@@ -503,6 +538,7 @@ export class Sim {
   private events: SimEvent[] = [];
   private nextBulletId = 1;
   private nextEnemyId = 10_000;
+  private pending: PendingSpawn[] = [];
   private countdownEnd: number;
   private endAt = -1;
   private pendingResult: MissionResult | null = null;
@@ -537,6 +573,8 @@ export class Sim {
       const e = this.spawnEnemy(9_000 + i, b.kind, b.x, b.y);
       e.arena = b.arena;
       e.hpMul = b.hpMul;
+      const style = styleOf(this.level.arenas[b.arena]?.name ?? '');
+      if (style && style.body === b.kind) e.style = style;
       const rules = this.level.arenas[b.arena]?.rules ?? [];
       if (rules.length)
         e.rule = {
@@ -695,6 +733,9 @@ export class Sim {
       aim: Math.PI,
       hist: new Float32Array(HIST * 2),
       rule: null,
+      style: null,
+      elite: false,
+      leapX: x,
     };
     e.body.facing = -1;
     this.enemies.set(id, e);
@@ -1032,7 +1073,9 @@ export class Sim {
               ATTACK.cannon,
             ]
           : [ATTACK.cannon, ATTACK.mg, ATTACK.charge, ATTACK.stomp];
-        const atk = cycle[e.cycle % cycle.length] as AttackId;
+        const atk = e.style
+          ? nextStyleAttack(e.style, e.phase, e.cycle)
+          : (cycle[e.cycle % cycle.length] as AttackId);
         e.cycle++;
         this.startAttack(e, atk, ph2 && atk === ATTACK.stomp ? 2 : 1);
       }
@@ -1105,7 +1148,7 @@ export class Sim {
           break;
         }
         default:
-          this.endAttack(e, 1);
+          if (!this.stepSagaMove(e, target, t, wind, ph2 ? 0.6 : 1.0)) this.endAttack(e, 1);
       }
     }
     b.vy = Math.min(P.maxFallSpeed, b.vy + P.gravity * this.dt);
@@ -1144,7 +1187,9 @@ export class Sim {
         const cycle: AttackId[] = ph2
           ? [ATTACK.bombs, ATTACK.missiles, ATTACK.strafe, ATTACK.troops, ATTACK.bombs, ATTACK.missiles]
           : [ATTACK.strafe, ATTACK.bombs, ATTACK.missiles, ATTACK.troops];
-        const atk = cycle[e.cycle % cycle.length] as AttackId;
+        const atk = e.style
+          ? nextStyleAttack(e.style, e.phase, e.cycle)
+          : (cycle[e.cycle % cycle.length] as AttackId);
         e.cycle++;
         // Bombing runs go toward the far side of the arena.
         this.startAttack(e, atk, atk === ATTACK.bombs ? (b.x < (minX + maxX) / 2 ? 1 : 0) : 0);
@@ -1205,7 +1250,7 @@ export class Sim {
         break;
       }
       default:
-        this.endAttack(e, 1);
+        if (!this.stepSagaMove(e, target, t, wind, ph2 ? 0.7 : 1.1)) this.endAttack(e, 1);
     }
   }
 
@@ -1217,7 +1262,8 @@ export class Sim {
     const target = this.nearestAlive(b.x, b.y - b.h / 2, 1600);
     if (target) e.aim = Math.atan2(target.y - P.height / 2 - (b.y - 120), target.x - (b.x - b.w / 2));
     const ph = e.phase;
-    if (ph >= 2 && this.tick % this.ticks(bc.droneEvery) === 0) {
+    // Classic fortresses send drones from phase 2; saga styles bring their own reinforcements (summon).
+    if (ph >= 2 && !e.style && this.tick % this.ticks(bc.droneEvery) === 0) {
       let drones = 0;
       for (const x of this.enemies.values()) if (x.fromBoss) drones++;
       if (drones < bc.maxDrones) this.spawnAwake('drone', b.x - 40, b.y - b.h - 20, e.arena, true);
@@ -1230,7 +1276,9 @@ export class Sim {
             : ph === 2
               ? [ATTACK.volley, ATTACK.slam, ATTACK.beamLow, ATTACK.beamHigh, ATTACK.volley, ATTACK.slam]
               : [ATTACK.beamLow, ATTACK.slam, ATTACK.volley, ATTACK.beamHigh, ATTACK.slam, ATTACK.volley];
-        const atk = cycle[e.cycle % cycle.length] as AttackId;
+        const atk = e.style
+          ? nextStyleAttack(e.style, e.phase, e.cycle)
+          : (cycle[e.cycle % cycle.length] as AttackId);
         e.cycle++;
         this.startAttack(e, atk, ph);
       }
@@ -1284,8 +1332,173 @@ export class Sim {
         break;
       }
       default:
-        this.endAttack(e, 1);
+        if (!this.stepSagaMove(e, target, t, wind, idle)) this.endAttack(e, 1);
     }
+  }
+
+  // ------------------------------------------------------------ saga boss moves (any body)
+
+  /**
+   * Moves shared by every boss body in the Astra Saga (see boss-styles.ts). Returns false for a move this body
+   * cannot do, so the caller simply ends it.
+   */
+  private stepSagaMove(e: Enemy, target: Player | null, t: number, wind: number, idle: number): boolean {
+    const M = GAME_CONFIG.bossMoves;
+    const b = e.body;
+    const arena = this.arenaOf(e);
+    const left = arena?.left ?? 0;
+    const right = arena?.right ?? levelWidth(this.level);
+    const floor = arena?.floor ?? b.y;
+    const ph = e.phase;
+    const c = this.castPoint(e);
+    switch (e.atk) {
+      case ATTACK.rain: {
+        // Fire (or hail, or lightning) falls on a line of spots around the target; the client marks each spot.
+        if (t === wind) {
+          const n = M.rain.count + ph - 1;
+          const cx = target ? target.x : (left + right) / 2;
+          for (let i = 0; i < n; i++) {
+            const x = Math.max(
+              left + 24,
+              Math.min(right - 24, cx + (i - (n - 1) / 2) * M.rain.gap + this.rng.range(-20, 20)),
+            );
+            this.shoot(x, floor - M.rain.drop - i * 46, Math.PI / 2, M.rain.dmg, {
+              kind: 'meteor',
+              speed: M.rain.speed,
+              size: 9,
+              blast: M.rain.blast,
+              life: 3.5,
+            });
+          }
+        }
+        if (t >= wind + this.ticks(1)) this.endAttack(e, idle);
+        return true;
+      }
+      case ATTACK.ring: {
+        // One ring of shots (two from phase 2, the second turned half a step so the gaps move).
+        const rings = ph >= 2 ? 2 : 1;
+        const gap = this.ticks(0.45);
+        if (t >= wind && (t - wind) % gap === 0 && (t - wind) / gap < rings) {
+          const k = (t - wind) / gap;
+          const n = M.ring.count;
+          for (let i = 0; i < n; i++)
+            this.shoot(c.x, c.y, ((i + k * 0.5) / n) * Math.PI * 2, M.ring.dmg, {
+              speed: M.ring.speed,
+              size: 4,
+              life: 4,
+            });
+        }
+        if (t >= wind + gap * rings + this.ticks(0.2)) this.endAttack(e, idle);
+        return true;
+      }
+      case ATTACK.spiral: {
+        // A spinning stream: walk around it, or slip through the gap between the arms.
+        const dur = this.ticks(M.spiral.sec);
+        if (t >= wind && t < wind + dur && (t - wind) % M.spiral.everyTicks === 0) {
+          const a0 = (t - wind) * M.spiral.turn * (e.cycle % 2 ? 1 : -1);
+          for (let k = 0; k < M.spiral.arms; k++)
+            this.shoot(c.x, c.y, a0 + (k * Math.PI * 2) / M.spiral.arms, M.spiral.dmg, {
+              speed: M.spiral.speed,
+              size: 4,
+              life: 3.5,
+            });
+        }
+        if (t >= wind + dur) this.endAttack(e, idle);
+        return true;
+      }
+      case ATTACK.leap: {
+        // Walkers only: a huge jump at the target, landing with a shockwave each way (jump it).
+        if (e.kind !== 'walker') return false;
+        if (t === wind) {
+          e.leapX = target ? Math.max(left + b.w / 2, Math.min(right - b.w / 2, target.x)) : b.x;
+          if (b.onGround) b.vy = -M.leap.jump;
+        }
+        if (t > wind) b.vx = Math.max(-M.leap.speed, Math.min(M.leap.speed, (e.leapX - b.x) * 2.5));
+        if (t > wind + 3 && b.onGround) {
+          b.vx = 0;
+          for (const dir of [-1, 1]) {
+            const w = this.shoot(b.x + dir * (b.w / 2 - 6), b.y - 12, dir > 0 ? 0 : Math.PI, M.leap.waveDmg, {
+              kind: 'wave',
+              speed: 360,
+              size: 12,
+              life: 2.2,
+            });
+            w.vy = 0;
+          }
+          this.emit({ e: 'boom', x: r1(b.x), y: r1(b.y), r: 70 });
+          this.endAttack(e, idle);
+        } else if (t > wind + this.ticks(2.5)) this.endAttack(e, idle);
+        return true;
+      }
+      case ATTACK.blink: {
+        // Walkers and gunships: vanish, then reappear on the other side of the target and strike again soon.
+        if (e.kind === 'boss') return false;
+        if (t === wind) {
+          const mid = b.y - (e.kind === 'walker' ? b.h / 2 : 0);
+          this.emit({ e: 'blink', x: r1(b.x), y: r1(mid), out: 1 });
+          const tx = target ? target.x : (left + right) / 2;
+          const side = b.x < tx ? 1 : -1;
+          const margin = e.kind === 'gunship' ? 140 : b.w / 2 + 8;
+          b.x = Math.max(left + margin, Math.min(right - margin, tx + side * M.blink.dist));
+          b.facing = tx >= b.x ? 1 : -1;
+          this.emit({ e: 'blink', x: r1(b.x), y: r1(mid), out: 0 });
+          this.endAttack(e, 0.35);
+        }
+        return true;
+      }
+      case ATTACK.summon: {
+        // Reinforcements through portals or out of the ground, never more than a few at once.
+        if (t === wind && arena) {
+          let n = this.pending.filter((q) => q.fromBoss).length;
+          for (const x of this.enemies.values()) if (x.fromBoss) n++;
+          const kind = e.style?.summon ?? 'soldier';
+          const side = e.style?.entry ?? 'P';
+          for (let i = 0; i < Math.min(M.summon.count, M.summon.max - n); i++)
+            this.queueSpawn({ kind, side }, arena, true);
+        }
+        if (t >= wind + this.ticks(0.6)) this.endAttack(e, idle);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** A wave or boss enemy that arrives through a portal ('P') or rises out of the ground ('U') a moment later. */
+  private queueSpawn(s: WaveSpawn, a: ArenaDef, fromBoss: boolean): void {
+    let x: number;
+    if (s.side === 'U') {
+      const alive = [...this.players.values()].filter((p) => p.state === 'alive');
+      const p = alive.length ? alive[this.rng.int(alive.length)] : null;
+      const base = p ? p.x : (a.left + a.right) / 2;
+      x = base + (this.rng.int(2) ? 1 : -1) * this.rng.range(90, 190);
+    } else x = a.left + (a.right - a.left) * this.rng.range(0.3, 0.75);
+    x = Math.max(a.left + 30, Math.min(a.right - 30, x));
+    this.emit({ e: 'portal', x: r1(x), y: r1(a.floor), how: s.side === 'U' ? 1 : 0 });
+    this.pending.push({
+      kind: s.kind,
+      x,
+      y: a.floor,
+      arena: a.id,
+      at: this.tick + this.ticks(GAME_CONFIG.bossMoves.portalSec),
+      elite: s.elite === true,
+      fromBoss,
+    });
+  }
+
+  private stepPending(): void {
+    if (!this.pending.length) return;
+    const due = this.pending.filter((q) => this.tick >= q.at);
+    if (!due.length) return;
+    this.pending = this.pending.filter((q) => this.tick < q.at);
+    for (const q of due) {
+      const e = this.spawnAwake(q.kind, q.x, q.y, q.arena, q.fromBoss);
+      if (q.elite) this.makeElite(e);
+    }
+  }
+
+  private makeElite(e: Enemy): void {
+    e.elite = true;
+    e.hp = e.maxHp = e.maxHp * GAME_CONFIG.bossMoves.elite.hp;
   }
 
   /** Beam across the arena floor at `height` px above it. */
@@ -1548,6 +1761,7 @@ export class Sim {
       return;
     }
     this.stepPlayers();
+    this.stepPending();
     this.stepArenas();
     this.stepEnemies();
     this.stepPowers();
@@ -2548,7 +2762,15 @@ export class Sim {
     }
     this.enemies.delete(e.id);
     const kind = e.kind;
-    let pts: number = E[kind].score;
+    let pts: number = E[kind].score * (e.elite ? GAME_CONFIG.bossMoves.elite.score : 1);
+    if (e.elite) {
+      const EL = GAME_CONFIG.bossMoves.elite;
+      if (p) {
+        this.gainUlt(p, EL.ult);
+        p.hp = Math.min(P.maxHp, p.hp + EL.heal);
+      }
+      this.emit({ e: 'elite', x: r1(e.body.x), y: r1(e.body.y - e.body.h / 2), by });
+    }
     if (p) {
       this.addCombo(p, C.killBonus);
       if (this.brahma >= 0 && src !== 'astra') this.chargeBrahma(GAME_CONFIG.powers.brahma.perKill);
@@ -2570,6 +2792,7 @@ export class Sim {
     if (isBoss(kind)) {
       // A boss falls: its reinforcements go with it, and its shots vanish.
       for (const d of [...this.enemies.values()]) if (d.fromBoss) this.enemies.delete(d.id);
+      this.pending = this.pending.filter((q) => !q.fromBoss);
       this.bullets = this.bullets.filter((x) => !x.enemy);
       this.emit({ e: 'bossDown', kind, x: r1(e.body.x), y: r1(e.body.y) });
     }
@@ -2676,6 +2899,7 @@ export class Sim {
           p.power = pk.kind;
         } else p.weapon = pk.kind;
         this.emit({ e: 'pickup', id: pk.id, kind: pk.kind, by: p.id, healed });
+        if (pk.secret) this.emit({ e: 'secret', id: pk.id, x: r1(pk.x), y: r1(pk.y), by: p.id });
         break;
       }
     }
@@ -2711,6 +2935,7 @@ export class Sim {
           if (isBoss(e.kind)) bosses++;
           else if (!e.fromBoss || !a.boss) left++;
         }
+        for (const q of this.pending) if (q.arena === a.id && (!q.fromBoss || !a.boss)) left++;
         const next = (this.arenaWave[a.id] as number) + 1;
         if (a.boss && bosses > 0) {
           // Boss fight: the next escort wave comes 3 s after the last one is down, while a boss stands.
@@ -2736,12 +2961,18 @@ export class Sim {
     let l = 0;
     let r = 0;
     for (const s of wave) {
-      if (s.side === 'L') this.spawnAwake(s.kind, a.left + 40 + l++ * 34, a.floor, a.id);
-      else if (s.side === 'R') this.spawnAwake(s.kind, a.right - 40 - r++ * 34, a.floor, a.id);
+      if (s.side === 'P' || s.side === 'U') {
+        this.queueSpawn(s, a, false);
+        continue;
+      }
+      let e: Enemy;
+      if (s.side === 'L') e = this.spawnAwake(s.kind, a.left + 40 + l++ * 34, a.floor, a.id);
+      else if (s.side === 'R') e = this.spawnAwake(s.kind, a.right - 40 - r++ * 34, a.floor, a.id);
       else {
         const x = a.left + (a.right - a.left) * this.rng.range(0.25, 0.85);
-        this.spawnAwake(s.kind, x, 40, a.id);
+        e = this.spawnAwake(s.kind, x, 40, a.id);
       }
+      if (s.elite) this.makeElite(e);
     }
     this.emit({ e: 'arena', id: a.id, wave: n + 1, of: a.waves.length });
   }
@@ -2936,6 +3167,7 @@ export class Sim {
         rs: e.rule?.storm ? 1 : 0,
         sn: e.rule && this.tick < e.rule.stunUntil ? 1 : 0,
         im: e.rule?.storm ? 1 : 0,
+        el: e.elite ? 1 : 0,
       });
     }
     const ai = this.activeArena();

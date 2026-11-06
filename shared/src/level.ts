@@ -79,6 +79,8 @@ export interface PickupSpawn {
   y: number;
   /** An altar: comes back a few seconds after it is taken (so a fire wall can never lock the squad out). */
   respawn: boolean;
+  /** Loot on a hidden stash perch: finding it counts as a secret. */
+  secret: boolean;
 }
 
 /**
@@ -122,10 +124,15 @@ export interface CheckpointDef {
 export const BOSS_RULES = ['naga', 'narayana', 'vaishnava', 'brahmashirsha'] as const;
 export type BossRule = (typeof BOSS_RULES)[number];
 
-/** Where a wave enemy enters: the left or right edge of the arena, or dropping from the sky. */
+/**
+ * Where a wave enemy enters: the left or right edge of the arena, dropping from the sky, through a portal inside the
+ * arena ('P'), or rising out of the ground near a soldier ('U'). Portal and ground entries are announced (the client
+ * shows the portal or the cracking ground) a moment before the enemy appears. `elite`: a tougher, glowing trooper.
+ */
 export interface WaveSpawn {
   kind: TrooperKind;
-  side: 'L' | 'R' | 'sky';
+  side: 'L' | 'R' | 'sky' | 'P' | 'U';
+  elite?: boolean;
 }
 
 /**
@@ -271,8 +278,15 @@ export class Builder {
     return this;
   }
 
-  pickup(kind: PickupKind, col: number, surface: number, respawn = false): this {
-    this.pickups.push({ id: this.pickups.length, kind, x: col * T + T / 2, y: surface * T - 22, respawn });
+  pickup(kind: PickupKind, col: number, surface: number, respawn = false, secret = false): this {
+    this.pickups.push({
+      id: this.pickups.length,
+      kind,
+      x: col * T + T / 2,
+      y: surface * T - 22,
+      respawn,
+      secret,
+    });
     return this;
   }
 
