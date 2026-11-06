@@ -144,6 +144,10 @@ view.onSecret = () => {
     view.notice(`✦ +${SECRET_SHARDS} astra shards for the secret`);
 };
 
+/** The portal's mute switch (CrazyGames settings.muteAudio): it wins over the game's own sound setting. */
+let portalMuted = false;
+const applyVolume = (): void => sfx.setVolume(settings.value.volume, settings.value.muted || portalMuted);
+
 /** While an ad plays: the game is paused and silent. */
 const adHooks: AdHooks = {
   start: () => {
@@ -151,7 +155,7 @@ const adHooks: AdHooks = {
     platform.gameplay(false);
     sfx.setVolume(settings.value.volume, true);
   },
-  end: () => sfx.setVolume(settings.value.volume, settings.value.muted),
+  end: applyVolume,
 };
 /** A rewarded video was shown in this break between runs: no midgame ad on top of it (portal rule). */
 let rewardedThisBreak = false;
@@ -1027,6 +1031,17 @@ $('btn-results-leave').addEventListener('click', () => (room ? leaveRoom() : lea
 
 // ---------------------------------------------------------------- navigation
 
+/** Opened to join squad `code`: from a portal invite with a known name, join at once; otherwise ask first. */
+function openInvite(code: string, fromPortal: boolean): void {
+  ($('join-code') as HTMLInputElement).value = code;
+  showScreen('join');
+  $('h-join').textContent = 'Your friends need you!';
+  if (fromPortal && settings.value.name) {
+    ($('join-name') as HTMLInputElement).value = settings.value.name;
+    submitJoin();
+  } else $(settings.value.name ? 'btn-join-go' : 'join-name').focus();
+}
+
 function leaveRoom(): void {
   userLeft = true;
   conn.send({ t: 'leaveRoom' });
@@ -1038,7 +1053,7 @@ function leaveToMenu(closeConn: boolean): void {
   stopOnline();
   stopPractice();
   platform.gameplay(false);
-  platform.showInvite(null);
+  platform.room(null, false);
   closeOverlay('overlay-continue');
   practiceOpts = null;
   closeOverlay('overlay-pause');
@@ -1130,7 +1145,7 @@ function renderLobby(): void {
   const host = r.hostId === myId;
   $('lobby-code').textContent = r.code;
   const link = squadLink(r.code);
-  platform.showInvite(r.code);
+  platform.room(r.code, r.players.length < r.maxPlayers);
   ($('btn-whatsapp') as HTMLAnchorElement).href =
     `https://wa.me/?text=${encodeURIComponent(`Join my STRIKE SQUAD mission! We need you 💪 Squad ${r.code}: ${link}`)}`;
   $('squad-count').textContent = `${r.players.length}/${r.maxPlayers}`;
@@ -1426,7 +1441,7 @@ function syncSettingsUi(): void {
   ($('set-hand') as HTMLSelectElement).value = s.hand;
   $('touch').classList.toggle('lefty', s.hand === 'left');
   document.body.classList.toggle('reduce-motion', s.reduceMotion);
-  sfx.setVolume(s.volume, s.muted);
+  applyVolume();
 }
 settings.onChange(syncSettingsUi);
 syncSettingsUi();
@@ -1662,13 +1677,25 @@ function boot(): void {
       ($('join-name') as HTMLInputElement).value = name;
     }
   });
+  platform.onMute((m) => {
+    portalMuted = m;
+    applyVolume();
+  });
+  // A friend's invite accepted while the game is open: leave whatever we are doing and join their squad.
+  platform.onJoinRoom((raw) => {
+    const code = raw.toUpperCase();
+    if (!ROOM_CODE_REGEX.test(code) || room?.code === code) return;
+    if (room) leaveRoom();
+    else leaveToMenu(false);
+    openInvite(code, true);
+  });
   const invited = platform.invitedSquad()?.toUpperCase() ?? null;
   const code = invited && ROOM_CODE_REGEX.test(invited) ? invited : parseJoinPath(location.pathname);
-  if (code) {
-    ($('join-code') as HTMLInputElement).value = code;
-    showScreen('join');
-    $('h-join').textContent = 'Your friends need you!';
-    $(settings.value.name ? 'btn-join-go' : 'join-name').focus();
+  if (code) openInvite(code, invited !== null);
+  else if (platform.instantMultiplayer()) {
+    // "Play with friends" on the portal: straight to making a squad (mission and difficulty, then Create).
+    currentName();
+    showScreen('create');
   } else {
     showScreen('menu');
   }

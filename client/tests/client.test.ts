@@ -546,6 +546,54 @@ describe('platform adapter', () => {
     expect(await p.username()).toBe('Arjun_7');
     expect(p.ownsUrl).toBe(false);
   });
+
+  it('multiplayer: the squad is the portal room, invites land in it, play-with-friends and mute are followed', () => {
+    let joinListener: ((room: unknown) => void) | null = null;
+    let settingsListener: ((s: { muteAudio?: boolean }) => void) | null = null;
+    const base = fakeSdk();
+    const { sdk, calls } = fakeSdk({
+      game: {
+        ...base.sdk.game,
+        updateRoom: (r) => void calls.push(`room:${r.roomId}:${r.isJoinable}:${r.inviteParams?.squad}`),
+        leftRoom: () => void calls.push('leftRoom'),
+        addJoinRoomListener: (l) => void (joinListener = l),
+        inviteParams: { squad: 'QWE234' },
+        isInstantMultiplayer: true,
+        settings: { muteAudio: true },
+        addSettingsChangeListener: (l) => void (settingsListener = l),
+      },
+    });
+    const p = crazyPlatform(sdk);
+    p.room('QWE234', true);
+    p.room('QWE234', false);
+    p.room(null, false);
+    expect(calls.slice(-3)).toEqual(['room:QWE234:true:QWE234', 'room:QWE234:false:QWE234', 'leftRoom']);
+    expect(calls.some((c) => c.startsWith('invite:'))).toBe(false); // the deprecated button is not used
+    expect(p.invitedSquad()).toBe('QWE234'); // inviteParams win over the old query parameter
+    expect(p.instantMultiplayer()).toBe(true);
+    const joined: string[] = [];
+    p.onJoinRoom((c) => joined.push(c));
+    joinListener!({ inviteParams: { squad: 'ZZZ999' } });
+    joinListener!({ squad: 'YYY888' });
+    joinListener!({ nothing: true });
+    expect(joined).toEqual(['ZZZ999', 'YYY888']);
+    const muted: boolean[] = [];
+    p.onMute((m) => muted.push(m));
+    settingsListener!({ muteAudio: false });
+    expect(muted).toEqual([true, false]);
+  });
+
+  it('an older SDK without room data falls back to the invite button', () => {
+    const { sdk, calls } = fakeSdk();
+    const p = crazyPlatform(sdk);
+    p.room('ABC234', true);
+    p.room('ABC234', false);
+    expect(calls.slice(-2)).toEqual(['invite:ABC234', 'hideInvite']);
+    expect(p.instantMultiplayer()).toBe(false);
+    const muted: boolean[] = [];
+    p.onMute((m) => muted.push(m));
+    expect(muted).toEqual([false]);
+  });
 });
 
 describe('profile: XP, levels and hero unlocks', () => {

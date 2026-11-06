@@ -9,7 +9,10 @@
  * Portal rules this module enforces for the rest of the game (CrazyGames requirements, see docs/CRAZYGAMES.md):
  *  - ads only through the SDK; the game pauses and mutes while one plays, and keeps working when ads fail or an
  *    ad blocker is on (a rewarded reward is granted only when the ad really finished);
- *  - every SDK call is guarded: outside CrazyGames the SDK throws, so the adapter falls back to `web`.
+ *  - every SDK call is guarded: outside CrazyGames the SDK throws, so the adapter falls back to `web`;
+ *  - multiplayer: the squad the player is in is reported as the portal's room (joinable while it has space), a
+ *    friend who accepts an invite lands in that squad, "play with friends" (instant multiplayer) goes straight to
+ *    making a squad, and the portal's mute switch silences the game whatever its own sound setting says.
  */
 
 /** The bit of `Storage` the stores use. */
@@ -47,8 +50,14 @@ export interface Platform {
   inviteLink(code: string): string | null;
   /** The squad code this page was opened to join (from a portal invite), if any. */
   invitedSquad(): string | null;
-  /** Show the portal's own invite button for squad `code` (null hides it). */
-  showInvite(code: string | null): void;
+  /** The player is in squad `code` (null: left it); `joinable` while it has room for friends. */
+  room(code: string | null, joinable: boolean): void;
+  /** Opened through the portal's "play with friends": go straight to making a squad. */
+  instantMultiplayer(): boolean;
+  /** A friend's invite was accepted while the game was already open: join squad `code`. */
+  onJoinRoom(cb: (code: string) => void): void;
+  /** The portal muted or unmuted the game (called once right away with the current state). */
+  onMute(cb: (muted: boolean) => void): void;
   /** May the game change the page URL (history.replaceState)? Not inside a portal's iframe. */
   readonly ownsUrl: boolean;
 }
@@ -80,7 +89,10 @@ export function webPlatform(): Platform {
     username: async () => null,
     inviteLink: () => null,
     invitedSquad: () => null,
-    showInvite: () => undefined,
+    room: () => undefined,
+    instantMultiplayer: () => false,
+    onJoinRoom: () => undefined,
+    onMute: () => undefined,
     ownsUrl: true,
   };
 }
@@ -101,6 +113,15 @@ export interface CrazySdk {
     showInviteButton(params: Record<string, string>): string;
     hideInviteButton?(): void;
     getInviteParam?(name: string): string | null;
+    /** Room data (replaces the invite button): https://docs.crazygames.com/sdk/game/#room-data */
+    updateRoom?(room: { roomId?: string; isJoinable?: boolean; inviteParams?: Record<string, string> }): void;
+    leftRoom?(): void;
+    addJoinRoomListener?(listener: (room: unknown) => void): void;
+    /** Invite parameters this page was opened with (a friend's invite), or null. */
+    inviteParams?: Record<string, string> | null;
+    isInstantMultiplayer?: boolean;
+    settings?: { muteAudio?: boolean };
+    addSettingsChangeListener?(listener: (settings: { muteAudio?: boolean }) => void): void;
   };
   ad: {
     requestAd(
@@ -205,12 +226,33 @@ export function crazyPlatform(sdk: CrazySdk): Platform {
       }
     },
     inviteLink: (code) => safe(() => sdk.game.inviteLink({ squad: code }), null),
-    invitedSquad: () => safe(() => sdk.game.getInviteParam?.('squad') ?? null, null),
-    showInvite(code) {
+    invitedSquad: () =>
+      safe(() => sdk.game.inviteParams?.squad ?? sdk.game.getInviteParam?.('squad') ?? null, null),
+    room(code, joinable) {
       safe(() => {
-        if (code) sdk.game.showInviteButton({ squad: code });
-        else sdk.game.hideInviteButton?.();
+        const g = sdk.game;
+        if (g.updateRoom) {
+          if (code) g.updateRoom({ roomId: code, isJoinable: joinable, inviteParams: { squad: code } });
+          else g.leftRoom?.();
+        } else if (code && joinable) g.showInviteButton({ squad: code });
+        else g.hideInviteButton?.();
       }, undefined);
+    },
+    instantMultiplayer: () => safe(() => sdk.game.isInstantMultiplayer === true, false),
+    onJoinRoom(cb) {
+      safe(
+        () =>
+          sdk.game.addJoinRoomListener?.((room) => {
+            const r = room as { squad?: unknown; inviteParams?: { squad?: unknown } } | null;
+            const code = r?.inviteParams?.squad ?? r?.squad;
+            if (typeof code === 'string') cb(code);
+          }),
+        undefined,
+      );
+    },
+    onMute(cb) {
+      cb(safe(() => sdk.game.settings?.muteAudio === true, false));
+      safe(() => sdk.game.addSettingsChangeListener?.((st) => cb(st?.muteAudio === true)), undefined);
     },
   };
 }

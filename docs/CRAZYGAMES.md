@@ -51,7 +51,19 @@ busy, the paid Workers plan is the next step (check the price on Cloudflare's pr
 2. Upload `release/strike-squad-crazygames.zip`.
 3. Orientation: **landscape**. Devices: desktop and mobile (touch controls are built in).
 4. "Does your game save progress?": **yes** (it uses the data module).
-5. Multiplayer: the game has optional online co-op (up to 8). Lobby size: **8**. There is no chat.
+5. Multiplayer: the game has optional online co-op (up to 8). Lobby size: min **2**, max **8**. There is no chat.
+   Mobile orientation: **landscape**. "Supports CrazyGames muting audio through SDK": **yes**.
+   What the CrazyGames multiplayer rules ask for, and where the game does it (`client/src/platform/platform.ts`):
+   - **Room data**: the squad you are in is reported with `updateRoom({ roomId, isJoinable, inviteParams })`
+     (joinable while the squad has space) and `leftRoom()` when you leave. Older SDKs without room data fall back
+     to the invite button.
+   - **Invites**: a friend who opens the game from an invite joins that squad at once (`inviteParams.squad`, or
+     the old `getInviteParam('squad')`); an invite accepted while the game is already open (`addJoinRoomListener`)
+     leaves whatever you were doing and joins the squad.
+   - **Instant multiplayer**: opened with `isInstantMultiplayer`, the game skips the menu and opens the squad
+     screen (mission and difficulty, then Create): a private squad that friends can join right away.
+   - **Usernames**: a signed-in player's CrazyGames name is their callsign.
+   - **Mute**: `settings.muteAudio` (and its change listener) silences the game over its own sound setting.
 6. Covers (all three are required): `release/covers/` (1920x1080, 800x1200, 800x800). Key art drawn by the game's
    own renderer (real level, heroes and asura sprites) with the title only: no borders, no "Play now", no store logos.
    To redraw them, run `npm run dev -w client` and open `/tools/keyart.html?w=1920&h=1080&layout=landscape`

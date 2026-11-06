@@ -38,6 +38,13 @@ window.CrazyGames = { SDK: {
     showInviteButton: (p) => { log('showInvite:' + p.squad); return ''; },
     hideInviteButton: () => log('hideInvite'),
     getInviteParam: () => null,
+    updateRoom: (r) => log('updateRoom:' + r.roomId + ':' + r.isJoinable),
+    leftRoom: () => log('leftRoom'),
+    addJoinRoomListener: () => undefined,
+    inviteParams: null,
+    isInstantMultiplayer: !!(window.__cgOpts && window.__cgOpts.instant),
+    settings: { muteAudio: false },
+    addSettingsChangeListener: () => undefined,
   },
   ad: {
     requestAd: (kind, cb) => {
@@ -70,7 +77,7 @@ interface Cg {
   adMode: string;
 }
 
-async function openPortal(page: Page, failed: string[]): Promise<void> {
+async function openPortal(page: Page, failed: string[], landing = 'btn-saga'): Promise<void> {
   await page.route('**/*', async (route) => {
     const url = route.request().url();
     if (url === 'https://sdk.crazygames.com/crazygames-sdk-v3.js')
@@ -89,7 +96,7 @@ async function openPortal(page: Page, failed: string[]): Promise<void> {
     return route.abort();
   });
   await page.goto(`${GAME}index.html`);
-  await expect(page.getByTestId('btn-saga')).toBeVisible();
+  await expect(page.getByTestId(landing)).toBeVisible();
 }
 
 const cg = (page: Page): Promise<Cg> => page.evaluate(() => (window as unknown as { __cg: Cg }).__cg);
@@ -124,6 +131,16 @@ test('the CrazyGames build loads from a portal folder with the SDK, and lands in
   await page.getByTestId('btn-resume').click();
   c = await cg(page);
   expect(c.calls.slice(-2)).toEqual(['gameplayStop', 'gameplayStart']);
+});
+
+test('"play with friends" on the portal opens straight on making a squad', async ({ page }) => {
+  const failed: string[] = [];
+  await page.addInitScript(() => {
+    (window as unknown as { __cgOpts: unknown }).__cgOpts = { instant: true };
+  });
+  await openPortal(page, failed, 'btn-create-go');
+  await expect(page.getByTestId('btn-create-go')).toBeVisible();
+  expect(failed).toEqual([]);
 });
 
 test('out of lives: a rewarded video continues the run; the reward only comes when the ad finished', async ({
