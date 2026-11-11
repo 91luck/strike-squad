@@ -69,9 +69,11 @@ busy, the paid Workers plan is the next step (check the price on Cloudflare's pr
    To redraw them, run `npm run dev -w client` and open `/tools/keyart.html?w=1920&h=1080&layout=landscape`
    (`layout=portrait|square`), then take a screenshot at that size (`client/src/tools/keyart.ts`; dev-only, not in
    any build).
-7. Preview videos: `release/videos/preview-landscape-1920x1080.mp4` and `preview-portrait-1080x1620.mp4` (17 s,
-   30 fps, H.264, no audio, first frame = the cover, no black bars, no cursor). Five real gameplay scenes (stages 1, 4,
-   8, 7, 10: Agneyastra, Nagastra, Sudarshana, Narayanastra, Brahmashirsha) at **real speed** (CrazyGames forbids
+7. Preview videos: `release/videos/preview-landscape-1920x1080.mp4` and `preview-portrait-1080x1620.mp4` (16.4 s,
+   30 fps, H.264, no audio, first frame = the cover, no black bars, no cursor). Five real gameplay scenes, re-recorded
+   with the HD art (stage 3: the Vayavyastra whirlwind lifting a crowd; stage 1: Agneyastra, then a whirlwind over the
+   burning ground turning to fire; stage 4: Garudastra against the serpent boss; stage 8: the Chakravyuh walker;
+   stage 10: an Agni super in the last war) at **real speed** (CrazyGames forbids
    fast-forward and speeds videos up slightly itself), joined with short fades. They were recorded frame by frame in a
    headless browser with the computer squad playing (`window.__strikesquad.autoplay(true)`), at 912x513 CSS px with 2x
    pixel density so the game uses its close-up camera, with the banners, kill feed and tips hidden. When recording
@@ -88,6 +90,16 @@ busy, the paid Workers plan is the next step (check the price on Cloudflare's pr
 > **Controls (keyboard):** A/D or arrows move, W/S aim, Space jump (twice: double jump), J fire, Shift dash (Down +
 > Shift: slide), F knife, Q super move, R astra, Esc or P pause. **Touch:** left thumb moves and aims; buttons for
 > Jump, Fire, Dash, Knife, Super and Astra.
+
+## Checked against the CrazyGames requirements (Nov 2026)
+
+- Touch controls follow the portal's device type (`SDK.user.systemInfo.device.type`), not touch APIs: a laptop with
+  a touch screen gets keyboard controls (`Platform.device`, tested in `e2e/crazygames.spec.ts`).
+- Text selection is off on `body`; the audio context is resumed on every tap, click and key (iOS).
+- Relative paths only; 296 KB zipped (limit 50 MB, 20 MB for the mobile homepage); one click to gameplay.
+- In the smallest game frames (821x462, 800x450) the HD art is used and the menu fits (907x510 too).
+- P pauses as well as Escape (Escape leaves the portal's fullscreen first).
+- Covers: three sizes, title only, no borders or badges. Videos: both orientations, 15-20 s, under 50 MB.
 
 ## 4. Test before you submit
 

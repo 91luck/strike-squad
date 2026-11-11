@@ -868,7 +868,7 @@ describe('arenas', () => {
     for (let w = 0; w < a.waves.length; w++) {
       for (const e of [...sim.enemies.values()])
         if (e.arena === 0) sim['damageEnemy'](e, 999, 'p0', 0, 0, 'gun');
-      run(sim, sim.ticks(1.5));
+      run(sim, sim.ticks(2.8));
     }
     expect(sim.gateOpen[a.gate]).toBe(true);
     expect(sim.arenaState[0]).toBe(2);

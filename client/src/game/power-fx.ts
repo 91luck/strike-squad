@@ -226,35 +226,9 @@ export function drawFireWall(ctx: CanvasRenderingContext2D, g: GateDef, nowMs: n
 /** Burning ground left by agni, black holes, and pashupata spirits. */
 export function drawFx(ctx: CanvasRenderingContext2D, fx: FxSnapshot[], nowMs: number): void {
   for (const f of fx) {
-    if (f.k === 0) drawBurn(ctx, f, nowMs);
-    else if (f.k === 1) drawHole(ctx, f.x, f.y, f.w, f.t, nowMs);
-    else drawSpirit(ctx, f.x, f.y, f.t, nowMs);
+    if (f.k === 1) drawHole(ctx, f.x, f.y, f.w, f.t, nowMs);
+    else if (f.k === 2) drawSpirit(ctx, f.x, f.y, f.t, nowMs);
   }
-}
-
-function drawBurn(ctx: CanvasRenderingContext2D, f: FxSnapshot, nowMs: number): void {
-  const fade = Math.min(1, f.t / 0.6);
-  ctx.save();
-  ctx.globalCompositeOperation = 'lighter';
-  ctx.globalAlpha = fade;
-  const base = ctx.createLinearGradient(0, f.y - 10, 0, f.y);
-  base.addColorStop(0, 'rgba(255,80,0,0)');
-  base.addColorStop(1, 'rgba(255,120,30,0.6)');
-  ctx.fillStyle = base;
-  ctx.fillRect(f.x, f.y - 10, f.w, 10);
-  for (let x = f.x + 6; x < f.x + f.w; x += 12) {
-    const h = 18 + Math.sin(nowMs / 70 + x * 0.7) * 8 + Math.sin(nowMs / 130 + x) * 5;
-    const g = ctx.createLinearGradient(0, f.y - h, 0, f.y);
-    g.addColorStop(0, 'rgba(255,60,0,0)');
-    g.addColorStop(0.5, 'rgba(255,140,30,0.7)');
-    g.addColorStop(1, 'rgba(255,240,170,0.95)');
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.moveTo(x - 7, f.y);
-    ctx.quadraticCurveTo(x + Math.sin(nowMs / 100 + x) * 4, f.y - h * 1.4, x + 7, f.y);
-    ctx.fill();
-  }
-  ctx.restore();
 }
 
 /** A black hole: a dark core, a lensing rim, and a hot accretion disc spinning around it. */

@@ -117,20 +117,33 @@ describe('astras', () => {
     expect(p.power).toBeNull();
   });
 
-  it('vayu blows troopers back, tears off riot shields and scatters enemy shots', () => {
+  it('vayu raises a whirlwind that walks ahead, carries troopers up (riot shields torn off) and sweeps up shots', () => {
     const { sim, p } = playing(level());
     give(p, 'vayu');
     const e = soldierAt(sim, 9);
-    e.hp = e.maxHp = 50; // tough enough to survive the gust and be measured
+    e.hp = e.maxHp = 500; // tough enough to ride it out and be measured
     e.shield = 6;
-    const x0 = e.body.x;
+    const y0 = e.body.y;
+    press(sim);
+    expect(sim.twisters).toHaveLength(1);
+    const t = sim.twisters[0]!;
+    const tx0 = t.x;
+    for (let i = 0; i < sim.ticks(1.6); i++) sim.step();
+    expect(t.x).toBeGreaterThan(tx0 + 100); // it walks
+    expect(t.held.has(e.id)).toBe(true);
+    expect(e.shield).toBe(0);
+    expect(y0 - e.body.y).toBeGreaterThan(40); // lifted off the ground
+    expect(Math.abs(e.body.x - t.x)).toBeLessThan(PW.vayu.reach); // and carried along with it
+    expect(sim.snapshot().enemies.find((x) => x.id === e.id)!.fl & 2).toBe(2);
+    expect(sim.snapshot().fx.some((f) => f.k === 3)).toBe(true);
+    // an enemy shot flying into the column is swept up
     sim.bullets.push({
       id: 999,
       enemy: true,
       owner: '',
       kind: 'shot',
-      x: p.x + 120,
-      y: p.y - 24,
+      x: t.x + 20,
+      y: t.y - 40,
       vx: -200,
       vy: 0,
       dmg: 9,
@@ -149,11 +162,85 @@ describe('astras', () => {
       ret: false,
       src: -1,
     });
-    press(sim);
-    for (let i = 0; i < 8; i++) sim.step();
-    expect(e.body.x).toBeGreaterThan(x0 + 60);
-    expect(e.shield).toBe(0);
+    sim.step();
     expect(sim.bullets.some((b) => b.id === 999)).toBe(false);
+  });
+
+  it('when the whirlwind blows out it hurls what it carried, and they come back down', () => {
+    const { sim, p } = playing(level());
+    give(p, 'vayu');
+    const e = soldierAt(sim, 8);
+    e.hp = e.maxHp = 500;
+    press(sim);
+    const t = sim.twisters[0]!;
+    for (let i = 0; i < sim.ticks(PW.vayu.sec) - 3; i++) sim.step();
+    expect(sim.twisters).toHaveLength(1);
+    const hp0 = e.hp;
+    const x0 = e.body.x;
+    for (let i = 0; i < 6; i++) sim.step();
+    expect(sim.twisters).toHaveLength(0);
+    expect(hp0 - e.hp).toBeGreaterThanOrEqual(PW.vayu.flingDamage);
+    for (let i = 0; i < sim.ticks(0.5); i++) sim.step();
+    expect(Math.abs(e.body.x - x0)).toBeGreaterThan(100); // thrown well clear
+    for (let i = 0; i < sim.ticks(3); i++) sim.step();
+    expect(e.body.onGround).toBe(true);
+    expect(t.held.size).toBeGreaterThan(0);
+  });
+
+  it('a whirlwind leaves bosses and turrets standing, and carries no more than its limit', () => {
+    const { sim, p } = playing(level());
+    give(p, 'vayu');
+    const many = Array.from({ length: PW.vayu.carry + 3 }, (_, i) => {
+      const e = soldierAt(sim, 7 + (i % 4));
+      (e as { id: number }).id = 6000 + i;
+      sim.enemies.delete(5000 + 7 + (i % 4));
+      sim.enemies.set(e.id, e);
+      e.hp = e.maxHp = 500;
+      return e;
+    });
+    press(sim);
+    for (let i = 0; i < sim.ticks(1.2); i++) sim.step();
+    expect(sim.twisters[0]!.held.size).toBe(PW.vayu.carry);
+    expect(many.filter((e) => e.liftUntil > sim.tick)).toHaveLength(PW.vayu.carry);
+  });
+
+  it('wind feeds fire: a whirlwind crossing burning ground catches light and sets what it carries alight', () => {
+    const { sim, p } = playing(level());
+    give(p, 'agni');
+    press(sim);
+    give(p, 'vayu');
+    const e = soldierAt(sim, 14);
+    e.hp = e.maxHp = 5000;
+    // out of the burning ground's own reach: only the whirl can light it
+    e.body.y = G * T;
+    press(sim);
+    for (let i = 0; i < sim.ticks(1); i++) sim.step();
+    expect(sim.twisters[0]!.fire).toBe(true);
+    expect(sim.snapshot().fx.some((f) => f.k === 4)).toBe(true);
+  });
+
+  it('agni sets troopers alight: they burn on after leaving the fire and pass it to those they touch', () => {
+    const { sim, p } = playing(level());
+    give(p, 'agni');
+    const a = soldierAt(sim, 6);
+    a.hp = a.maxHp = 5000;
+    press(sim);
+    for (let i = 0; i < 12; i++) sim.step();
+    expect(a.burnUntil).toBeGreaterThan(sim.tick);
+    expect(sim.snapshot().enemies.find((x) => x.id === a.id)!.fl & 1).toBe(1);
+    // carry it far from the burning ground, next to a fresh trooper
+    a.body.x = 40 * T;
+    const b = soldierAt(sim, 40);
+    b.hp = b.maxHp = 5000;
+    b.body.x = a.body.x + 12;
+    a.burnUntil = sim.tick + sim.ticks(1);
+    const hp0 = a.hp;
+    for (let i = 0; i < sim.ticks(0.5); i++) sim.step();
+    expect(a.hp).toBeLessThan(hp0);
+    expect(b.burnUntil).toBeGreaterThan(sim.tick);
+    // and it goes out by itself
+    for (let i = 0; i < sim.ticks(PW.agni.alightSec + 1.5); i++) sim.step();
+    expect(sim.snapshot().enemies.find((x) => x.id === b.id)!.fl & 1).toBe(0);
   });
 
   it('a black hole pulls troopers in, swallows enemy shots and then collapses', () => {

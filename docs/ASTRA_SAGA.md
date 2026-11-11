@@ -10,9 +10,9 @@ Data: `shared/src/saga.ts` (stages), `shared/src/config.ts` (`powers`, `bossAstr
 
 | Astra             | Pickup     | What it does                                                           | Rule from its story                |
 | ----------------- | ---------- | ---------------------------------------------------------------------- | ---------------------------------- |
-| Agneyastra        | `a`        | Wave of fire, then the ground keeps burning                            | Fire ordinary means cannot put out |
+| Agneyastra        | `a`        | Wall of fire with pillars behind it, burning ground; sets foes alight  | Fire ordinary means cannot put out |
 | Varunastra        | `w`        | Rain ahead: puts out walls of fire, hurts foes                         | The water astra, agni's answer     |
-| Vayavyastra       | `v`        | Gust: tears shields off, blows foes and shots away                     | A gale that lifts an army          |
+| Vayavyastra       | `v`        | A whirlwind that walks ahead, carries troopers up and hurls them       | A gale that lifts an army          |
 | Nagastra          | `n`        | Three serpents that steer into the nearest foes (through rock)         | The serpent never misses           |
 | Garudastra        | `g`        | Clears enemy serpents and shots nearby, crushes flyers, shields you    | The eagle, the serpent's counter   |
 | Sudarshana Chakra | `c`        | Discus that hits up to six different foes, then flies back to you      | Infallible, returns to its wielder |
@@ -137,6 +137,72 @@ a sky chariot. To see them all: `npm run dev -w client`, then open `/tools/bosse
 Final bosses with a style no longer send the classic drones in phase 2; they bring their own reinforcements. The
 boss's WARNING card shows its title and up to three of its moves with how to answer them.
 
+### The whirlwind, the fire, and the bow
+
+- **Vayavyastra** raises a whirlwind (bhavandar) that walks forward for 3.2 s. It picks up as many as eight
+  troopers within reach (riot shields are torn off), carries them round and up its column, sweeps up enemy shots,
+  and when it blows out hurls everything it held to both sides. Bosses and turrets are too heavy: the wind only
+  wears at them. (`Sim.stepTwisters`, numbers in `GAME_CONFIG.powers.vayu`.)
+- **Agneyastra** sets alight whatever its fire touches. A burning trooper keeps burning for 3 s after it leaves
+  the flames and passes the fire to those it brushes; the fire is handed on twice at most, then dies out.
+- **Wind feeds fire.** A whirlwind that crosses burning ground catches light and sets everything it carries
+  alight. No other pair of astras combines; this one is the reason stage 1 now hands out both.
+- **The bow.** Every astra is loosed from a bow (dhanush): it is slung across the back of a hero who carries an
+  astra, and comes into the hands as the astra is fired (tilted to the sky for Varuna, Garuda and Pashupata). It is
+  a picture only: the astra takes effect on the same tick the button is pressed (`astra-art.ts`).
+- **No stage is about one astra any more.** Each stage still teaches its own astra first, but hands out at least
+  one other on the way (a test checks every stage offers two or more).
+
+## Pacing: fight, rest, travel, fight
+
+Measured with computer squads before this change, a stage was a fight for 71-90% of its length and its longest
+quiet stretch was 3-10 seconds. Three things now give it room to breathe:
+
+- **Rest stops (ashrams).** After every fight but the last, the course builder adds a 22-tile stop
+  (`withRests` in `shared/src/course.ts`): no enemies, a checkpoint, a medkit, a sacred fire that heals at once
+  (25 health a second, no wait), and an astra pedestal that refills so every soldier of the squad can take from
+  it. The pedestals go round the astras the stage hands out; with a wall of fire still ahead they offer rain.
+  The stage's hazard leaves a squad alone while all of it is resting.
+- **A breath after a fight.** The hazard holds off for 7 s after an arena falls, and the next wave of an ambush
+  comes 2.5 s after the last one is down (it was 1.2 s).
+- **Astras to spend.** A pickup gives 3 charges of most astras (2 of Varuna, Garuda, Pashupata, the black hole),
+  a soldier can carry 4, and every 6 kills by weapon or blade return one charge of the astra in hand (kills by
+  the astra itself do not count).
+
+After the change the same squads fight for 59-86% of a stage, with several quiet stretches of 6-14 s, and loose
+about twice as many astras (5-25 a run, from 4-16). Computer players run straight through a stop; people will
+stay longer. Stage 2 alone is still the tightest (86%).
+
+Heroes carry an archer's kit on top of their own look: a quiver on the back, a waist sash with trailing ends, a
+gold armband and shoulder rim (`drawQuiver`, `drawSash` in `hero-hd.ts`).
+
+## Battle arrays (vyuhas)
+
+How a wave arrives is no longer only "left, right or sky". An ambush arena names a battle array for each wave
+(`ArenaSpec.vyuha`, `Sim.formUp`), after the formations in the old war books:
+
+| Array         | How it comes at the squad                                                            |
+| ------------- | ------------------------------------------------------------------------------------ |
+| Chakra        | The wheel: rings rise out of the ground round the squad, the inner ring first        |
+| Ardha-chandra | The half-moon: both horns close in from the two ends at once, flyers over the middle |
+| Makara        | The crocodile: the heavy jaw from one end, the other jaw shuts behind 2 s later      |
+| Suchi         | The needle: one file through one end, the toughest at the point                      |
+| Vajra         | The thunderbolt: three tight knots drop out of the air together                      |
+| Garuda        | The eagle: a beak leads, wings of flyers on both sides, the body follows             |
+
+The array decides who enters where and when; the wave still decides who is in it. Which end an array leads from is
+the match's own dice. Dropped troopers always land on the arena floor (never on a ledge the squad would have to
+climb to), and an arena waits for late arrivals before it can clear. The array's name is shown with the wave call.
+Every stage uses at least two arrays; the last war goes through five.
+
+## The daily trial
+
+One battle a day, the same for every player that day (`shared/src/daily.ts`): a stage from the first eight, dealt
+a stage-wide hazard it does not normally have, two astras of the day on its astra pedestals (Varuna and Vaishnava
+pedestals stay, stages need them), and one battle array leading every ambush. It is solo, built in the browser from
+the date, and keeps its own record (best score of the day, days won in a row; 2 shards for the first win of a
+day). It does not clear or unlock the stage it borrows.
+
 ## Waves: where enemies come from
 
 Wave tokens gained two entrances and an elite mark (`shared/src/course.ts`, `parseWave`):
@@ -150,6 +216,28 @@ Each stage uses them its own way: the sea rises out of the water (2), storm port
 illusions everywhere through portals (5), the dead rising (6), elite champions on the war field (7, 9), portal
 pincers in the fort (8), and all of it in the last war (10).
 
+## Stage twists: no two stages play alike
+
+Every stage names its twist as it begins (`SagaStage.twist`), and two rules in the simulation carry most of them:
+
+- **Hold-out arenas** (`ArenaSpec.survive`, seconds). Instead of clearing a fixed list of waves, the squad
+  survives a countdown while the waves keep coming round (the next one as soon as one attacker or none is left);
+  when the time is up the attackers flee and the gate opens. The HUD shows `SURVIVE 0:17` instead of the wave
+  count. Stages 2 (Hold the Bridge), 4 (The Nest Wakes), 7 (Hold the Line) and 8 (Second Ring).
+- **Stage hazards** (`CourseDef.hazard`, one per stage; numbers in `GAME_CONFIG.hazards`):
+  - `skyfall` (stages 6 and 10): every few seconds fireballs fall round one soldier, each on a spot marked on
+    the ground first. Rests while a boss is awake.
+  - `raid` (stage 3): flying raiders dive in from behind the squad. Capped, and never while an arena is locked.
+  - `tremor` (stage 4): a shockwave runs along the ground at a standing soldier from over a second away: jump it.
+  - `dark` (stage 5): the world goes dark for a few seconds at a time; only a pool of light round each soldier,
+    enemies' glow and every shot stay visible. Drawn by the client from the tick (`darknessAt`); the rules do
+    not change, and a stage never opens in the dark.
+- **Mirrored waves.** A wave may come in with left and right swapped, by the match's own dice, so the same
+  arena does not play out the same way twice.
+
+Together with each boss's own fighting style, the wave entrances and the terrain fields (low gravity, lifts,
+gravity wells), this is what keeps stage N from feeling like stage N-1 again. Numbers: `GAME_CONFIG.hazards`.
+
 ## Secrets
 
 Every stage hides one stash on a high perch. Its loot is marked `secret` (`PickupSpawn.secret`, set by the course
@@ -158,11 +246,50 @@ that can be seen from below, sparkles, and once a soldier is within 9 tiles a bo
 of the last jump. Taking it fires a `secret` event: a gold flash, a banner, and (first time per stage) 2 astra shards.
 The stage card shows `🗝 Secret: ?` until found, and the saga screen counts secrets out of 10.
 
-## Astra cut-in
+## Astra apparitions (no text)
 
-Calling an astra plays a short cut-in (1.25 s, the game keeps running): black bars close in, and a band in the astra's
-colour sweeps across with its name in English and Devanagari (आग्नेयास्त्र, वरुणास्त्र, नागास्त्र, सुदर्शन चक्र …). It plays for your
-own astras, for the team Brahmastra, and in red when a saga boss calls one of its astras.
+Calling an astra shows the astra itself, never a banner (`client/src/game/astra-cine.ts`): no banner for
+picking one up (the held-astra chip and the glowing ASTRA button say it), none for a teammate's or a boss's
+astra, none for the brahmastra. The only astra text left is the one-line HUD instruction while a boss astra is
+live (for example STOP FIRING), because the squad needs it to survive. Every call opens a sigil
+(a ground mandala of two counter-turning rings and sixteen petals, and a halo behind the caster), gathers light into
+the caster, bursts in rays, and the sky takes the astra's colour. Then each astra's own apparition crosses the field:
+
+| Astra       | Apparition                                                       |
+| ----------- | ---------------------------------------------------------------- |
+| Agneyastra  | a phoenix of fire sweeping forward, flame ribbons for a tail     |
+| Varunastra  | a great wave curling over the field, light shafts through spray  |
+| Vayavyastra | a tornado spiral ahead of the caster, wind streaming into it     |
+| Black hole  | a dark core, a lensing ring, an accretion swirl pulling stars in |
+| Nagastra    | a giant cobra rising over the field, hood spread, swaying        |
+| Garudastra  | the golden eagle diving across the sky with a wind wake          |
+| Sudarshana  | a vast golden chakra spinning behind the hero, spokes of light   |
+| Pashupata   | the third eye opening in the sky, a trident of lightning below   |
+| Vaishnava   | a lotus of light opening at the hero's feet, motes rising        |
+| Brahmastra  | a white-gold sun disc gathering over the field before the strike |
+
+All of it is paths and gradients drawn with additive light: no images, about 1.5 s each. A teammate's astra adds one
+quiet line to the feed instead of a banner.
+
+## One art style, and controls shown as keys
+
+CrazyGames' quality guide asks for one consistent art style and for onboarding with pictures rather than text:
+
+- Saga bosses and astra apparitions are vector drawings, but they are drawn at world resolution (one pixel per sprite
+  pixel) and enlarged with hard edges (`Renderer.pixelated`), so they share the heroes' pixel-art look.
+- The first time someone plays, the controls appear as key caps with one word each (Move, Aim, Jump ×2, Fire, Dash,
+  Knife, Super, Astra), labelled with the player's own keyboard layout where the browser tells it (AZERTY players
+  see Z Q S D). Touch players see the thumb controls instead.
+
+## Music
+
+The game has its own score (`client/src/audio/music.ts`), played live with WebAudio: a tanpura drone, a bass on the
+beat, tabla (a pitched "dha" and a ringing "na") and a bansuri-like flute improvising in the stage's raga. Every saga
+stage has its own raga, root and tempo (Bhairav for Agnivan, Durga for Sagar Setu, Bhupali for Vayu Shikhar, Malkauns
+for Naag Lok, Marwa for Maya Nagri, Todi for Bhasm Parvat, Kafi for Samarpan Maidan, Desh for Chakra Durg, Bhairavi
+for Dwand Bhoomi, Bhairav again, lower and faster, for Mahayuddh). Boss fights switch to a battle variation (harder
+tabla, a growling lead, faster); menus play a calm alap with no drums. Music has its own setting (Settings → Music)
+and follows the volume, the mute switch and the portal's mute.
 
 ## Progress and continues
 

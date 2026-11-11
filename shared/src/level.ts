@@ -142,6 +142,18 @@ export interface WaveSpawn {
  * Boss arenas may have waves too: they are escorts. Wave 1 arrives with the boss; each later wave arrives a few
  * seconds after the previous one is down, for as long as a boss still stands.
  */
+/**
+ * A battle array (vyuha): how an arena's waves come at the squad, after the formations of the old war books.
+ *   chakra  the wheel: rings rise out of the ground round the squad, the outer ring after the inner
+ *   ardha   the half-moon: both horns close in from the two ends at once, flyers at the centre
+ *   makara  the crocodile: the heavy jaw comes from one end, the other jaw snaps shut behind a moment later
+ *   suchi   the needle: one long file from a single end, each close on the heels of the last
+ *   vajra   the thunderbolt: three tight knots drop out of the sky together
+ *   garuda  the eagle: a beak leads from one end, wings of flyers on both sides, the body follows
+ */
+export type Vyuha = 'chakra' | 'ardha' | 'makara' | 'suchi' | 'vajra' | 'garuda';
+export const VYUHAS: readonly Vyuha[] = ['chakra', 'ardha', 'makara', 'suchi', 'vajra', 'garuda'];
+
 export interface ArenaDef {
   id: number;
   name: string;
@@ -158,6 +170,45 @@ export interface ArenaDef {
   boss: BossKind | null;
   /** Astras the arena's bosses call (Astra Saga). */
   rules: BossRule[];
+  /**
+   * Hold-out arena: instead of clearing a fixed list of waves, the squad survives this many seconds while the
+   * waves keep coming round; when the time is up the attackers flee and the gate opens. 0 = a normal arena.
+   */
+  survive: number;
+  /**
+   * The battle arrays its waves arrive in: wave n takes entry n (round and round). Empty: each enemy comes in
+   * where its wave says.
+   */
+  vyuha: Vyuha[];
+}
+
+/**
+ * A stage-wide hazard, so a stage plays differently from the last one.
+ *   skyfall  every `every` seconds `count` fireballs fall round one soldier (each lands on a marked spot)
+ *   raid     every `every` seconds `count` flying raiders dive in from behind the squad (never more than a few
+ *            at once)
+ *   tremor   every `every` seconds a shockwave runs along the ground at a soldier (from in front; from both sides
+ *            when `count` is 2): jump it
+ *   dark     every `every` seconds the world goes dark for `count` seconds: only the ground round each soldier
+ *            and the glow of enemies stays lit (drawn by the client from the tick; nothing changes in the rules)
+ */
+export interface HazardDef {
+  kind: 'skyfall' | 'raid' | 'dark' | 'tremor';
+  every: number;
+  count: number;
+}
+
+/**
+ * How dark it is at `tick` under a `dark` hazard, 0 (light) to 1 (dark), with half a second of fade either way.
+ * The first spell starts one full period in, so a stage never opens in the dark.
+ */
+export function darknessAt(h: HazardDef | null, tick: number, tickRate: number): number {
+  if (!h || h.kind !== 'dark') return 0;
+  const period = h.every * tickRate;
+  if (tick < period) return 0;
+  const t = (tick % period) / tickRate;
+  if (t >= h.count) return 0;
+  return Math.max(0, Math.min(1, t / 0.5, (h.count - t) / 0.5));
 }
 
 export interface BossSpawn {
@@ -201,6 +252,11 @@ export interface LevelDef {
   checkpoints: CheckpointDef[];
   /** Areas the HUD names (e.g. "Jungle", "Bridge"). Purely cosmetic. */
   zones: { x: number; name: string }[];
+  /**
+   * Rest stops (ashrams), from x0 to x1 px: no enemies, a sacred fire that heals, an astra pedestal. The stage's
+   * hazard leaves a squad that is resting alone.
+   */
+  rests: { x0: number; x1: number }[];
   /** Art style from each x onwards (sorted). Purely cosmetic. */
   art: { x: number; style: ArtStyle }[];
   mods: MissionMods;
@@ -210,6 +266,7 @@ export interface LevelDef {
   brahma: boolean;
   /** Hue shift (degrees) for this stage's enemies and bosses, so each saga stage has its own colours. Cosmetic. */
   tint: number;
+  hazard: HazardDef | null;
 }
 
 const T = GAME_CONFIG.tile;
@@ -227,6 +284,7 @@ export class Builder {
   bosses: BossSpawn[] = [];
   checkpoints: CheckpointDef[] = [];
   zones: { x: number; name: string }[] = [];
+  rests: { x0: number; x1: number }[] = [];
   art: { x: number; style: ArtStyle }[] = [];
   fields: FieldDef[] = [];
 
@@ -296,6 +354,12 @@ export class Builder {
     return this;
   }
 
+  /** A rest stop over columns c0..c1. */
+  rest(c0: number, c1: number): this {
+    this.rests.push({ x0: c0 * T, x1: (c1 + 1) * T });
+    return this;
+  }
+
   checkpoint(col: number, surface: number): this {
     this.checkpoints.push({ id: this.checkpoints.length, x: col * T + T / 2, y: surface * T });
     return this;
@@ -315,6 +379,8 @@ export class Builder {
     waves: WaveSpawn[][],
     boss: BossKind | null = null,
     rules: BossRule[] = [],
+    survive = 0,
+    vyuha: Vyuha[] = [],
   ): number {
     const id = this.arenas.length;
     this.arenas.push({
@@ -328,6 +394,8 @@ export class Builder {
       waves,
       boss,
       rules,
+      survive: boss ? 0 : survive,
+      vyuha,
     });
     return id;
   }
@@ -356,6 +424,7 @@ export class Builder {
     faction?: Faction;
     brahma?: boolean;
     tint?: number;
+    hazard?: HazardDef;
   }): LevelDef {
     if (this.gates.length > MAX_GATES) throw new Error(`${meta.id}: more than ${MAX_GATES} gates`);
     if (this.pickups.length > MAX_PICKUPS) throw new Error(`${meta.id}: more than ${MAX_PICKUPS} pickups`);
@@ -374,12 +443,14 @@ export class Builder {
       bosses: this.bosses,
       checkpoints: this.checkpoints,
       zones: this.zones,
+      rests: this.rests,
       art: this.art.length ? this.art : [{ x: 0, style: 'jungle' }],
       mods: meta.mods ?? BASE_MODS,
       fields: this.fields,
       faction: meta.faction ?? 'army',
       brahma: meta.brahma ?? false,
       tint: meta.tint ?? 0,
+      hazard: meta.hazard ?? null,
     };
   }
 }

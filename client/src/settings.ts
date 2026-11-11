@@ -17,6 +17,8 @@ export interface Settings {
   coachSeen: boolean;
   /** Touch layout: 'right' = joystick left, buttons right (default); 'left' = mirrored for left-handers. */
   hand: 'right' | 'left';
+  /** Background music (sound effects follow `muted` and `volume` only). */
+  music: boolean;
 }
 
 const KEY = 'strikesquad.settings.v1';
@@ -37,6 +39,7 @@ export function defaultSettings(): Settings {
     hero: 0,
     coachSeen: false,
     hand: 'right',
+    music: true,
   };
 }
 
@@ -65,6 +68,7 @@ export function sanitizeSettings(raw: unknown): Settings {
       typeof r.hero === 'number' && Number.isInteger(r.hero) && r.hero >= 0 && r.hero < 8 ? r.hero : d.hero,
     coachSeen: r.coachSeen === true,
     hand: r.hand === 'left' ? 'left' : 'right',
+    music: typeof r.music === 'boolean' ? r.music : d.music,
   };
 }
 

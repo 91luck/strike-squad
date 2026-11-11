@@ -58,7 +58,12 @@ window.CrazyGames = { SDK: {
       }, 50);
     },
   },
-  user: { isUserAccountAvailable: true, getUser: async () => ({ username: 'CG_Player' }) },
+  user: {
+    isUserAccountAvailable: true,
+    getUser: async () => ({ username: 'CG_Player' }),
+    // a touch-screen laptop: the portal says desktop, so no touch controls even though touch events exist
+    systemInfo: { device: { type: window.__cgDevice || 'desktop' } },
+  },
   data: {
     getItem: (k) => (k in window.__cg.data ? window.__cg.data[k] : null),
     setItem: (k, v) => { window.__cg.data[k] = String(v); },
@@ -131,6 +136,11 @@ test('the CrazyGames build loads from a portal folder with the SDK, and lands in
   await page.getByTestId('btn-resume').click();
   c = await cg(page);
   expect(c.calls.slice(-2)).toEqual(['gameplayStop', 'gameplayStart']);
+  // P pauses too (in the portal's fullscreen, Escape first leaves fullscreen)
+  await page.keyboard.press('KeyP');
+  await expect(page.getByTestId('btn-resume')).toBeVisible();
+  await page.getByTestId('btn-resume').click();
+  await expect.poll(() => hook(page, 'phase')).toBe('playing');
 });
 
 test('"play with friends" on the portal opens straight on making a squad', async ({ page }) => {
@@ -234,4 +244,25 @@ test('a cleared stage is saved to the portal account, celebrated, and the next s
   expect(c.calls.lastIndexOf('gameplayStart')).toBeGreaterThan(ad); // gameplay resumes after the break
   expect(await page.evaluate('window.__strikesquad.soloSim.level.id')).toBe('astra-2');
   expect(failed).toEqual([]);
+});
+
+test("touch controls follow the portal's word on the device, not the touch screen", async ({ browser }) => {
+  for (const [device, touch] of [
+    ['desktop', false], // a laptop with a touch screen
+    ['mobile', true],
+  ] as const) {
+    const ctx = await browser.newContext({ hasTouch: true, viewport: { width: 907, height: 510 } });
+    const page = await ctx.newPage();
+    await page.addInitScript((d) => {
+      (window as unknown as { __cgDevice: string }).__cgDevice = d;
+    }, device);
+    const failed: string[] = [];
+    await openPortal(page, failed);
+    await page.getByTestId('btn-saga').click();
+    await expect.poll(() => hook(page, 'phase')).toBe('playing');
+    if (touch) await expect(page.locator('#touch')).toBeVisible();
+    else await expect(page.locator('#touch')).toBeHidden();
+    expect(failed).toEqual([]);
+    await ctx.close();
+  }
 });

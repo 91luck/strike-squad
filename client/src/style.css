@@ -47,6 +47,22 @@ body {
   overscroll-behavior: none;
   -webkit-tap-highlight-color: transparent;
   -webkit-font-smoothing: antialiased;
+  /* CrazyGames technical requirement: no text selection, magnifier or long-press menu while playing */
+  user-select: none;
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* ...but the name field and other inputs stay editable */
+input,
+textarea,
+[contenteditable='true'] {
+  user-select: text;
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
 }
 
 body {
@@ -1596,6 +1612,16 @@ input[type='range'] {
   transform: scale(1);
 }
 
+/* The boss card spans the screen for 3 s: the side feed steps back so nothing sits on top of it. */
+body:has(#boss-intro:not([hidden])) .killfeed {
+  opacity: 0;
+}
+
+/* While the first-play controls card is up, banners drop below it instead of sliding under it. */
+body:has(#coach:not([hidden])) .banner {
+  top: 42%;
+}
+
 .banner.bad {
   color: #ff8a95;
   -webkit-text-stroke-color: #3a0610;
@@ -2066,6 +2092,19 @@ input[type='range'] {
   border-left-color: var(--ok);
 }
 
+/* In a short frame (a portal's game frame) a toast at the bottom would cover the menu's buttons. */
+@media (max-height: 640px) {
+  body:not([data-current='game']) .toasts {
+    /* top right, under the server chip: clear of the title and of the menu buttons */
+    top: calc(44px + env(safe-area-inset-top));
+    bottom: auto;
+    left: auto;
+    right: 12px;
+    transform: none;
+    width: min(340px, 42vw);
+  }
+}
+
 body[data-current='game'] .toasts {
   top: calc(52px + env(safe-area-inset-top));
   bottom: auto;
@@ -2170,7 +2209,7 @@ body[data-current='game'] .toast {
 }
 
 /* phones in landscape: compact HUD, keep the world visible */
-@media (max-height: 500px) {
+@media (max-height: 640px) {
   .menu-panel {
     padding-top: 14px;
   }
@@ -2299,8 +2338,9 @@ body[data-current='game'] .toast {
     display: none;
   }
 
+  /* below the boss health bar, never on top of it */
   .boss-intro {
-    top: 14%;
+    top: calc(96px + env(safe-area-inset-top));
   }
 
   .boss-intro {
@@ -2353,6 +2393,11 @@ body[data-current='game'] .toast {
     top: calc(70px + env(safe-area-inset-top));
     font-size: 11px;
     max-width: 46vw;
+  }
+
+  /* only the two newest lines on a short screen, so the feed never reaches the touch buttons */
+  .killfeed div:nth-last-child(n + 3) {
+    display: none;
   }
 
   .down-panel {
@@ -2982,7 +3027,7 @@ textarea {
   border-color: rgba(255, 201, 60, 0.45);
 }
 
-@media (max-height: 480px) {
+@media (max-height: 640px) {
   .pc-next {
     display: none;
   }
@@ -3014,6 +3059,21 @@ textarea {
 .pc-weekly:hover,
 .pc-weekly:focus-visible {
   background: rgba(58, 134, 255, 0.32);
+}
+
+.pc-daily {
+  background: rgba(255, 170, 60, 0.18);
+  border-color: rgba(255, 170, 60, 0.55);
+}
+
+.pc-daily:hover,
+.pc-daily:focus-visible {
+  background: rgba(255, 170, 60, 0.34);
+}
+
+.pc-daily.done {
+  background: rgba(74, 222, 128, 0.18);
+  border-color: rgba(74, 222, 128, 0.55);
 }
 
 .reward-item.weekly {
@@ -3195,145 +3255,83 @@ textarea {
   }
 }
 
-/* ------------------------------------------------------------------ astra cut-in */
-/* A short cinematic when an astra is called: bars close in, a band sweeps across with the astra's name (English
-   and Devanagari) over light rays in the astra's colour. The game keeps running underneath. */
-.cutin {
-  --cut: #f97316;
-  position: absolute;
-  inset: 0;
-  z-index: 6;
-  pointer-events: none;
-  overflow: hidden;
-}
-
-.cutin::before,
-.cutin::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 9%;
-  background: #000;
-  animation: cutbars 1.25s ease-in-out both;
-}
-
-.cutin::before {
-  top: 0;
-}
-
-.cutin::after {
-  bottom: 0;
-}
-
-.cutin-band {
-  position: absolute;
-  left: -10%;
-  right: -10%;
-  top: 44%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 18px;
-  padding: 10px 0;
-  transform: skewY(-6deg);
-  background:
-    repeating-linear-gradient(100deg, transparent 0 18px, rgba(255, 255, 255, 0.08) 18px 22px),
-    linear-gradient(
-      90deg,
-      transparent,
-      color-mix(in srgb, var(--cut) 85%, #000) 18%,
-      var(--cut) 50%,
-      color-mix(in srgb, var(--cut) 85%, #000) 82%,
-      transparent
-    );
+/* ------------------------------------------------------------------ first screen: one clear call to play */
+/* The saga button is the hero of the menu: bigger, glowing, breathing. The other modes sit under it as compact
+   secondary buttons (their one-line hints hidden), so the first look says "press play". */
+.logo small.logo-saga {
+  padding: 5px 16px;
+  background: linear-gradient(180deg, #ffe08a, #f59e0b);
+  color: #2a1300;
+  font-size: 16px;
+  letter-spacing: 0.24em;
   box-shadow:
-    0 0 0 3px rgba(255, 255, 255, 0.25),
-    0 0 40px var(--cut);
-  animation: cutband 1.25s cubic-bezier(0.2, 0.9, 0.2, 1) both;
+    0 3px 0 #92400e,
+    0 0 22px rgba(251, 191, 36, 0.55);
 }
 
-.cutin-icon {
-  font-size: clamp(2rem, 7vw, 3.4rem);
-  filter: drop-shadow(0 0 12px #fff);
+.menu-actions .btn.primary.hazard {
+  min-height: 78px;
+  font-size: var(--step-2);
+  animation: call 2.4s ease-in-out infinite;
 }
 
-.cutin-text {
-  display: grid;
-  line-height: 1;
-  text-align: left;
-}
-
-.cutin-text b {
-  font: 400 clamp(1.5rem, 5.6vw, 3rem) var(--display);
-  color: #fff;
-  letter-spacing: 0.04em;
-  -webkit-text-stroke: 1.5px #1a0a00;
-  text-shadow: 0 4px 0 rgba(0, 0, 0, 0.55);
-}
-
-.cutin-deva {
-  font:
-    700 clamp(1rem, 3.6vw, 1.6rem) 'Noto Sans Devanagari',
-    'Kohinoor Devanagari',
-    'Mangal',
-    sans-serif;
-  color: #fff7d6;
-  text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5);
-}
-
-.cutin-text small {
-  margin-top: 3px;
-  font-weight: 800;
-  font-size: 12px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.85);
-}
-
-.cutin.boss {
-  --cut: #dc2626;
-}
-
-@keyframes cutband {
-  0% {
-    transform: translateX(-110%) skewY(-6deg);
-    opacity: 0;
-  }
-  18% {
-    transform: translateX(0) skewY(-6deg);
-    opacity: 1;
-  }
-  78% {
-    transform: translateX(2%) skewY(-6deg);
-    opacity: 1;
-  }
-  100% {
-    transform: translateX(110%) skewY(-6deg);
-    opacity: 0;
-  }
-}
-
-@keyframes cutbars {
+@keyframes call {
   0%,
   100% {
-    transform: scaleY(0);
+    box-shadow:
+      0 6px 0 var(--edge),
+      0 0 0 rgba(255, 200, 60, 0);
   }
-  20%,
-  80% {
-    transform: scaleY(1);
+  50% {
+    box-shadow:
+      0 6px 0 var(--edge),
+      0 0 34px rgba(255, 200, 60, 0.75);
   }
 }
 
-body.reduce-motion .cutin-band,
-body.reduce-motion .cutin::before,
-body.reduce-motion .cutin::after {
+.menu-actions .btn:not(.primary):not(.small) {
+  min-height: 46px;
+  padding: 8px 10px;
+  font-size: 15px;
+}
+
+.menu-actions .btn:not(.primary):not(.small) small {
+  display: none;
+}
+
+body.reduce-motion .menu-actions .btn.primary.hazard {
   animation: none;
 }
 
-@media (orientation: portrait) and (pointer: coarse) {
-  .cutin {
-    bottom: auto;
-    height: var(--view);
-  }
+/* ------------------------------------------------------------------ first-play controls: key caps, not text */
+.coach.keys {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px 14px;
+  padding: 10px 14px;
+}
+
+.coach-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.coach-key kbd {
+  min-width: 28px;
+  padding: 3px 7px;
+  border-radius: 7px;
+  background: linear-gradient(180deg, #ffffff, #d7deef);
+  color: #10162a;
+  font: 800 13px var(--ui);
+  text-align: center;
+  box-shadow: 0 3px 0 #6b7593;
+}
+
+.coach-key small {
+  margin-left: 3px;
+  font-weight: 700;
+  font-size: 12px;
+  color: #fff;
 }

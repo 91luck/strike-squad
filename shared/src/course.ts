@@ -5,10 +5,12 @@ import {
   type BossRule,
   type Faction,
   type FieldKind,
+  type HazardDef,
   type LevelDef,
   type MissionMods,
   type WaveSpawn,
   Tile,
+  type Vyuha,
 } from './level';
 
 /**
@@ -96,6 +98,10 @@ export interface ArenaSpec {
   rules?: BossRule[];
   /** Astra altars inside the arena (respawning pickups), e.g. 'x10' for a vaishnava altar 10 tiles in. */
   altars?: string;
+  /** Hold-out arena: survive this many seconds while the waves keep coming (ambush arenas only). */
+  survive?: number;
+  /** The battle arrays the waves arrive in, one per wave, round and round (see Vyuha). */
+  vyuha?: Vyuha[];
 }
 
 export interface Section {
@@ -126,6 +132,8 @@ export interface Section {
   loot?: string;
   /** Checkpoint flag at the start of the section. */
   cp?: boolean;
+  /** A rest stop (ashram): see LevelDef.rests. It may hold loot but no foes. */
+  rest?: boolean;
   arena?: ArenaSpec;
 }
 
@@ -138,6 +146,8 @@ export interface CourseDef {
   brahma?: boolean;
   /** Enemy/boss hue shift in degrees (cosmetic). */
   tint?: number;
+  /** A stage-wide hazard (see HazardDef). */
+  hazard?: HazardDef;
 }
 
 const T = GAME_CONFIG.tile;
@@ -475,6 +485,8 @@ function arenaRoom(b: Builder, x: number, s: Section, a: ArenaSpec): void {
     waves,
     bosses[0] ?? null,
     a.rules ?? [],
+    a.survive ?? 0,
+    a.vyuha ?? [],
   );
   let walkers = 0;
   for (const kind of bosses) {
@@ -529,6 +541,10 @@ export function buildCourse(def: CourseDef): LevelDef {
     }
     for (const c of s.wells ?? []) b.field('well', x + c - 5, x + c + 4, 6, ROWS - 1, 90);
     if (s.cp) b.checkpoint(x + 2, b.surface(x + 2));
+    if (s.rest) {
+      if (s.arena || s.foes) throw new Error(`${where}: a rest stop holds no enemies`);
+      b.rest(x, x + s.len - 1);
+    }
     for (const tok of tokens(s.foes)) {
       const m = /^([SHGJTD])(\d+)([\^_]?)$/.exec(tok);
       if (!m) throw new Error(`${where}: bad foe "${tok}"`);
@@ -558,5 +574,49 @@ export function buildCourse(def: CourseDef): LevelDef {
     faction: def.faction,
     brahma: def.brahma,
     tint: def.tint,
+    hazard: def.hazard,
   });
+}
+
+/** How long a rest stop is, in tiles. */
+export const REST_LEN = 22;
+
+/**
+ * Gives a course its breathing room: a rest stop (ashram) after every fight that is not the last, so a stage
+ * goes fight, rest, travel, fight instead of one fight running into the next. Each stop has a checkpoint, a
+ * medkit and an astra pedestal that refills (every soldier of the squad can take from it); the pedestals go
+ * round the astras the stage already hands out, so each stop offers a different one.
+ */
+export function withRests(def: CourseDef): CourseDef {
+  const letters: string[] = [];
+  for (const s of def.sections)
+    for (const tok of tokens(s.loot)) {
+      const m = LOOT_TOKEN.exec(tok);
+      const k = m?.[1] as string;
+      if (m && 'awvbngcp'.includes(k) && !letters.includes(k)) letters.push(k);
+    }
+  const out: Section[] = [];
+  let n = 0;
+  let zone = '';
+  def.sections.forEach((s, i) => {
+    // the stretch after a stop takes back the name the HUD showed before it
+    const prev = def.sections[i - 1];
+    out.push(prev?.arena && !s.zone && !s.arena && zone ? { ...s, zone } : s);
+    if (s.zone) zone = s.zone;
+    const next = def.sections[i + 1];
+    if (!s.arena || !next) return;
+    // with a wall of fire still ahead the stop offers rain, so nobody trades their rain away just before it
+    const fireAhead = def.sections.slice(i + 1).some((q) => q.fire?.length);
+    const astra = fireAhead ? ' w16*' : letters.length ? ` ${letters[n++ % letters.length]}16*` : '';
+    out.push({
+      zone: 'Ashram',
+      art: s.art,
+      land: 'flat',
+      len: REST_LEN,
+      cp: true,
+      rest: true,
+      loot: `+8${astra}`,
+    });
+  });
+  return { ...def, sections: out };
 }

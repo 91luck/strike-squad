@@ -24,14 +24,14 @@ Six missions, each harder than the last, each in its own world. Pick one in **Pl
 
 Auto-fire starts **off** in advanced missions. Tap **AUTO FIRE** (top right) or press **T** to switch it on or off.
 
-**Powers ("astras").** Picked up like weapon crates, held in their own slot and fired with **ASTRA** (key R / G / U; the touch button shows the power and charges left). Carry up to 3 charges of one power; a new kind replaces the old one.
+**Powers ("astras").** Picked up like weapon crates, held in their own slot and fired with **ASTRA** (key R / G / U; the touch button shows the power and charges left). Carry up to 4 charges of one power; a new kind replaces the old one. Every 6 kills by weapon or blade return one charge of the power in hand.
 
-| Power      | Charges | What it does                                                                                                                                              |
-| ---------- | ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Agni       | 2       | A rolling wave of fire (8 damage, passes through), then the ground ahead burns for 4 s (16 dps)                                                           |
-| Varuna     | 1       | Rain over the next 15 tiles: puts out **walls of fire**, 6 damage to everyone caught in it                                                                |
-| Vayu       | 2       | A gust (440 px): blows troopers back, tears off riot shields, scatters enemy shots                                                                        |
-| Black hole | 2       | A singularity 7 tiles ahead for 3.2 s: pulls troopers in (contained radius 240 px), swallows enemy shots, 22 dps at the core, then collapses with a burst |
+| Power      | Charges | What it does                                                                                                                                                                                                 |
+| ---------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Agni       | 3       | A rolling wave of fire (8 damage, passes through), then the ground ahead burns for 4 s (16 dps). Troopers it touches are set alight: 7 dps for 3 s, passed on to those they brush (twice at most)            |
+| Varuna     | 2       | Rain over the next 15 tiles: puts out **walls of fire**, 6 damage to everyone caught in it                                                                                                                   |
+| Vayu       | 3       | A whirlwind that walks ahead for 3.2 s: lifts up to 8 troopers (riot shields torn off), sweeps up enemy shots, 5 dps, then hurls them (12 damage). Over burning ground it catches light and sets them alight |
+| Black hole | 2       | A singularity 7 tiles ahead for 3.2 s: pulls troopers in (contained radius 240 px), swallows enemy shots, 22 dps at the core, then collapses with a burst                                                    |
 
 **Walls of fire** (mission 5) block the way until Varuna's rain puts them out. A rain **altar** stands before each wall and comes back 8 s after it is taken, so the squad can never be locked out.
 

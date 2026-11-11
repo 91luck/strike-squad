@@ -115,6 +115,12 @@ export class InputController {
       document.getElementById(`btn-touch-${id}`)?.classList.remove('down');
   }
 
+  /** A key the player has bound to fire or jump keeps that job (it is then not a pause key). */
+  private boundToAction(code: string): boolean {
+    const s = this.opts.settings();
+    return code === s.keyFire || code === s.keyJump;
+  }
+
   private isJumpKey(code: string): boolean {
     return EXTRA_JUMP.has(code) || code === this.opts.settings().keyJump;
   }
@@ -127,7 +133,12 @@ export class InputController {
       cb(e.code);
       return;
     }
-    if (e.code === 'Escape' && down && !e.repeat) {
+    // Escape, or P: in fullscreen a portal's Escape leaves fullscreen first, so P pauses without that
+    if (
+      (e.code === 'Escape' || (e.code === 'KeyP' && !isFormField(e.target) && !this.boundToAction(e.code))) &&
+      down &&
+      !e.repeat
+    ) {
       this.opts.onPause();
       return;
     }

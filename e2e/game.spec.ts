@@ -844,3 +844,45 @@ test('Astra Saga: one click into stage 1; later stages stay locked until cleared
   expect(await page.evaluate('window.__strikesquad.soloSim.level.id')).toBe('astra-1');
   expect(await canvasHasContent(page)).toBe(true);
 });
+
+test("the daily trial: today's hand is shown, the battle uses it, and the first win of the day is recorded once", async ({
+  page,
+}) => {
+  await gotoMenu(page, 'Daily');
+  await expect(page.getByTestId('btn-daily')).toHaveText('⚔ Daily trial');
+  await page.getByTestId('btn-daily').click();
+  await expect(page.getByTestId('daily-list').locator('li')).toHaveCount(3);
+  await expect(page.getByTestId('daily-list')).toContainText('Astras of the day');
+  await expect(page.getByTestId('daily-record')).toContainText('Not won yet today');
+  type Trial = { stage: string; hazard: { kind: string }; astras: string[]; vyuha: string; seed: number };
+  const trial = (await page.evaluate('window.__strikesquad.daily.trial')) as Trial;
+  const shards = (): Promise<number> =>
+    page.evaluate('window.__strikesquad.progress.shards') as Promise<number>;
+  const before = await shards();
+  await page.getByTestId('btn-daily-play').click();
+  await waitForMission(page);
+  const level = (await page.evaluate(
+    '(() => { const s = window.__strikesquad.soloSim; return { id: s.level.id, hazard: s.level.hazard.kind, ' +
+      'vy: s.level.arenas.filter((a) => !a.boss).map((a) => a.vyuha[0]), kinds: [...new Set(s.level.pickups.map((p) => p.kind))] }; })()',
+  )) as { id: string; hazard: string; vy: string[]; kinds: string[] };
+  expect(level.id).toBe(trial.stage);
+  expect(level.hazard).toBe(trial.hazard.kind);
+  for (const v of level.vy) expect(v).toBe(trial.vyuha);
+  expect(level.kinds).toContain(trial.astras[0]);
+  expect(await canvasHasContent(page)).toBe(true);
+  await page.evaluate("window.__strikesquad.soloSim.finish('won')");
+  await expect(page.locator('#h-results')).toHaveText('Daily trial won!');
+  // the trial's own 2 shards (the run's XP and weekly goals may add more)
+  expect(await shards()).toBeGreaterThanOrEqual(before + 2);
+  expect(await page.evaluate('window.__strikesquad.daily.won')).toBe(true);
+  // the borrowed stage is not marked as cleared by a trial
+  expect(await page.evaluate('window.__strikesquad.progress.stars')).toBe(0);
+  // again the same day: no second payout
+  await page.getByTestId('btn-rematch').click();
+  await waitForMission(page);
+  await page.evaluate("window.__strikesquad.soloSim.finish('won')");
+  await expect(page.locator('#h-results')).toHaveText('Daily trial won!');
+  expect(await page.evaluate('window.__strikesquad.daily.streak')).toBe(1);
+  await page.locator('#screen-results [data-nav="menu"], #btn-results-leave').first().click();
+  await expect(page.getByTestId('btn-daily')).toHaveText('⚔ Daily trial ✓');
+});

@@ -6,7 +6,8 @@ import {
   type BossStyle,
   type EnemySnapshot,
 } from '@strikesquad/shared';
-import { drawEyes, ell, limb, lit, poly, prog, type AtkInfo, type BossKit } from './boss-art';
+import { drawEyes, lit, prog, type AtkInfo, type BossKit } from './boss-art';
+import { ell, limb, poly, setLight } from './asura-shade';
 import { tone } from './sprites';
 
 /**
@@ -732,6 +733,150 @@ function sagaTells(
 /** World point of a local point (bodies drawn facing +x, mirrored by the boss's facing). */
 const W = (e: EnemySnapshot, lx: number, ly: number): [number, number] => [e.x + e.f * lx, e.y + ly];
 
+// ------------------------------------------------------------------ anatomy details
+
+/**
+ * Muscle definition on a bare torso centred on x = cx between `top` and `bottom`, `w` wide: two pectorals and
+ * three rows of abdominals, each a dark crease with a lit edge above it (works on any skin colour).
+ */
+function muscles(ctx: Ctx, cx: number, top: number, bottom: number, w: number): void {
+  const h = bottom - top;
+  ctx.save();
+  ctx.lineCap = 'round';
+  const crease = (draw: () => void) => {
+    ctx.strokeStyle = 'rgba(20,8,12,0.42)';
+    ctx.lineWidth = 2.4;
+    draw();
+    ctx.stroke();
+    ctx.translate(0, -2);
+    ctx.strokeStyle = 'rgba(255,240,220,0.28)';
+    ctx.lineWidth = 1.6;
+    draw();
+    ctx.stroke();
+    ctx.translate(0, 2);
+  };
+  // pectorals
+  for (const side of [-1, 1]) {
+    crease(() => {
+      ctx.beginPath();
+      ctx.moveTo(cx + side * 2, top + h * 0.18);
+      ctx.quadraticCurveTo(cx + side * w * 0.26, top + h * 0.5, cx + side * w * 0.42, top + h * 0.3);
+    });
+  }
+  // centre line and abdominals
+  crease(() => {
+    ctx.beginPath();
+    ctx.moveTo(cx, top + h * 0.45);
+    ctx.lineTo(cx, bottom - h * 0.06);
+  });
+  for (let r = 0; r < 3; r++) {
+    const y = top + h * (0.58 + r * 0.13);
+    crease(() => {
+      ctx.beginPath();
+      ctx.moveTo(cx - w * 0.16, y);
+      ctx.quadraticCurveTo(cx, y + 3, cx + w * 0.16, y);
+    });
+  }
+  ctx.restore();
+}
+
+/** A gold armlet or anklet round a limb at (x, y), with a gem in the boss's glow colour. */
+function band(ctx: Ctx, L: AsuraLook, S: (c: string) => string, x: number, y: number, r: number): void {
+  ell(ctx, x, y, r, r * 0.55, S(L.metal));
+  ell(ctx, x + r * 0.2, y, Math.max(1.5, r * 0.28), Math.max(1.5, r * 0.28), L.glow, false);
+}
+
+/** A shoulder guard: a rounded plate with a rim and a spike. */
+function pauldron(ctx: Ctx, L: AsuraLook, S: (c: string) => string, x: number, y: number, r: number): void {
+  poly(ctx, [x - r * 0.3, y - r * 1.55, x + r * 0.15, y - r * 0.8, x - r * 0.75, y - r * 0.8], S(L.metal));
+  ell(ctx, x, y - r * 0.2, r, r * 0.8, S(L.metal));
+  ell(ctx, x, y + r * 0.38, r * 0.92, r * 0.22, S(tone(L.metal, -0.3)), false);
+}
+
+// ------------------------------------------------------------------ motion
+
+/**
+ * How far and how fast each boss has moved, tracked per enemy id from frame to frame (the snapshot carries no
+ * velocity). `d` is the distance travelled along the way it faces, so a gait driven by it plants its feet: a foot
+ * in stance slides back in local space exactly as far as the body moves forward. `move` (0..1) blends between
+ * standing and walking poses, so a boss that stops settles its feet instead of freezing mid-stride.
+ */
+interface Track {
+  x: number;
+  t: number;
+  v: number;
+  move: number;
+}
+const tracks = new Map<number, Track>();
+
+function track(e: EnemySnapshot, nowMs: number): { d: number; move: number } {
+  let tr = tracks.get(e.id);
+  if (!tr || nowMs - tr.t > 600 || nowMs < tr.t) {
+    if (tracks.size > 48) tracks.clear();
+    tr = { x: e.x, t: nowMs, v: 0, move: 0 };
+    tracks.set(e.id, tr);
+  } else if (nowMs > tr.t) {
+    const dt = nowMs - tr.t;
+    const inst = (Math.abs(e.x - tr.x) / dt) * 1000;
+    tr.v += (inst - tr.v) * Math.min(1, dt / 110);
+    tr.x = e.x;
+    tr.t = nowMs;
+    tr.move = Math.min(1, tr.v / 35);
+  }
+  return { d: e.x * e.f, move: tr.move };
+}
+
+/** Two-bone IK: the middle joint for a limb from (hx, hy) to (fx, fy); bend -1 puts it forward (+x), +1 back. */
+function joint(
+  hx: number,
+  hy: number,
+  fx: number,
+  fy: number,
+  a: number,
+  b: number,
+  bend: number,
+): [number, number] {
+  const dx = fx - hx;
+  const dy = fy - hy;
+  const d = Math.min(a + b - 0.01, Math.max(Math.abs(a - b) + 0.01, Math.hypot(dx, dy)));
+  const off = Math.acos(Math.max(-1, Math.min(1, (a * a + d * d - b * b) / (2 * a * d))));
+  const ang = Math.atan2(dy, dx) + bend * off;
+  return [hx + Math.cos(ang) * a, hy + Math.sin(ang) * a];
+}
+
+/**
+ * A foot's place in its step cycle `u` (0..1): the first half on the ground, sliding back by exactly the distance
+ * the body moves (stride / 2); the second half swinging forward through the air, `lift` high at the top.
+ */
+function stepFoot(u: number, stride: number, lift: number, move: number): [number, number] {
+  const w = ((u % 1) + 1) % 1;
+  const reach = stride / 2;
+  if (w < 0.5) return [reach * (0.5 - 2 * w) * move, 0];
+  const s = (w - 0.5) * 2;
+  const ease = s * s * (3 - 2 * s);
+  return [(-reach / 2 + reach * ease) * move, -lift * Math.sin(Math.PI * s) * move];
+}
+
+/** A chain of points that trails behind (tails, capes, flames): each link swings a little later than the last. */
+function chain(
+  x: number,
+  y: number,
+  n: number,
+  len: number,
+  dir: number,
+  rise: number,
+  amp: number,
+  t: number,
+  lag: number,
+): number[] {
+  const pts = [x, y];
+  for (let i = 1; i <= n; i++) {
+    const s = i / n;
+    pts.push(x + dir * len * s, y - rise * s + Math.sin(t - i * lag) * amp * s);
+  }
+  return pts;
+}
+
 // ------------------------------------------------------------------ walkers
 
 /** Walker body (132 x 96, feet at e.y): lobbed shots leave near (54, -92), bursts near (60, -60). */
@@ -740,13 +885,17 @@ export function drawAsuraWalker(k: BossKit, L: AsuraLook, e: EnemySnapshot, nowM
   const c = GAME_CONFIG.enemies.walker;
   const flash = e.h === 1;
   const S = lit(flash);
+  setLight(1); // the body is drawn in local space, mirrored to face e.f: its front is local +x
   const skin = S(L.skin);
   const shade = S(L.shade);
   const charge = e.at === ATTACK.charge;
-  const crouch = (e.at === ATTACK.stomp || e.at === ATTACK.leap) && a.telegraph ? 10 : 0;
-  const walk = Math.sin(e.x / 16);
+  const windUp = (e.at === ATTACK.stomp || e.at === ATTACK.leap) && a.telegraph;
+  const crouch = windUp ? 6 + prog(a) * 8 : 0;
   const blinking = e.at === ATTACK.blink && a.telegraph;
+  const summoning = e.at === ATTACK.summon && a.telegraph;
   const spin = nowMs / (e.at === ATTACK.spiral ? 40 : 160);
+  const { d, move } = track(e, nowMs);
+  const breathe = Math.sin(nowMs / 520);
   ctx.save();
   if (blinking) ctx.globalAlpha = Math.max(0.15, 1 - prog(a));
   ctx.translate(Math.round(e.x), Math.round(e.y));
@@ -757,81 +906,246 @@ export function drawAsuraWalker(k: BossKit, L: AsuraLook, e: EnemySnapshot, nowM
   let headAt: [number, number];
   let hand: [number, number];
   if (form === 'beast') {
-    // Four legs, a long back, a tail of flame; the head low and forward.
-    for (const [lx, back] of [
-      [-40, 1],
-      [-24, 0],
-      [26, 1],
-      [42, 0],
-    ] as const) {
-      const sw = walk * (back ? 6 : -6);
-      limb(ctx, [lx, -40 + crouch, lx + sw, -20, lx + sw * 1.4, 0], back ? 11 : 13, back ? shade : skin);
+    // A big cat on four legs in a trot (diagonal pairs together), feet planted by the distance walked; the body
+    // bobs twice a cycle, the head nods against it, the tail and the mane of flame trail behind.
+    const STRIDE = 118;
+    const u = d / STRIDE;
+    const bob = -move * 3 * Math.abs(Math.sin(u * Math.PI * 2)) + breathe * (1 - move) * 1.2;
+    // a charge winds up low at the front, rump raised; a leap or stomp sinks the whole body
+    const lunge = charge && a.telegraph ? prog(a) : 0;
+    const bodyY = crouch + bob;
+    // tail: a chain that lifts with speed and lashes before a charge
+    const tailT = nowMs / (lunge ? 70 : 170);
+    const tail = chain(-52, -50 + bodyY, 5, 52, -1, 8 + move * 14 + lunge * 10, 6 + lunge * 6, tailT, 0.8);
+    limb(ctx, tail, 9, S(L.metal));
+    const tx = tail[tail.length - 2] as number;
+    const ty = tail[tail.length - 1] as number;
+    const tfl = Math.sin(nowMs / 90) * 3;
+    poly(
+      ctx,
+      [tx + 2, ty - 6, tx - 12 - tfl, ty - 18, tx - 6, ty - 2, tx - 16 + tfl, ty + 4, tx, ty + 6],
+      S(L.glow),
+      false,
+    );
+    const leg = (hx: number, phase: number, far: boolean, front: boolean) => {
+      const col = far ? shade : skin;
+      const w = far ? 11 : 13;
+      const hipY = -40 + bodyY + (front ? lunge * 6 : -lunge * 4);
+      const [fx, fy] = stepFoot(u + phase, STRIDE, 10, move);
+      const footX = hx + fx + (front ? lunge * 6 : 0);
+      const footY = -3 + fy;
+      const [kx, ky] = joint(hx, hipY, footX, footY, 21, 22, front ? 1 : 1);
+      ell(ctx, hx + 2, hipY - 2, w * 0.95, w * 1.25, col);
+      limb(ctx, [hx, hipY, kx, ky, footX, footY], w, col);
+      ell(ctx, footX + 3, footY, w * 0.72, 4.5, col);
+      ctx.fillStyle = S('#f5ecd7');
+      for (let cl = 0; cl < 3; cl++) ctx.fillRect(footX + 3 + cl * 3.5, footY + 1, 2, 3);
+    };
+    // far legs behind the body
+    leg(-40, 0.5, true, false);
+    leg(26, 0, true, true);
+    ctx.save();
+    ctx.translate(0, bodyY);
+    // body: haunch, deep chest, a paler belly; the chest dips lower in a charge wind-up
+    ell(ctx, -24, -52 - lunge * 4, 36, 23, skin);
+    ell(ctx, 18, -54 + lunge * 6, 40, 27, skin);
+    ell(ctx, -2, -36 + lunge * 2, 40, 8, S(tone(L.skin, 0.28)), false);
+    for (let i = 0; i < 5; i++) {
+      const sx = -42 + i * 18;
+      const dip = lunge * (i - 2) * 2;
+      poly(ctx, [sx, -76 + dip, sx + 8, -76 + dip, sx + 4, -56 + dip, sx - 2, -50 + dip], shade, false);
     }
-    limb(ctx, [-50, -48 + crouch, -78, -66, -92, -54 + Math.sin(nowMs / 140) * 8], 9, S(L.metal));
-    ell(ctx, -2, -50 + crouch, 56, 26, skin);
-    ctx.fillStyle = shade;
-    for (let i = 0; i < 5; i++) ctx.fillRect(-40 + i * 18, -66 + crouch, 10, 6); // stripes
-    headAt = [54, -64 + crouch];
+    // the mane of flame streams back with speed and flickers
+    const stream = move * 5 + lunge * 6;
+    for (let i = 0; i < 7; i++) {
+      const mx = -36 + i * 12;
+      const fl = Math.sin(nowMs / 110 + i * 1.7) * 3;
+      const ht = 12 + (i % 2) * 6 + fl;
+      const my = -74 + lunge * (i - 3) * 2;
+      poly(ctx, [mx - 6, my, mx + 1 - stream, my - ht, mx + 6, my], S(L.metal), false);
+      poly(ctx, [mx - 3, my, mx + 1 - stream * 0.6, my - ht * 0.55, mx + 3, my], S(L.glow), false);
+    }
+    ctx.restore();
+    // near legs in front
+    leg(-24, 0, false, false);
+    leg(42, 0.5, false, true);
+    const nod = move * 1.6 * Math.sin(u * Math.PI * 4 + 1) + lunge * 8;
+    headAt = [54 + lunge * 6, -64 + bodyY + nod];
     hand = [60, -60];
     head(k, L, headAt[0], headAt[1], 1.2, flash, e.ph);
   } else if (form === 'serpent') {
-    // Coils on the ground, a neck rising, one or many hoods.
-    ell(ctx, -6, -14, 64, 15, shade);
-    ell(ctx, -12, -34 + crouch, 50, 13, skin);
-    ell(ctx, -4, -52 + crouch, 36, 11, shade);
-    ctx.fillStyle = S(L.cloth);
-    for (let i = 0; i < 6; i++) ctx.fillRect(-50 + i * 16, -20, 8, 4);
-    const sway = Math.sin(nowMs / 300) * 4;
-    limb(ctx, [10, -56 + crouch, 24, -78 + crouch, 34 + sway, -96 + crouch], 18, skin);
+    // Coils on the ground that slither: a wave runs back along each coil as it moves (and slowly at rest); the
+    // neck sways over them, the heads weave.
+    const w = d / 34 + nowMs / 520;
+    const rows: [number, number, number, number, string][] = [
+      [-6, 60, -14, 30, shade],
+      [-12, 48, -34 + crouch, 26, skin],
+      [-4, 34, -52 + crouch, 22, shade],
+    ];
+    rows.forEach(([cx0, half, y0, thick, col], r) => {
+      const pts: number[] = [];
+      for (let i = 0; i <= 10; i++) {
+        const x = cx0 - half + (i * half * 2) / 10;
+        pts.push(x, y0 + Math.sin(i * 0.85 - w * 2.2 + r * 1.3) * (r === 0 ? 2 : 4));
+      }
+      limb(ctx, pts, thick, col);
+      if (r < 2) {
+        // pale belly plates riding the wave, each with a dark seam
+        const n = r === 0 ? 8 : 6;
+        for (let i = 0; i < n; i++) {
+          const x = cx0 - half + 6 + (i * (half * 2 - 12)) / (n - 1);
+          const yy =
+            y0 +
+            8 +
+            Math.sin(((x - (cx0 - half)) / (half * 2)) * 10 * 0.85 - w * 2.2 + r * 1.3) * (r === 0 ? 2 : 4);
+          ell(ctx, x, yy - (r === 0 ? 0 : 6), 5.5, 3.2, S(L.cloth), false);
+          ctx.fillStyle = S(tone(L.cloth, -0.35));
+          ctx.fillRect(x + 4, yy - (r === 0 ? 2 : 8), 1.5, 4);
+        }
+      }
+      if (r === 1) {
+        ctx.fillStyle = S(tone(L.skin, -0.3));
+        for (let i = 0; i < 9; i++)
+          ctx.fillRect(-46 + i * 10, y0 - 6 + (i % 2) * 3 + Math.sin(i * 0.85 - w * 2.2 + 1.3) * 4, 4, 2);
+      }
+    });
+    // the neck rises and sways; it rears back before a lunge
+    const rear = windUp ? prog(a) * 10 : 0;
+    const sway = Math.sin(nowMs / 300) * 4 + Math.sin(w * 2.2) * 2 * move - rear;
+    const lift = breathe * 2;
+    limb(
+      ctx,
+      [10, -56 + crouch, 22 - rear * 0.4, -78 + crouch + lift, 34 + sway, -96 + crouch + lift],
+      18,
+      skin,
+    );
+    limb(
+      ctx,
+      [16, -58 + crouch, 27 - rear * 0.4, -78 + crouch + lift, 38 + sway, -94 + crouch + lift],
+      6,
+      S(L.cloth),
+    );
     const n = L.heads ?? 1;
-    if (n === 1) head(k, L, 34 + sway, -104 + crouch, 1.1, flash, e.ph);
+    if (n === 1) head(k, L, 34 + sway, -104 + crouch + lift, 1.1, flash, e.ph);
     else
-      // Many heads fan out from the top of the neck, each on its own short neck.
       for (let i = 0; i < n; i++) {
+        // many heads fan out from the top of the neck and weave out of step with each other
         const ang = -1 + (2 * i) / (n - 1);
-        const hx = 26 + sway + Math.sin(ang) * 40;
-        const hy = -104 + crouch - Math.cos(ang) * 26;
-        limb(ctx, [30 + sway, -94 + crouch, hx, hy + 10], 9, i % 2 ? shade : skin);
+        const weave = Math.sin(nowMs / 260 + i * 1.9) * 3;
+        const hx = 26 + sway + Math.sin(ang) * 40 + weave;
+        const hy = -104 + crouch + lift - Math.cos(ang) * 26 + Math.cos(nowMs / 300 + i) * 2;
+        limb(ctx, [30 + sway, -94 + crouch + lift, hx, hy + 10], 9, i % 2 ? shade : skin);
         head(k, L, hx, hy, 0.72, flash, e.ph);
       }
-    headAt = [42 + sway, -112 + crouch];
+    headAt = [42 + sway, -112 + crouch + lift];
     hand = [50, -94];
   } else {
     // Warrior / wraith: a giant on two legs (or a robe of smoke), arms, a weapon in front.
     const wraith = form === 'wraith';
-    const bob = wraith ? Math.sin(nowMs / 260) * 6 - 12 : 0;
-    ctx.translate(0, bob);
+    const STRIDE = 96;
+    const u = d / STRIDE;
+    const step = Math.sin(u * Math.PI * 2);
+    const bob = wraith
+      ? Math.sin(nowMs / 260) * 6 - 12
+      : -move * 3.5 * Math.abs(step) + breathe * (1 - move) * 1.2;
+    const lean = charge && a.telegraph ? prog(a) * 6 : move * 2;
+    const hipY = -46 + crouch;
     if (wraith) {
-      poly(ctx, [-30, -60, 30, -60, 40, -6, 20, 6, 4, -4, -14, 8, -34, -4], S(L.cloth));
+      ctx.save();
+      ctx.translate(0, bob);
+      // a robe of smoke with a hem that ripples and trails back
+      const hem: number[] = [];
+      for (let i = 0; i <= 8; i++) {
+        const x = 40 - i * 10 - move * i * 1.5;
+        hem.push(x, -4 + Math.sin(nowMs / 150 + i * 0.9) * 5 + (i % 2) * 6);
+      }
+      poly(ctx, [-30, -60, 30, -60, ...hem], S(L.cloth));
+      ctx.restore();
     } else {
-      limb(ctx, [-14, -46 + crouch, -20 + walk * 8, -22, -24 + walk * 10, 0], 16, shade);
-      limb(ctx, [12, -46 + crouch, 18 - walk * 8, -22, 22 - walk * 10, 0], 18, skin);
-      poly(ctx, [-30, -50 + crouch, 30, -50 + crouch, 24, -36 + crouch, -24, -36 + crouch], S(L.cloth)); // dhoti
+      // legs: thigh and shin by IK to a planted (or swinging) foot; the far leg half a step behind
+      const legs: [number, number, string, number][] = [
+        [-14, 0.5, shade, 16],
+        [12, 0, skin, 18],
+      ];
+      for (const [hx, phase, col, wd] of legs) {
+        const [fx, fy] = stepFoot(u + phase, STRIDE, 12, move);
+        const footX = hx * 0.6 + fx;
+        const footY = -2 + fy;
+        const hy = hipY + bob;
+        const [kx, ky] = joint(hx, hy, footX, footY, 25, 25, -1);
+        limb(ctx, [hx, hy, kx, ky, footX, footY], wd, col);
+        ell(ctx, footX + 4, footY, wd * 0.7, 4, col);
+        band(ctx, L, S, (kx + footX) / 2, (ky + footY) / 2 + 4, wd * 0.5);
+      }
     }
-    // extra arms behind
+    ctx.save();
+    ctx.translate(lean, wraith ? bob : bob);
+    // dhoti: its hem flaps with the stride
+    if (!wraith) {
+      const fl = step * move * 4;
+      poly(
+        ctx,
+        [-30, -50 + crouch, 30, -50 + crouch, 26 + fl, -34 + crouch, 0, -38 + crouch, -26 - fl, -34 + crouch],
+        S(L.cloth),
+      );
+    }
+    // extra arms behind, waving slowly out of step
     const arms = L.arms ?? 2;
-    for (let i = 1; i < arms / 2; i++)
+    for (let i = 1; i < arms / 2; i++) {
+      const wv = Math.sin(nowMs / 380 + i * 1.4) * 4;
       limb(
         ctx,
-        [-6, -78 + crouch, -34 - i * 6, -96 - i * 10 + crouch, -42 - i * 4, -112 - i * 8 + crouch],
+        [
+          -6,
+          -78 + crouch,
+          -34 - i * 6,
+          -96 - i * 10 + crouch + wv,
+          -42 - i * 4,
+          -112 - i * 8 + crouch + wv * 1.6,
+        ],
         9,
         shade,
       );
-    poly(ctx, [-26, -50 + crouch, 28, -50 + crouch, 34, -92 + crouch, -22, -96 + crouch], skin); // torso
+    }
+    // torso: rises a pixel with each breath
+    const chest = breathe * (1 - move) * 1;
+    poly(
+      ctx,
+      [-26, -50 + crouch, 28, -50 + crouch, 34, -92 + crouch - chest, -22, -96 + crouch - chest],
+      skin,
+    );
+    if (!wraith) muscles(ctx, 4, -94 + crouch, -54 + crouch, 54);
     ctx.fillStyle = S(L.metal);
-    ctx.fillRect(-26, -56 + crouch, 56, 6); // belt
-    ell(ctx, 4, -80 + crouch, 10, 6, S(L.metal), false); // chest ornament
-    limb(ctx, [-20, -88 + crouch, -36, -66 + crouch, -30, -48 + crouch], 11, shade); // back arm
-    headAt = [12, -110 + crouch];
+    ctx.fillRect(-26, -56 + crouch, 56, 6);
+    ctx.fillStyle = S(tone(L.metal, 0.35));
+    ctx.fillRect(-26, -56 + crouch, 56, 2);
+    ell(ctx, 4, -80 + crouch, 10, 6, S(L.metal), false);
+    ell(ctx, 4, -80 + crouch, 3.5, 3.5, L.glow, false);
+    // back arm swings against the near leg; raised to call reinforcements
+    const swing = -step * move * 0.5;
+    const bsx = -20;
+    const bsy = -88 + crouch;
+    const bHand: [number, number] = summoning
+      ? [-26, -128 + crouch]
+      : [bsx - 6 + Math.sin(swing) * 26, bsy + 40 - Math.abs(Math.sin(swing)) * 6];
+    const [bex, bey] = joint(bsx, bsy, bHand[0], bHand[1], 22, 22, 1);
+    limb(ctx, [bsx, bsy, bex, bey, bHand[0], bHand[1]], 11, shade);
+    band(ctx, L, S, (bex + bHand[0]) / 2, (bey + bHand[1]) / 2, 7);
+    if (summoning) k.glow(e.x + e.f * (bHand[0] + lean), e.y + bHand[1] + bob, 6 + prog(a) * 10, L.glow);
+    // head: a little sway with the walk
+    headAt = [12 + step * move * 1.2, -110 + crouch - chest];
     head(k, L, headAt[0], headAt[1], 1.15, flash, e.ph);
-    // front arm and weapon toward the target
+    // front arm and weapon toward the target; the weapon bobs a little with each step
     const aim =
       e.at === ATTACK.mg || e.at === ATTACK.cannon ? -0.3 : charge ? 0 : -0.15 + Math.sin(nowMs / 400) * 0.1;
-    limb(ctx, [24, -88 + crouch, 44, -76 + crouch, 54, -66 + crouch], 12, skin);
-    weapon(ctx, L, 54, -66 + crouch, aim, 1.1, spin);
-    hand = [54, -66 + crouch];
-    headAt = [headAt[0], headAt[1] + bob];
-    hand = [hand[0], hand[1] + bob];
+    const hy = -66 + crouch + step * move * 2;
+    limb(ctx, [24, -88 + crouch, 44, -76 + crouch + step * move, 54, hy], 12, skin);
+    band(ctx, L, S, 46, -74 + crouch, 7);
+    pauldron(ctx, L, S, 26, -88 + crouch, 11);
+    weapon(ctx, L, 54, hy, aim, 1.1, spin);
+    ctx.restore();
+    hand = [54 + lean, hy + bob];
+    headAt = [headAt[0] + lean, headAt[1] + bob];
   }
   if (form === 'beast' || form === 'serpent') weapon(ctx, L, hand[0] - 30, hand[1] - 34, -0.6, 0.8, spin);
   ctx.restore();
@@ -866,116 +1180,430 @@ export function drawAsuraWalker(k: BossKit, L: AsuraLook, e: EnemySnapshot, nowM
 
 const FLYER = 0.85;
 
+/** How a flyer is moving, smoothed per boss, so its body can bank, pitch and pump harder at speed. */
+interface FlyMotion {
+  x: number;
+  y: number;
+  t: number;
+  vx: number;
+  vy: number;
+  bank: number;
+  seen: number;
+}
+const flyMotion = new Map<number, FlyMotion>();
+
+function flyerMotion(e: EnemySnapshot, nowMs: number): FlyMotion {
+  let m = flyMotion.get(e.id);
+  if (!m || nowMs - m.seen > 600 || nowMs < m.t) {
+    m = { x: e.x, y: e.y, t: nowMs, vx: 0, vy: 0, bank: 0, seen: nowMs };
+    flyMotion.set(e.id, m);
+  }
+  m.seen = nowMs;
+  const dt = (nowMs - m.t) / 1000;
+  if (dt > 0.008) {
+    const k = Math.min(1, dt * 8);
+    m.vx += ((e.x - m.x) / dt - m.vx) * k;
+    m.vy += ((e.y - m.y) / dt - m.vy) * k;
+    m.x = e.x;
+    m.y = e.y;
+    m.t = nowMs;
+    // nose down when diving or surging forward, up when climbing or braking (local space: + is nose down)
+    const fwd = m.vx * e.f;
+    const target = Math.max(-0.2, Math.min(0.2, m.vy / 700)) + Math.max(-0.1, Math.min(0.1, fwd / 1600));
+    m.bank += (target - m.bank) * Math.min(1, dt * 6);
+  }
+  if (flyMotion.size > 12) for (const [id, o] of flyMotion) if (nowMs - o.seen > 3000) flyMotion.delete(id);
+  return m;
+}
+
+/** Makara: a crocodile-headed sea dragon swimming through the air, its whole spine rippling. */
+function drawMakara(
+  k: BossKit,
+  L: AsuraLook,
+  S: (c: string) => string,
+  t: number,
+  speed: number,
+  a: AtkInfo,
+  e: EnemySnapshot,
+  spin: number,
+): [number, number] {
+  const ctx = k.ctx;
+  const skin = S(L.skin);
+  const shade = S(L.shade);
+  const rate = 4.5 + Math.min(5, speed / 70);
+  const N = 11;
+  const sp: { x: number; y: number; r: number }[] = [];
+  for (let i = 0; i < N; i++) {
+    const u = i / (N - 1);
+    const amp = 2 + u * u * 16;
+    sp.push({
+      x: 52 - u * 156,
+      y: Math.sin(t * rate - u * 5.2) * amp,
+      r: 4 + 19 * Math.sin(Math.PI * Math.min(1, 0.22 + u * 0.9)),
+    });
+  }
+  const at = (u: number) => sp[Math.round(u * (N - 1))] as { x: number; y: number; r: number };
+  const fin = Math.sin(t * rate * 0.5);
+  // far pectoral fin and far tail lobe, in shadow
+  const pf = at(0.3);
+  poly(
+    ctx,
+    [pf.x + 4, pf.y + pf.r * 0.3, pf.x - 30, pf.y + pf.r + 14 - fin * 10, pf.x - 8, pf.y + pf.r * 0.6],
+    shade,
+  );
+  const tail = sp[N - 1] as { x: number; y: number; r: number };
+  const pre = sp[N - 2] as { x: number; y: number; r: number };
+  const ta = Math.atan2(tail.y - pre.y, tail.x - pre.x);
+  const lobe = (dir: number, col: string) => {
+    const c = Math.cos(ta + dir * 0.6);
+    const s = Math.sin(ta + dir * 0.6);
+    poly(
+      ctx,
+      [tail.x, tail.y, tail.x + c * 30 - s * 6, tail.y + s * 30 + c * 6, tail.x + c * 22, tail.y + s * 22],
+      col,
+    );
+  };
+  lobe(-1, shade);
+  // dorsal sail spines, raked back, shrinking to the tail
+  for (let i = 1; i < N - 2; i++) {
+    const p = sp[i] as { x: number; y: number; r: number };
+    const h = 16 * (1 - i / N) + 4;
+    poly(
+      ctx,
+      [p.x + 5, p.y - p.r + 3, p.x - 6, p.y - p.r - h, p.x - 7, p.y - p.r + 4],
+      S(L.metal),
+      i % 2 === 0,
+    );
+  }
+  // the body: one outline along the spine, belly plates underneath, scale rows on the flank
+  const top: number[] = [];
+  const bot: number[] = [];
+  for (const p of sp) top.push(p.x, p.y - p.r);
+  for (let i = N - 1; i >= 0; i--) {
+    const p = sp[i] as { x: number; y: number; r: number };
+    bot.push(p.x, p.y + p.r * 0.92);
+  }
+  poly(ctx, [...top, ...bot], skin);
+  const belly: number[] = [];
+  for (const p of sp) belly.push(p.x, p.y + p.r * 0.38);
+  for (let i = N - 1; i >= 0; i--) {
+    const p = sp[i] as { x: number; y: number; r: number };
+    belly.push(p.x, p.y + p.r * 0.9);
+  }
+  poly(ctx, belly, S(L.cloth), false);
+  ctx.fillStyle = tone(L.cloth, -0.35);
+  for (let i = 1; i < N - 1; i++) {
+    const p = sp[i] as { x: number; y: number; r: number };
+    ctx.fillRect(Math.round(p.x), Math.round(p.y + p.r * 0.4), 1.5, Math.max(1, p.r * 0.48));
+  }
+  ctx.fillStyle = tone(L.skin, -0.28);
+  for (let i = 1; i < N - 2; i++) {
+    const p = sp[i] as { x: number; y: number; r: number };
+    for (let j = 0; j < 2; j++) {
+      const sx = p.x - 4 + j * 7;
+      const sy = p.y - p.r * 0.35 + j * 4;
+      ctx.beginPath();
+      ctx.arc(sx, sy, Math.max(1.5, p.r * 0.16), 0, Math.PI);
+      ctx.fill();
+    }
+  }
+  lobe(1, S(L.metal));
+  // near pectoral fin, sweeping like an oar
+  poly(
+    ctx,
+    [pf.x + 6, pf.y + pf.r * 0.4, pf.x - 24, pf.y + pf.r + 24 + fin * 12, pf.x - 2, pf.y + pf.r * 0.8],
+    S(L.metal),
+  );
+  // the conch it carries in the near fin's grip
+  weapon(ctx, L, pf.x - 8, pf.y + pf.r + 6, 0.4 + fin * 0.1, 0.8, spin);
+  // the head: crocodile snout, a jaw that gapes on a tell, crest fins and swaying barbels
+  const h = sp[0] as { x: number; y: number; r: number };
+  const hx = h.x + 4;
+  const hy = h.y - 2;
+  const gape =
+    0.1 + Math.sin(t * 3) * 0.04 + (a.telegraph ? prog(a) * 0.5 : 0) + (e.at === ATTACK.strafe ? 0.15 : 0);
+  for (let i = 0; i < 3; i++)
+    poly(
+      ctx,
+      [hx - 8 + i * 7, hy - 10, hx - 16 + i * 7, hy - 26 - (i === 1 ? 4 : 0), hx - 1 + i * 7, hy - 12],
+      S(L.metal),
+    );
+  // lower jaw (behind the skull)
+  ctx.save();
+  ctx.translate(hx + 4, hy + 4);
+  ctx.rotate(gape);
+  poly(ctx, [0, -2, 44, 0, 42, 6, 0, 10], tone(L.skin, -0.18));
+  ctx.fillStyle = '#ffffff';
+  for (let i = 0; i < 6; i++) ctx.fillRect(6 + i * 6.5, -4, 2, 4);
+  ctx.restore();
+  // mouth glow when it gapes
+  if (gape > 0.2) ell(ctx, hx + 30, hy + 8, 10 * gape * 2, 4 * gape * 2, L.glow, false);
+  ell(ctx, hx, hy, 17, 13, skin);
+  poly(ctx, [hx + 2, hy - 10, hx + 54, hy - 2, hx + 54, hy + 4, hx + 2, hy + 6], skin);
+  ctx.fillStyle = '#ffffff';
+  for (let i = 0; i < 6; i++) ctx.fillRect(hx + 10 + i * 7, hy + 4, 2, 4);
+  ell(ctx, hx + 52, hy - 1, 3, 2.5, tone(L.skin, -0.3), false); // nostril bump
+  ell(ctx, hx + 10, hy - 6, 4.5, 3.5, L.glow);
+  ctx.fillStyle = INK;
+  ctx.fillRect(hx + 11, hy - 7, 2, 3);
+  const sway = Math.sin(t * 2.4);
+  limb(ctx, [hx + 50, hy + 3, hx + 58, hy + 12 + sway * 3, hx + 52, hy + 22 + sway * 5], 2, S(L.metal));
+  return [hx + 46, hy + 4];
+}
+
+/** Garjan-rakshas: a storm giant riding a rolling thunderhead that crackles with lightning. */
+function drawStormCloud(
+  k: BossKit,
+  L: AsuraLook,
+  S: (c: string) => string,
+  e: EnemySnapshot,
+  t: number,
+  speed: number,
+  flash: boolean,
+  spin: number,
+  cy: number,
+): [number, number] {
+  const ctx = k.ctx;
+  const skin = S(L.skin);
+  const roll = t * (0.7 + Math.min(1.2, speed / 260));
+  const puffs: { x: number; y: number; r: number; d: number }[] = [];
+  for (let i = 0; i < 11; i++) {
+    const ang = (i / 11) * Math.PI * 2 + roll;
+    puffs.push({
+      x: Math.cos(ang) * 62,
+      y: 18 + Math.sin(ang) * 9,
+      r: 15 + 7 * Math.sin(t * 1.3 + i * 1.7),
+      d: Math.sin(ang),
+    });
+  }
+  const cloudDark = S(tone(L.shade, -0.05));
+  const cloudMid = S(tone(L.shade, 0.18));
+  const cloudLight = S(tone(L.shade, 0.4));
+  // the anvil's dark underside, then the back half of the rolling puffs
+  ell(ctx, -4, 30, 74, 14, cloudDark, false);
+  for (const p of puffs) if (p.d < 0) ell(ctx, p.x, p.y, p.r, p.r * 0.72, cloudMid, false);
+  // the rider: a scarf streaming behind, a leaning torso, the vajra raised
+  const lean = Math.min(0.25, speed / 900);
+  const scarf: number[] = [-8, -46];
+  for (let i = 1; i <= 6; i++)
+    scarf.push(-8 - i * 12, -44 + i * 3 + Math.sin(t * 7 - i * 0.9) * (3 + i * 1.5));
+  for (let i = 6; i >= 1; i--)
+    scarf.push(-8 - i * 12, -38 + i * 3 + Math.sin(t * 7 - i * 0.9) * (3 + i * 1.5));
+  poly(ctx, scarf, S(L.metal));
+  ctx.save();
+  ctx.rotate(lean);
+  poly(ctx, [-16, -54, 22, -54, 26, 6, -20, 6], skin);
+  muscles(ctx, 3, -50, 2, 18);
+  ctx.fillStyle = S(L.metal);
+  ctx.fillRect(-20, -12, 46, 5);
+  ell(ctx, 4, -10, 4, 3, L.glow, false);
+  head(k, L, 6, -70, 1, flash, e.ph);
+  const raise = Math.sin(t * 2) * 4;
+  limb(ctx, [18, -44, 40, -40 - raise, 56, -22 - raise], 9, skin);
+  band(ctx, L, S, 40, -40 - raise, 5);
+  weapon(ctx, L, 56, -20 - raise, 0.2, 1, spin);
+  ctx.restore();
+  // front puffs, lit on top
+  for (const p of puffs)
+    if (p.d >= 0) {
+      ell(ctx, p.x, p.y + 2, p.r, p.r * 0.72, cloudMid, false);
+      ell(ctx, p.x - p.r * 0.15, p.y - p.r * 0.25, p.r * 0.62, p.r * 0.4, cloudLight, false);
+    }
+  // lightning: a jagged bolt from the cloud's belly every so often, and flickers inside it
+  const flick = Math.floor(t * 11);
+  if (!k.reduce && (flick % 13 === 0 || flick % 29 === 5)) {
+    ctx.strokeStyle = L.glow;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    let x = ((flick * 37) % 100) - 50;
+    let y = 30;
+    ctx.moveTo(x, y);
+    for (let i = 0; i < 6; i++) {
+      x += ((flick * (i + 3) * 17) % 24) - 12;
+      y += 14;
+      ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    k.glow(e.x + e.f * x * FLYER, cy + 6 + 30 * FLYER, 26, 'rgba(147,197,253,0.45)');
+  }
+  if (!k.reduce && Math.random() < 0.08)
+    k.add({
+      x: e.x + (Math.random() - 0.5) * 120,
+      y: cy + 34,
+      vy: 260,
+      life: 0.15,
+      size: 3,
+      color: L.glow,
+      add: true,
+    });
+  return [62, -22];
+}
+
+/** Chhaya-asur: a mask in a tattered cloak, shadow wisps streaming behind it, mirror shards circling. */
+function drawShade(
+  k: BossKit,
+  L: AsuraLook,
+  S: (c: string) => string,
+  e: EnemySnapshot,
+  t: number,
+  speed: number,
+  flash: boolean,
+  spin: number,
+): [number, number] {
+  const ctx = k.ctx;
+  const drag = Math.min(1, speed / 300);
+  // wisps: ribbons of shadow trailing back, rippling, fading at the tips
+  for (let w = 0; w < 5; w++) {
+    const pts: number[] = [];
+    const y0 = -24 + w * 14;
+    for (let i = 0; i <= 6; i++)
+      pts.push(-30 - i * (12 + drag * 8), y0 + Math.sin(t * 5 - i * 0.8 + w * 1.3) * (2 + i * 2));
+    ctx.save();
+    ctx.globalAlpha *= 0.55;
+    limb(ctx, pts, 7 - w * 0.6, S(tone(L.cloth, -0.1)));
+    ctx.restore();
+  }
+  // shards behind the body
+  const shard = (i: number, front: boolean) => {
+    const ang = t * 2 + (i * Math.PI) / 2;
+    if (Math.sin(ang) >= 0 !== front) return;
+    const sc = 0.75 + Math.sin(ang) * 0.25;
+    const x = Math.cos(ang) * 72;
+    const y = Math.sin(ang) * 18 - 6;
+    poly(
+      ctx,
+      [x, y - 8 * sc, x + 7 * sc, y, x, y + 10 * sc, x - 5 * sc, y],
+      S(front ? L.metal : tone(L.metal, -0.3)),
+    );
+  };
+  for (let i = 0; i < 4; i++) shard(i, false);
+  // the cloak: its hem tears into tatters that flutter and drag back with speed
+  const hem: number[] = [];
+  for (let i = 0; i <= 6; i++) {
+    const x = 40 - i * 15 - drag * i * 4;
+    hem.push(x, 26 + (i % 2 ? 18 : 6) + Math.sin(t * 6 + i * 1.1) * 5);
+  }
+  poly(ctx, [-44, -40, 30, -46, 46, 16, ...hem, -60, 12], S(L.cloth));
+  poly(ctx, [-30, -36, 24, -40, 32, 6, -20, 10], S(tone(L.cloth, 0.12)), false);
+  ell(ctx, 20, -2, 6, 5, L.glow, false); // a heart-light under the cloak
+  head(k, L, 20, -20, 1.4, flash, e.ph);
+  weapon(ctx, L, 36, 14, 0.15 + Math.sin(t * 1.5) * 0.1, 1, spin);
+  for (let i = 0; i < 4; i++) shard(i, true);
+  return [40, -24];
+}
+
+/** A vimana: a carved sky chariot, its prow lotus, pennants, spinning wheels and thrusters. */
+function drawVimana(
+  k: BossKit,
+  L: AsuraLook,
+  S: (c: string) => string,
+  e: EnemySnapshot,
+  t: number,
+  speed: number,
+  flash: boolean,
+  spin: number,
+  cy: number,
+): [number, number] {
+  const ctx = k.ctx;
+  const hull = S(L.cloth);
+  const gold = S(L.metal);
+  // thrusters: flames that lengthen with speed, flickering
+  const flame = 18 + Math.min(26, speed / 10) + Math.sin(t * 40) * 4;
+  for (const y of [2, 16]) {
+    poly(ctx, [-88, y - 5, -88 - flame, y, -88, y + 5], L.glow, false);
+    poly(ctx, [-88, y - 2.5, -88 - flame * 0.55, y, -88, y + 2.5], '#ffffff', false);
+  }
+  if (!k.reduce && Math.random() < 0.3)
+    k.add({
+      x: e.x - e.f * 96 * FLYER,
+      y: cy + 14,
+      vx: -e.f * 90,
+      life: 0.25,
+      size: 5,
+      color: L.glow,
+      add: true,
+      grow: -12,
+    });
+  // hull: a keel, rows of gold trim, carved panels
+  poly(ctx, [-84, 0, 72, 0, 98, -14, 76, 24, -72, 24, -94, 10], hull);
+  poly(ctx, [-84, 12, 76, 12, 76, 24, -72, 24], S(tone(L.cloth, -0.22)), false);
+  ctx.fillStyle = gold;
+  ctx.fillRect(-84, 2, 160, 3);
+  for (let i = 0; i < 7; i++) ell(ctx, -64 + i * 21, 15, 4, 3, gold, false);
+  // the canopy: pillars, a stepped shikhara roof with a finial, pennants flying back
+  poly(ctx, [-50, 0, -40, -44, 22, -44, 32, 0], S(tone(L.cloth, -0.3)));
+  ctx.fillStyle = gold;
+  ctx.fillRect(-44, -44, 4, 44);
+  ctx.fillRect(22, -44, 4, 44);
+  poly(ctx, [-58, -44, -8, -56, 40, -44], gold);
+  poly(ctx, [-44, -56, -8, -70, 26, -56], S(tone(L.metal, -0.15)));
+  poly(ctx, [-26, -70, -8, -84, 10, -70], gold);
+  ell(ctx, -8, -88, 4, 4, L.glow, false);
+  for (const [px, py, len] of [
+    [-8, -84, 26],
+    [-56, -46, 18],
+  ] as const) {
+    ctx.fillStyle = INK;
+    ctx.fillRect(px - 1, py - 16, 2, 16);
+    const pts: number[] = [px, py - 16];
+    for (let i = 1; i <= 4; i++) pts.push(px - (i * len) / 4, py - 16 + Math.sin(t * 9 - i) * (1 + i));
+    for (let i = 4; i >= 1; i--) pts.push(px - (i * len) / 4, py - 9 + Math.sin(t * 9 - i) * (1 + i) - i);
+    poly(ctx, pts, L.glow, false);
+  }
+  head(k, L, -6, -22, 0.9, flash, e.ph);
+  // prow: a golden lotus
+  for (let i = 0; i < 3; i++) poly(ctx, [86, -10, 100 + i * 4, -26 + i * 9, 96, -6], gold);
+  // wheels with spokes
+  for (const x of [-56, 52]) {
+    ctx.save();
+    ctx.translate(x, 24);
+    ctx.rotate(spin * (1 + speed / 200));
+    ell(ctx, 0, 0, 15, 15, gold);
+    ell(ctx, 0, 0, 9, 9, S(tone(L.cloth, -0.3)), false);
+    ctx.fillStyle = INK;
+    for (let i = 0; i < 4; i++) {
+      ctx.rotate(Math.PI / 4);
+      ctx.fillRect(-14, -1.5, 28, 3);
+    }
+    ell(ctx, 0, 0, 3, 3, L.glow, false);
+    ctx.restore();
+  }
+  weapon(ctx, L, 70, 8, 0, 0.9, spin);
+  return [90, 0];
+}
+
 /** Gunship body (a flyer around (e.x, e.y - 32)): bursts leave near (70, +12), bombs from the belly. */
 export function drawAsuraFlyer(k: BossKit, L: AsuraLook, e: EnemySnapshot, nowMs: number, a: AtkInfo): void {
   const ctx = k.ctx;
   const c = GAME_CONFIG.enemies.gunship;
   const flash = e.h === 1;
   const S = lit(flash);
-  const skin = S(L.skin);
-  const shade = S(L.shade);
+  setLight(1); // drawn in local space mirrored to face e.f
   const cy = e.y - c.height / 2;
   const blinking = e.at === ATTACK.blink && a.telegraph;
   const spin = nowMs / (e.at === ATTACK.spiral ? 40 : 160);
+  const m = flyerMotion(e, nowMs);
+  const speed = Math.hypot(m.vx, m.vy);
+  const t = nowMs / 1000;
+  // a slow hover bob, and the bank/pitch of its flight
+  const bob = Math.sin(t * 2.2 + e.id) * 3;
   k.shadowAt(e.x, 14 * GAME_CONFIG.tile, 70, 0.18);
   ctx.save();
   if (blinking) ctx.globalAlpha = Math.max(0.15, 1 - prog(a));
-  ctx.translate(Math.round(e.x), Math.round(cy) + 6);
+  ctx.translate(Math.round(e.x), Math.round(cy + bob) + 6);
   ctx.scale(e.f * FLYER, FLYER);
+  ctx.rotate(m.bank);
   const form = L.flyer ?? 'cloud';
-  const flap = Math.sin(nowMs / 160);
   let core: [number, number];
-  if (form === 'makara') {
-    // A flying sea beast: fish tail behind, fins as wings, a crocodile jaw in front.
-    poly(ctx, [-60, 0, -104, -26 + flap * 8, -96, 0, -104, 26 - flap * 8], shade);
-    ell(ctx, -6, 0, 62, 22, skin);
-    ctx.fillStyle = S(L.cloth);
-    for (let i = 0; i < 6; i++) ell(ctx, -44 + i * 14, 4 + (i % 2) * 4, 5, 4, S(L.cloth), false);
-    poly(ctx, [-10, -16, -40, -58 - flap * 10, -2, -22], S(L.metal));
-    poly(ctx, [-10, 16, -30, 44 + flap * 8, 6, 20], shade);
-    head(k, L, 56, -4, 1, flash, e.ph);
-    weapon(ctx, L, -6, 22, 0.4, 0.9, spin);
-    core = [70, -4];
-  } else if (form === 'cloud') {
-    // A storm rakshasa riding a thundercloud, weapon raised.
-    for (const [x, y, r] of [
-      [-60, 18, 24],
-      [-24, 24, 30],
-      [16, 22, 30],
-      [54, 16, 22],
-      [-6, 8, 26],
-    ] as const)
-      ell(ctx, x, y, r, r * 0.6, S(tone(L.shade, 0.1)), false);
-    poly(ctx, [-14, -54, 20, -54, 24, 6, -18, 6], skin);
-    ctx.fillStyle = S(L.metal);
-    ctx.fillRect(-18, -12, 44, 5);
-    head(k, L, 6, -70, 1, flash, e.ph);
-    limb(ctx, [18, -44, 40, -36, 56, -18], 9, skin);
-    weapon(ctx, L, 56, -18, 0.2, 1, spin);
-    if (!k.reduce && Math.random() < 0.08)
-      k.add({
-        x: e.x + (Math.random() - 0.5) * 120,
-        y: cy + 30,
-        vy: 260,
-        life: 0.15,
-        size: 3,
-        color: L.glow,
-        add: true,
-      });
-    core = [62, -16];
-  } else if (form === 'shadow') {
-    // A floating mask in a tattered cloak; mirror shards orbit it.
-    poly(
-      ctx,
-      [-40, -40, 30, -46, 44, 20, 10, 40 + flap * 6, -16, 26, -40, 44 - flap * 6, -56, 10],
-      S(L.cloth),
-    );
-    head(k, L, 20, -20, 1.4, flash, e.ph);
-    for (let i = 0; i < 4; i++) {
-      const t = nowMs / 500 + (i * Math.PI) / 2;
-      poly(
-        ctx,
-        [
-          Math.cos(t) * 70,
-          Math.sin(t) * 26 - 6,
-          Math.cos(t) * 70 + 8,
-          Math.sin(t) * 26,
-          Math.cos(t) * 70,
-          Math.sin(t) * 26 + 10,
-        ],
-        S(L.metal),
-      );
-    }
-    weapon(ctx, L, 36, 14, 0.15, 1, spin);
-    core = [40, -24];
-  } else {
-    // A vimana: a sky chariot with a canopy, wheels or vajra spikes, and its asura pilot.
-    poly(ctx, [-80, 0, 70, 0, 92, -12, 70, 22, -70, 22, -92, 10], S(L.cloth));
-    ctx.fillStyle = S(L.metal);
-    for (let i = 0; i < 7; i++) ctx.fillRect(-64 + i * 20, 6, 10, 4);
-    poly(ctx, [-50, 0, -40, -46, 20, -46, 30, 0], S(tone(L.cloth, -0.25)));
-    poly(ctx, [-56, -46, -10, -70, 36, -46], S(L.metal)); // canopy roof
-    head(k, L, -6, -22, 0.9, flash, e.ph);
-    for (const x of [-56, 52]) {
-      ctx.save();
-      ctx.translate(x, 22);
-      ctx.rotate(spin);
-      ell(ctx, 0, 0, 14, 14, S(L.metal));
-      ctx.fillStyle = INK;
-      for (let i = 0; i < 4; i++) {
-        ctx.rotate(Math.PI / 4);
-        ctx.fillRect(-14, -1.5, 28, 3);
-      }
-      ctx.restore();
-    }
-    weapon(ctx, L, 70, 8, 0, 0.9, spin);
-    core = [90, 0];
-  }
+  if (form === 'makara') core = drawMakara(k, L, S, t, speed, a, e, spin);
+  else if (form === 'cloud') core = drawStormCloud(k, L, S, e, t, speed, flash, spin, cy);
+  else if (form === 'shadow') core = drawShade(k, L, S, e, t, speed, flash, spin);
+  else core = drawVimana(k, L, S, e, t, speed, flash, spin, cy);
   ctx.restore();
   // tells
   const p = a.telegraph ? prog(a) : 0;
   const gx = e.x + e.f * core[0] * FLYER;
-  const gy = cy + 6 + core[1] * FLYER;
+  const gy = cy + bob + 6 + core[1] * FLYER;
   if (a.telegraph) {
     if (e.at === ATTACK.strafe) k.sightLine(e.x + e.f * 70, e.y + 12, e.a / 100, 460, p);
     if (e.at === ATTACK.bombs || e.at === ATTACK.troops) k.warnIcon(e.x, cy - 70, nowMs);
@@ -1010,54 +1638,101 @@ export function drawAsuraKing(
   const ph = e.ph;
   const spin = nowMs / (e.at === ATTACK.spiral ? 40 : 200);
   ctx.save();
-  // Throne / pedestal first.
+  // Throne / pedestal first (world space: the king faces left, so the light comes from the left).
+  setLight(-1);
   throne(k, L, e, S, nowMs);
   // Mirror so the king faces left (toward the squad): local x grows to the left.
   ctx.translate(Math.round(e.x), Math.round(e.y));
   ctx.scale(-1, 1);
+  setLight(1);
   const skin = S(L.skin);
   const shade = S(L.shade);
+  const live = !dead;
+  const breathe = live ? Math.sin(nowMs / 640) : 0;
+  // a cape behind the king: its hem ripples, slower in calm, faster as he weakens
+  const capeT = nowMs / (ph >= 3 ? 150 : 260);
+  const hem: number[] = [];
+  for (let i = 0; i <= 8; i++) {
+    const x = 58 - i * 15;
+    hem.push(x, -30 + (live ? Math.sin(capeT + i * 0.8) * (3 + i * 0.6) : 0));
+  }
+  poly(ctx, [-36, -150, 50, -152, ...hem], S(tone(L.cloth, -0.3)));
   // legs (seated) and lap cloth
   limb(ctx, [-20, -60, 20, -64, 30, -26, 26, -4], 18, shade);
   limb(ctx, [-30, -58, 6, -70, 14, -30, 10, -4], 20, skin);
   poly(ctx, [-44, -50, 40, -54, 48, -78, -40, -86], S(L.cloth));
-  // extra arms (back)
+  // everything above the lap rises and falls with his breath
+  ctx.save();
+  ctx.translate(0, -breathe * 1.5);
+  // extra arms (back), each pair waving out of step with the next
   const arms = L.arms ?? 2;
   for (let i = 1; i < arms / 2; i++) {
-    const sw = Math.sin(nowMs / 400 + i) * 0.15;
-    limb(ctx, [-6, -150, -40 - i * 8, -170 - i * 12, -54 - i * 6, -196 - i * 10], 10, shade);
-    limb(ctx, [26, -150, 56 + i * 8, -168 - i * 12, 70 + i * 4, -194 - i * 10], 10, shade);
-    weapon(ctx, L, 70 + i * 4, -194 - i * 10, -1.3 + sw, 0.9, spin + i);
-    weapon(ctx, L, -54 - i * 6, -196 - i * 10, -1.9 - sw, 0.9, -spin - i);
+    const sw = live ? Math.sin(nowMs / 400 + i) * 0.15 : 0;
+    const wv = live ? Math.sin(nowMs / 420 + i * 1.3) * 5 : 0;
+    limb(ctx, [-6, -150, -40 - i * 8, -170 - i * 12 + wv, -54 - i * 6, -196 - i * 10 + wv * 1.5], 10, shade);
+    limb(ctx, [26, -150, 56 + i * 8, -168 - i * 12 - wv, 70 + i * 4, -194 - i * 10 - wv * 1.5], 10, shade);
+    weapon(ctx, L, 70 + i * 4, -194 - i * 10 - wv * 1.5, -1.3 + sw, 0.9, spin + i);
+    weapon(ctx, L, -54 - i * 6, -196 - i * 10 + wv * 1.5, -1.9 - sw, 0.9, -spin - i);
   }
   // torso
   poly(ctx, [-34, -80, 38, -84, 46, -156, -30, -160], skin);
+  if (!dead) muscles(ctx, 6, -158, -94, 72);
   ctx.fillStyle = S(L.metal);
   ctx.fillRect(-34, -92, 80, 7); // belt
+  ctx.fillStyle = S(tone(L.metal, 0.35));
+  ctx.fillRect(-34, -92, 80, 2);
+  ell(ctx, 6, -88, 8, 6, S(L.metal)); // buckle
+  ell(ctx, 6, -88, 3, 3, L.glow, false);
   poly(ctx, [-26, -146, 38, -148, 30, -132, -18, -130], S(L.metal)); // necklace
   for (let i = 0; i < 4; i++) ell(ctx, -14 + i * 14, -136, 4, 4, L.glow, false);
   // shoulders and the two main arms; the front one holds the weapon toward the squad
   ell(ctx, -30, -150, 16, 14, skin);
   ell(ctx, 42, -152, 16, 14, skin);
-  limb(ctx, [-30, -146, -52, -120, -50, -96], 14, skin);
-  limb(ctx, [42, -146, 62, -126, 66, -100], 14, shade);
-  const raise = (e.at === ATTACK.rain || e.at === ATTACK.summon) && a.telegraph ? -40 : 0;
-  weapon(ctx, L, -50, -96 + raise, raise ? -1.2 : -0.2, 1.3, spin);
-  // heads
+  // The weapon hand gestures with the attack (local -x is towards the squad): raised to call rain or
+  // reinforcements, thrust out for a volley, lifted high then brought down for a slam, lowered for a beam.
+  const t = a.telegraph ? prog(a) : 1;
+  let hand: [number, number] = [-50, -96 + (live ? Math.sin(nowMs / 700) * 3 : 0)];
+  let wAng = -0.2;
+  if (live && (e.at === ATTACK.rain || e.at === ATTACK.summon) && a.telegraph) {
+    hand = [-44, -96 - 40 * Math.min(1, t * 1.5)];
+    wAng = -1.2;
+  } else if (live && e.at === ATTACK.volley && a.telegraph) {
+    hand = [-50 - 22 * t, -112 + 6 * t];
+    wAng = -0.05;
+  } else if (live && e.at === ATTACK.slam) {
+    hand = a.telegraph ? [-40, -150 - 30 * t] : [-58, -60];
+    wAng = a.telegraph ? -1.4 : 0.6;
+  } else if (live && (e.at === ATTACK.beamLow || e.at === ATTACK.beamHigh)) {
+    hand = [-62, e.at === ATTACK.beamLow ? -82 : -118];
+    wAng = e.at === ATTACK.beamLow ? 0.35 : -0.25;
+  }
+  const [ex, ey] = joint(-30, -146, hand[0], hand[1], 28, 28, 1);
+  limb(ctx, [-30, -146, ex, ey, hand[0], hand[1]], 14, skin);
+  // the other arm rests on the throne, fingers drumming
+  const rest = live ? Math.sin(nowMs / 900) * 2 : 0;
+  limb(ctx, [42, -146, 62, -126 + rest, 66, -100 + rest], 14, shade);
+  band(ctx, L, S, (ex + hand[0]) / 2 + 2, (ey + hand[1]) / 2, 9);
+  band(ctx, L, S, 61, -122 + rest, 9);
+  pauldron(ctx, L, S, -30, -152, 15);
+  pauldron(ctx, L, S, 42, -154, 14);
+  weapon(ctx, L, hand[0], hand[1], wAng, 1.3, spin);
+  // heads: each turns a little on its own
   const n = L.heads ?? 1;
   for (let i = n - 1; i >= 0; i--) {
     const off = (i - (n - 1) / 2) * 30;
     const side = Math.abs(off) > 0;
+    const look = live ? Math.sin(nowMs / 800 + i * 2.1) * (side ? 2 : 1) : 0;
     head(
       k,
       L,
-      4 + off,
+      4 + off + look,
       -182 - (side ? 0 : 6) + Math.abs(off) * 0.25,
       side ? 1.1 : 1.45,
       e.h === 1 && !dead,
       ph,
     );
   }
+  ctx.restore();
   ctx.restore();
   if (dead) {
     k.label('DEFEATED', e.x, top + 40, '#a8a29e', 14);

@@ -19,6 +19,8 @@ export const FEET_Y = 48;
 export const CENTER_X = 20;
 export const RUN_FRAMES = 8;
 
+import { HD_POSES, drawHeroHD } from './hero-hd';
+
 const OUTLINE = '#120f17';
 
 export interface Look {
@@ -560,7 +562,8 @@ export function charFrame(lookKey: string, look: Look, pose: Pose, frame: number
   const key = `${lookKey}|${pose}|${frame}|${aim}`;
   let f = cache.get(key);
   if (!f) {
-    f = drawCharacter(look, pose, frame, aim);
+    // heroes and troopers are drawn in high definition (hero-hd.ts)
+    f = HD_POSES.has(pose) ? drawHeroHD(look, pose, frame, aim) : drawCharacter(look, pose, frame, aim);
     cache.set(key, f);
   }
   return f;

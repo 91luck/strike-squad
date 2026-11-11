@@ -3,6 +3,7 @@ import {
   BULLET_KINDS,
   GAME_CONFIG,
   WEAPON_KINDS,
+  SAGA,
   isSagaId,
   heroOf,
   rankName,
@@ -17,9 +18,11 @@ import {
   type SimEvent,
   type Snapshot,
   type StyleTag,
+  type Vyuha,
   styleOf,
 } from '@strikesquad/shared';
 import { ASURA_LOOKS, BOSS_TITLES, sagaMoveTips, type AsuraLook } from './asura-art';
+import type { Music } from '../audio/music';
 import type { Sfx } from '../audio/sfx';
 import type { Settings } from '../settings';
 import { $, el } from '../ui/dom';
@@ -94,27 +97,8 @@ export const POWER_INFO: Record<PowerKind, { name: string; icon: string; tip: st
   vaishnava: { name: 'VAISHNAVASTRA', icon: '☀', tip: 'Turns a boss’s golden orb back on the boss' },
 };
 
-/** Each astra's cut-in: its colour and its name in Devanagari. */
-const ASTRA_CUT: Record<PowerKind | 'brahma' | BossRule, { color: string; deva: string }> = {
-  agni: { color: '#ea580c', deva: 'आग्नेयास्त्र' },
-  varuna: { color: '#0284c7', deva: 'वरुणास्त्र' },
-  vayu: { color: '#64748b', deva: 'वायव्यास्त्र' },
-  singularity: { color: '#6d28d9', deva: 'कृष्ण विवर' },
-  naga: { color: '#15803d', deva: 'नागास्त्र' },
-  garuda: { color: '#b45309', deva: 'गरुडास्त्र' },
-  sudarshana: { color: '#ca8a04', deva: 'सुदर्शन चक्र' },
-  pashupata: { color: '#0f766e', deva: 'पाशुपतास्त्र' },
-  vaishnava: { color: '#d97706', deva: 'वैष्णवास्त्र' },
-  brahma: { color: '#f59e0b', deva: 'ब्रह्मास्त्र' },
-  narayana: { color: '#b91c1c', deva: 'नारायणास्त्र' },
-  brahmashirsha: { color: '#991b1b', deva: 'ब्रह्मशिरास्त्र' },
-};
-
 /** Wire index of a vaishnava orb. */
 const ORB = BULLET_KINDS.indexOf('orb');
-
-/** What each pashupata form is called on screen. */
-const PASHUPATA_FORM = ['TRIDENT STRIKE', 'SPIRIT ALLY', 'RAIN OF FIRE'];
 
 /** Boss astra banners: the call, and what to do about it. */
 const BOSS_ASTRA_TEXT: Record<BossRule, { call: string; tip: string }> = {
@@ -143,7 +127,19 @@ const RANK_COLORS = ['#a3e635', '#38bdf8', '#facc15', '#fb923c', '#f43f5e', '#e8
  * super meter, combo and style rank, boss bar, arena status), boss intro cards, notices, countdown, KO panel, and
  * sound/particle reactions to sim events.
  */
+/** The battle arrays: the name shown with the wave, and how it comes at you. */
+const VYUHA_TEXT: Record<Vyuha, [string, string]> = {
+  chakra: ['CHAKRA VYUHA', 'the wheel rises all round you — break out of the ring'],
+  ardha: ['ARDHA-CHANDRA VYUHA', 'the half-moon closes from both ends — do not get caught between the horns'],
+  makara: ['MAKARA VYUHA', 'the heavy jaw is in front — the other shuts behind you'],
+  suchi: ['SUCHI VYUHA', 'the needle: one long file through one gate — hold the mouth'],
+  vajra: ['VAJRA VYUHA', 'the thunderbolt drops on you from the sky — keep moving'],
+  garuda: ['GARUDA VYUHA', 'the eagle: a beak in front, wings overhead, the body behind'],
+};
+
 export class MatchView {
+  /** Said as the next match begins, instead of the stage's own line (the daily trial sets it). */
+  intro: string | null = null;
   readonly renderer: Renderer;
   private names = new Map<string, string>();
   private meId = '';
@@ -153,15 +149,27 @@ export class MatchView {
   private fpsSince = 0;
   private bannerTimer = 0;
   private introTimer = 0;
+  /**
+   * Banner traffic control: one message at a time, never over the boss card. A banner that arrives while the
+   * boss card is up, or within a second of an urgent (red) banner, waits in a short queue and plays after it.
+   */
+  private introUntil = 0;
+  private bannerShownAt = 0;
+  private bannerUrgent = false;
+  private bannerQueue: { text: string; bad: boolean }[] = [];
+  private pumpTimer = 0;
   private coachUntil = 0;
   private nextFireSound = 0;
   private lastHitSound = 0;
   private lastZone = '';
+  private lastRest = -1;
   private hpLag = 100;
   private bossLag = 1;
   private lastCombo = 0;
   private comboAt = 0;
   private lastRank = -1;
+  /** The sky-fire hint has been shown this stage. */
+  private skyWarned = false;
   private ultReady = false;
   /** Snapshot-confirmed counters for tests / the debug hook. */
   stats = { kills: 0, ults: 0, bestCombo: 0, bossesDown: 0 };
@@ -182,6 +190,7 @@ export class MatchView {
     this.stats = { kills: 0, ults: 0, bestCombo: 0, bossesDown: 0 };
     this.lastCountdown = -1;
     this.lastZone = '';
+    this.lastRest = -1;
     this.hpLag = 100;
     this.bossLag = 1;
     this.lastCombo = 0;
@@ -199,6 +208,9 @@ export class MatchView {
     }
     $('killfeed').replaceChildren();
     $('banner').classList.remove('show');
+    this.bannerQueue = [];
+    this.introUntil = 0;
+    window.clearTimeout(this.pumpTimer);
     $('boss-bar').hidden = true;
     $('boss-intro').hidden = true;
     $('combo').hidden = true;
@@ -227,7 +239,7 @@ export class MatchView {
     for (const ev of events) {
       switch (ev.e) {
         case 'ehit':
-          r.spark(ev.x, ev.y, '#fde68a', 4, reduce, 120);
+          r.impact(ev.x, ev.y, '#fde68a', reduce);
           if (performance.now() - this.lastHitSound > 70) {
             this.lastHitSound = performance.now();
             this.sfx.play('hit');
@@ -235,7 +247,10 @@ export class MatchView {
           break;
         case 'ekill': {
           const boss = ev.kind === 'walker' || ev.kind === 'gunship' || ev.kind === 'boss';
-          r.explosion(ev.x, ev.y, boss, reduce);
+          // Saga troopers dissolve into their host's light; machines and bosses still blow up.
+          if (!boss && isSagaId(r.level.id) && ev.kind !== 'turret' && ev.kind !== 'drone')
+            r.dissolve(ev.x, ev.y, reduce);
+          else r.explosion(ev.x, ev.y, boss, reduce);
           this.sfx.play('explode');
           if (ev.by === this.meId) {
             this.stats.kills++;
@@ -270,6 +285,10 @@ export class MatchView {
         case 'life':
           this.notice(`♥ +1 squad life (${ev.lives})`);
           break;
+        case 'regain':
+          // the carried astra came back through fighting: a sound, and the chip's count goes up
+          if (ev.id === this.meId) this.sfx.play('powerup');
+          break;
         case 'pickup':
           if (ev.kind === 'medkit') {
             this.sfx.play('powerup');
@@ -282,22 +301,34 @@ export class MatchView {
               : GAME_CONFIG.weapons[ev.kind].label;
             if (ev.by === this.meId) {
               this.sfx.play('powerup');
-              this.showBanner(`${label}${isPower(ev.kind) ? ' — press ASTRA' : '!'}`);
-            } else this.notice(`${this.nameOf(ev.by)} got the ${label}`);
+              // An astra never raises a banner: the held-astra chip and the glowing ASTRA button say it all.
+              if (!isPower(ev.kind)) this.showBanner(`${label}!`);
+            } else if (!isPower(ev.kind)) this.notice(`${this.nameOf(ev.by)} got the ${label}`);
           }
           break;
         case 'arena': {
           const a = this.renderer.level.arenas[ev.id];
           if (!a || a.boss) break;
           this.sfx.play('beep');
-          this.showBanner(ev.wave === 1 ? `⚠ ${a.name}! Area locked` : `Wave ${ev.wave} of ${ev.of}`, true);
-          if (!reduce) r.shake(4);
+          // the battle array this wave comes in: its name with the wave call, how to meet it as a side note
+          const vy = ev.vy ? VYUHA_TEXT[ev.vy] : null;
+          if (ev.secs !== undefined) {
+            // a hold-out: one call at the start; the countdown in the HUD does the rest
+            if (ev.wave === 1) this.showBanner(`⚠ ${a.name}! Survive ${ev.secs} seconds`, true);
+          } else if (ev.wave === 1) this.showBanner(`⚠ ${a.name}! Area locked`, true);
+          else
+            this.showBanner(
+              vy ? `Wave ${ev.wave} of ${ev.of} — ${vy[0]}` : `Wave ${ev.wave} of ${ev.of}`,
+              true,
+            );
+          if (vy) this.notice(`${vy[0]}: ${vy[1]}`);
+          if (!reduce && ev.wave === 1) r.shake(4);
           break;
         }
         case 'clear': {
           const a = this.renderer.level.arenas[ev.id];
           this.sfx.play('victory');
-          if (a && !a.boss) this.showBanner('AREA CLEAR — move up!');
+          if (a && !a.boss) this.showBanner(a.survive > 0 ? 'YOU HELD! Move up!' : 'AREA CLEAR — move up!');
           break;
         }
         case 'gate':
@@ -308,6 +339,7 @@ export class MatchView {
           this.notice('🚩 Checkpoint reached');
           break;
         case 'bossWake':
+          this.music?.play('boss', this.stageNum());
           this.bossArena = this.renderer.level.arenas[ev.arena]?.name ?? null;
           this.bossIntro(ev.kind, this.renderer.level.arenas[ev.arena]?.name);
           break;
@@ -329,6 +361,7 @@ export class MatchView {
           );
           break;
         case 'bossDown': {
+          this.music?.play('stage', this.stageNum());
           this.stats.bossesDown++;
           for (let i = 0; i < 5; i++)
             r.explosion(ev.x - 50 + i * 25, ev.y - 30 - ((i * 37) % 120), true, reduce);
@@ -351,47 +384,19 @@ export class MatchView {
           break;
         }
         case 'astra': {
+          // No banner and no feed line, for anyone's astra: the astra shows itself (astra-cine.ts).
           r.astraEffect(ev, reduce);
-          if (ev.id === this.meId) {
-            const info = POWER_INFO[ev.kind];
-            this.cutIn(ev.kind, info.icon, info.name, 'Your astra');
-            r.flash(ASTRA_CUT[ev.kind].color, 0.3);
-            if (!reduce) r.shake(7);
-          }
-          this.sfx.play(ev.kind === 'singularity' ? 'explode' : 'powerup');
-          const info = POWER_INFO[ev.kind];
-          const who = ev.id === this.meId ? '' : `${this.nameOf(ev.id)}: `;
-          const extra =
-            ev.kind === 'pashupata' && ev.v !== undefined
-              ? ` ${PASHUPATA_FORM[ev.v] ?? ''}`
-              : ev.kind === 'vaishnava' && ev.v === 1
-                ? ' The orb turns back!'
-                : '';
-          this.showBanner(`${who}${info.icon} ${info.name}!${extra}`);
+          if (ev.id === this.meId && !reduce) r.shake(8);
+          this.sfx.play(ev.kind === 'singularity' ? 'explode' : 'astra');
           break;
         }
         case 'bossAstra': {
           r.bossAstraEffect(ev, reduce);
-          const text = BOSS_ASTRA_TEXT[ev.kind];
-          if (ev.phase === 0 && isSagaId(this.renderer.level.id))
-            this.cutIn(
-              ev.kind,
-              text.call.split(' ')[0] ?? '✴',
-              text.call.replace(/^\S+\s/, '').replace('!', ''),
-              `${this.bossArena ?? 'The boss'} calls`,
-              true,
-            );
-          if (ev.phase === 0) {
-            this.sfx.play('beep');
-            this.showBanner(text.call, true);
-          } else if (ev.phase === 1) this.sfx.play('explode');
-          else if (ev.phase === 2) {
-            this.sfx.play('victory');
-            this.showBanner('BRAHMASTRA ANSWERS IT! The boss reels!');
-          } else if (ev.phase === 3) {
-            this.sfx.play('victory');
-            this.showBanner('NARAYANASTRA REBOUNDS on its caller!');
-          } else if (ev.phase === 4) this.showBanner('The storm has passed: the boss is spent. STRIKE NOW!');
+          // No banners here either. What to do about a boss astra is the one-line instruction box in the HUD
+          // (updateHud), which stays up for as long as the astra is live; the outcome shows in the effect.
+          if (ev.phase === 0) this.sfx.play('beep');
+          else if (ev.phase === 1) this.sfx.play('explode');
+          else if (ev.phase === 2 || ev.phase === 3) this.sfx.play('victory');
           break;
         }
         case 'immune':
@@ -399,16 +404,8 @@ export class MatchView {
           break;
         case 'brahma':
           r.brahmaEffect(ev, reduce);
-          if (ev.phase === 0) {
-            this.sfx.play('beep');
-            this.cutIn(
-              'brahma',
-              '☀',
-              'BRAHMASTRA',
-              ev.id === this.meId ? 'Your squad calls' : `${this.nameOf(ev.id)} calls`,
-            );
-            this.showBanner(`${ev.id === this.meId ? '' : `${this.nameOf(ev.id)}: `}☀ BRAHMASTRA!`, true);
-          } else {
+          if (ev.phase === 0) this.sfx.play('beep');
+          else {
             this.sfx.play('explode');
             this.sfx.play('victory');
           }
@@ -417,8 +414,31 @@ export class MatchView {
           r.styleText(ev.x, ev.y, STYLE_TEXT[ev.t], ev.id === this.meId);
           if (ev.t === 'parry') this.sfx.play('beep');
           break;
-        case 'start':
+        case 'start': {
           this.sfx.play('go');
+          this.music?.play('stage', this.stageNum());
+          this.skyWarned = false;
+          // what sets this stage apart, said once as it begins
+          const stage = SAGA.find((x) => x.id === r.level.id);
+          if (this.intro) this.showBanner(this.intro);
+          else if (stage && stage.num > 1) this.showBanner(`Stage ${stage.num} · ${stage.twist}`);
+          break;
+        }
+        case 'hazard':
+          this.sfx.play('beep');
+          if (!this.skyWarned) {
+            // said once a stage; after that the hazard speaks for itself
+            this.skyWarned = true;
+            this.notice(
+              ev.kind === 'skyfall'
+                ? '☄ Sky fire! Step off the marked ground'
+                : ev.kind === 'tremor'
+                  ? '〰 Tremor! Jump the shockwave'
+                  : ev.kind === 'raid'
+                    ? '🪽 Raiders behind you!'
+                    : '🌑 Maya: darkness falls. Stay together',
+            );
+          }
           break;
         case 'portal':
           r.portal(ev.x, ev.y, ev.how, performance.now());
@@ -449,6 +469,15 @@ export class MatchView {
           break;
       }
     }
+  }
+
+  /** The score (set by main); the view switches stage and boss themes. */
+  music: Music | null = null;
+
+  /** Saga stage number 1..10, or 0 outside the saga (its theme picks the raga). */
+  private stageNum(): number {
+    const id = this.renderer.level.id;
+    return isSagaId(id) ? Number(id.slice(6)) : 0;
   }
 
   /** Told when this player finds a stage's hidden stash. */
@@ -507,43 +536,83 @@ export class MatchView {
     this.introTimer = window.setTimeout(() => {
       card.hidden = true;
     }, 3200);
+    // the card owns the middle of the screen for its 3.2 s: banners wait, and it hides the controls card
+    const now = performance.now();
+    this.introUntil = now + 3200;
+    // a banner the card cuts short (shown under 1.5 s ago) plays again after the card
+    const b = $('banner');
+    if (b.classList.contains('show') && now - this.bannerShownAt < 1500 && b.textContent)
+      this.bannerQueue.unshift({ text: b.textContent, bad: b.classList.contains('bad') });
+    b.classList.remove('show');
+    this.hideCoach();
+    this.pumpBanners(3250);
     this.sfx.play('beep');
     this.renderer.shake(8);
     this.bossLag = 1;
     $('boss-bar').hidden = false;
   }
 
-  private cutTimer = 0;
-
-  /** The astra cut-in (see .cutin in style.css): 1.25 s, the game runs on underneath. */
-  cutIn(kind: keyof typeof ASTRA_CUT, icon: string, name: string, who: string, boss = false): void {
-    const c = $('cutin');
-    const info = ASTRA_CUT[kind];
-    c.style.setProperty('--cut', info.color);
-    c.classList.toggle('boss', boss);
-    $('cutin-icon').textContent = icon;
-    $('cutin-name').textContent = name;
-    $('cutin-deva').textContent = info.deva;
-    $('cutin-who').textContent = who;
-    c.hidden = true;
-    void c.offsetWidth; // restart the animations
-    c.hidden = false;
-    window.clearTimeout(this.cutTimer);
-    this.cutTimer = window.setTimeout(() => {
-      c.hidden = true;
-    }, 1300);
-  }
-
   showBanner(text: string, bad = false): void {
     const b = $('banner');
+    const now = performance.now();
+    const showing = b.classList.contains('show');
+    const wait = Math.max(
+      this.introUntil - now,
+      showing && this.bannerUrgent && !bad ? 1000 - (now - this.bannerShownAt) : 0,
+    );
+    if (wait > 0) {
+      if (!this.bannerQueue.some((q) => q.text === text)) this.bannerQueue.push({ text, bad });
+      // only the latest few matter; an old "wave 2" is useless once wave 3 is called
+      while (this.bannerQueue.length > 3) this.bannerQueue.shift();
+      this.pumpBanners(wait + 50);
+      return;
+    }
     b.textContent = text;
     b.classList.toggle('bad', bad);
     b.classList.add('show');
+    this.bannerShownAt = now;
+    this.bannerUrgent = bad;
     window.clearTimeout(this.bannerTimer);
     this.bannerTimer = window.setTimeout(() => b.classList.remove('show'), 2200);
+    if (this.bannerQueue.length) this.pumpBanners(1300);
+  }
+
+  /** Plays the next waiting banner after `ms`. */
+  private pumpBanners(ms: number): void {
+    window.clearTimeout(this.pumpTimer);
+    this.pumpTimer = window.setTimeout(() => {
+      const next = this.bannerQueue.shift();
+      if (next) this.showBanner(next.text, next.bad);
+    }, ms);
+  }
+
+  /** The first-play controls card: key caps (or thumb icons) with a word each. */
+  showCoachKeys(items: { keys: string[]; label: string }[], ms: number): void {
+    if (!$('boss-bar').hidden) return; // never over a boss fight's health bar
+    const c = $('coach');
+    c.replaceChildren(
+      ...items.map((it) => {
+        const g = document.createElement('span');
+        g.className = 'coach-key';
+        for (const k of it.keys) {
+          const cap = document.createElement('kbd');
+          cap.textContent = k;
+          g.append(cap);
+        }
+        const l = document.createElement('small');
+        l.textContent = it.label;
+        g.append(l);
+        return g;
+      }),
+    );
+    c.classList.add('keys');
+    c.hidden = false;
+    this.coachUntil = performance.now() + ms;
   }
 
   showCoach(text: string, ms: number): void {
+    if (!$('boss-bar').hidden) return;
+    $('coach').classList.remove('keys');
     const c = $('coach');
     c.textContent = text;
     c.hidden = false;
@@ -557,8 +626,16 @@ export class MatchView {
 
   /** One-line, non-interactive notice in the feed. */
   notice(text: string, kind: 'info' | 'bad' = 'info'): void {
-    const row = el('div', { class: `notice${kind === 'bad' ? ' bad' : ''}`, text });
     const feed = $('killfeed');
+    // the same line twice in a row (one astra raising two events, two checkpoints passed together) shows once
+    const last = feed.lastElementChild;
+    if (
+      last?.textContent === text &&
+      performance.now() - Number((last as HTMLElement).dataset.at ?? 0) < 2500
+    )
+      return;
+    const row = el('div', { class: `notice${kind === 'bad' ? ' bad' : ''}`, text });
+    row.dataset.at = String(performance.now());
     feed.append(row);
     while (feed.childElementCount > 4) feed.firstElementChild?.remove();
     window.setTimeout(() => row.remove(), 5000);
@@ -627,6 +704,13 @@ export class MatchView {
         this.lastZone = zone;
         $('hud-zone').textContent = zone;
       }
+      // stepping into a rest stop: say once what it is for
+      const rest = this.renderer.level.rests.findIndex((r) => me.x >= r.x0 && me.x <= r.x1);
+      if (rest !== this.lastRest) {
+        this.lastRest = rest;
+        if (rest >= 0 && me.st === 0)
+          this.notice('Ashram: the sacred fire heals you. Take the astra and catch your breath.');
+      }
       this.updateCombo(me, nowMs);
     }
     // Boss bar.
@@ -648,7 +732,10 @@ export class MatchView {
     const a = s.arena ? this.renderer.level.arenas[s.arena.id] : undefined;
     if (s.arena && a && !a.boss) {
       ar.hidden = false;
-      ar.textContent = `⚠ ${a.name} · WAVE ${s.arena.w}/${s.arena.n} · ${s.arena.left} LEFT`;
+      ar.textContent =
+        s.arena.t !== undefined
+          ? `⚠ ${a.name} · SURVIVE 0:${String(s.arena.t).padStart(2, '0')}`
+          : `⚠ ${a.name} · WAVE ${s.arena.w}/${s.arena.n} · ${s.arena.left} LEFT`;
     } else ar.hidden = true;
     this.updateOverlays(s, me);
 

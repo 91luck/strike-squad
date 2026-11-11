@@ -645,6 +645,14 @@ function canvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingContex
   return [c, g];
 }
 
+/** A backdrop canvas `k` times the world's resolution, its drawing scaled so callers keep world units. */
+function hiCanvas(w: number, h: number, k: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
+  const [c, g] = canvas(w * k, h * k);
+  g.imageSmoothingEnabled = true;
+  g.scale(k, k);
+  return [c, g];
+}
+
 // ------------------------------------------------------------------ tiles
 
 const tileCache = new Map<string, HTMLCanvasElement>();
@@ -1389,33 +1397,46 @@ export function buildProps(level: LevelDef): Prop[] {
 const VIEW_H = 576;
 
 /** Distant mountain ridge (white, tinted at draw time), 1024 wide, seamless. */
-export function ridgeLayer(seed: number, height: number, amp: number, snow: boolean): HTMLCanvasElement {
-  const [c, g] = canvas(1024, VIEW_H);
+/**
+ * A mountain ridge silhouette, 1024 wide and seamless, at `k` times world resolution. The ridge line is a smooth
+ * curve with fine crags (the crags only show in high definition); `snow` marks a snow band under the peaks.
+ */
+export function ridgeLayer(
+  seed: number,
+  height: number,
+  amp: number,
+  snow: boolean,
+  k = 1,
+): HTMLCanvasElement {
+  const [c, g] = hiCanvas(1024, VIEW_H, k);
   g.fillStyle = '#ffffff';
-  const ys: number[] = [];
-  for (let x = 0; x <= 1024; x += 4) {
-    const k = (x / 1024) * Math.PI * 2;
-    const y =
+  const yAt = (x: number): number => {
+    const a = (x / 1024) * Math.PI * 2;
+    return (
       VIEW_H * height -
       amp *
-        (0.55 * Math.sin(k * 2 + seed) +
-          0.3 * Math.sin(k * 5 + seed * 2) +
-          0.15 * Math.sin(k * 11 + seed * 3));
-    ys.push(y);
-    g.fillRect(x, Math.round(y), 4, VIEW_H);
-  }
+        (0.55 * Math.sin(a * 2 + seed) +
+          0.3 * Math.sin(a * 5 + seed * 2) +
+          0.15 * Math.sin(a * 11 + seed * 3)) +
+      (k > 1 ? 3 * Math.sin(a * 47 + seed) + 1.5 * Math.sin(a * 113 + seed * 5) : 0)
+    );
+  };
+  g.beginPath();
+  g.moveTo(0, VIEW_H);
+  for (let x = 0; x <= 1024; x += k > 1 ? 2 : 4) g.lineTo(x, yAt(x));
+  g.lineTo(1024, VIEW_H);
+  g.closePath();
+  g.fill();
   if (snow) {
     g.fillStyle = 'rgba(0,0,0,0.12)';
-    ys.forEach((y, i) => {
-      if (i % 2 === 0) g.fillRect(i * 4, Math.round(y) + 6, 4, 30);
-    });
+    for (let x = 0; x <= 1024; x += 8) g.fillRect(x, yAt(x) + 6, 4, 30);
   }
   return c;
 }
 
 /** Jungle canopy silhouettes (rounded crowns on trunks), 1024 wide. */
-export function canopyLayer(seed: number): HTMLCanvasElement {
-  const [c, g] = canvas(1024, VIEW_H);
+export function canopyLayer(seed: number, k = 1): HTMLCanvasElement {
+  const [c, g] = hiCanvas(1024, VIEW_H, k);
   const r = rng(seed);
   g.fillStyle = '#ffffff';
   g.fillRect(0, VIEW_H - 150, 1024, 150);
@@ -1424,23 +1445,28 @@ export function canopyLayer(seed: number): HTMLCanvasElement {
     const w = 40 + r() * 50;
     g.fillRect(x + w / 2 - 4, VIEW_H - h, 8, h);
     for (let i = 0; i < 5; i++) {
+      const cx = x + w / 2 + (r() - 0.5) * w;
+      const cy = VIEW_H - h + (r() - 0.3) * 30;
+      const rad = w * (0.3 + r() * 0.25);
       g.beginPath();
-      g.arc(
-        x + w / 2 + (r() - 0.5) * w,
-        VIEW_H - h + (r() - 0.3) * 30,
-        w * (0.3 + r() * 0.25),
-        0,
-        Math.PI * 2,
-      );
+      g.arc(cx, cy, rad, 0, Math.PI * 2);
       g.fill();
+      // leaf clumps round the crown's rim
+      if (k > 1)
+        for (let j = 0; j < 9; j++) {
+          const a = Math.PI + (j / 8) * Math.PI + (r() - 0.5) * 0.3;
+          g.beginPath();
+          g.arc(cx + Math.cos(a) * rad, cy + Math.sin(a) * rad, 3 + r() * 4, 0, Math.PI * 2);
+          g.fill();
+        }
     }
   }
   return c;
 }
 
 /** Industrial skyline for the fortress: chimneys, tanks, towers. */
-export function industryLayer(seed: number): HTMLCanvasElement {
-  const [c, g] = canvas(1024, VIEW_H);
+export function industryLayer(seed: number, k = 1): HTMLCanvasElement {
+  const [c, g] = hiCanvas(1024, VIEW_H, k);
   const r = rng(seed);
   g.fillStyle = '#ffffff';
   g.fillRect(0, VIEW_H - 130, 1024, 130);
@@ -1469,8 +1495,9 @@ export function industryLayer(seed: number): HTMLCanvasElement {
 export function themedLayer(
   kind: 'pyramids' | 'pines' | 'temples' | 'spires' | 'hive',
   seed: number,
+  k = 1,
 ): HTMLCanvasElement {
-  const [c, g] = canvas(1024, VIEW_H);
+  const [c, g] = hiCanvas(1024, VIEW_H, k);
   const r = rng(seed);
   g.fillStyle = '#ffffff';
   const base = VIEW_H - 120;
@@ -1494,7 +1521,16 @@ export function themedLayer(
       const h = 110 + r() * 150;
       for (let i = 0; i < 6; i++) {
         const w = 10 + i * 7;
-        g.fillRect(x - w / 2, base - h + i * (h / 7), w, h / 7 + 2);
+        if (k > 1) {
+          // a tier of drooping branches
+          const y0 = base - h + i * (h / 7) - 4;
+          g.beginPath();
+          g.moveTo(x, y0);
+          g.lineTo(x + w / 2 + 2, y0 + h / 7 + 4);
+          g.lineTo(x - w / 2 - 2, y0 + h / 7 + 4);
+          g.closePath();
+          g.fill();
+        } else g.fillRect(x - w / 2, base - h + i * (h / 7), w, h / 7 + 2);
       }
       g.fillRect(x - 3, base - 20, 6, 20);
     }

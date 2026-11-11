@@ -7,7 +7,7 @@ import type { FailReason, MissionResult, SimEvent, Snapshot } from './sim';
  * 6: the Astra Saga stages were rebuilt.
  * 7: saga boss styles and moves, portal / ground / elite waves, secret pickups (new events and snapshot fields).
  */
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 10;
 
 /** Unambiguous alphabet (no I, L, O, 0, 1). */
 export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';

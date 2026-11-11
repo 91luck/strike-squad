@@ -144,6 +144,9 @@ export const GAME_CONFIG = {
     enemyDamage: { easy: 0.65, normal: 1, hard: 1.35 } satisfies Record<Difficulty, number>,
     /** Clearing a lock-down arena heals every soldier still standing by this much. */
     arenaClearHeal: 35,
+    /** A rest stop's fire heals this much a second; the stage's hazard waits `calmSec` after an arena falls. */
+    restHeal: 25,
+    calmSec: 7,
   },
 
   player: {
@@ -398,20 +401,62 @@ export const GAME_CONFIG = {
   powers: {
     /** Charges per pickup, and the most one soldier can carry. */
     charges: {
-      agni: 2,
-      varuna: 1,
-      vayu: 2,
+      agni: 3,
+      varuna: 2,
+      vayu: 3,
       singularity: 2,
-      naga: 2,
-      garuda: 1,
-      sudarshana: 2,
-      pashupata: 1,
+      naga: 3,
+      garuda: 2,
+      sudarshana: 3,
+      pashupata: 2,
       vaishnava: 1,
     } as Record<PowerKind, number>,
-    maxCharges: 3,
-    agni: { waveDamage: 8, waveSpeed: 520, waveSec: 0.8, burnLength: 340, burnSec: 4, burnDps: 16 },
+    maxCharges: 4,
+    /**
+     * Astras come back in a fight: every `kills` enemies a soldier brings down by weapon or blade (not by astra)
+     * return one charge of the astra being carried, up to maxCharges.
+     */
+    regainKills: 6,
+    /**
+     * A wall of flame, then burning ground. Whatever the fire touches is set alight: it burns on for `alightSec`
+     * at `alightDps` and passes the fire to troopers within `spread` px.
+     */
+    agni: {
+      waveDamage: 8,
+      waveSpeed: 520,
+      waveSec: 0.8,
+      burnLength: 340,
+      burnSec: 4,
+      burnDps: 16,
+      alightSec: 3,
+      alightDps: 7,
+      spread: 30,
+    },
     varuna: { range: 15 * 32, back: 3 * 32, damage: 6 },
-    vayu: { range: 440, height: 170, push: 560, pushSec: 0.4, damage: 3 },
+    /**
+     * The whirlwind: appears `ahead` px in front, walks at `speed` for `sec` seconds, picks up as many as `carry`
+     * troopers within `reach` px (up to `tall` px high), lifts them over `riseSec`, wears them down at `dps`, and
+     * hurls them when it blows out. The first gust staggers troopers within `gust` px.
+     */
+    vayu: {
+      ahead: 70,
+      speed: 150,
+      sec: 3.2,
+      reach: 84,
+      tall: 210,
+      carry: 8,
+      riseSec: 0.9,
+      spin: 7,
+      dps: 5,
+      fling: 520,
+      flingUp: 380,
+      flingSec: 0.7,
+      flingDamage: 12,
+      gust: 150,
+      height: 120,
+      push: 300,
+      pushSec: 0.25,
+    },
     singularity: {
       ahead: 230,
       lift: 60,
@@ -460,6 +505,14 @@ export const GAME_CONFIG = {
    * Astra Saga boss moves (see boss-styles.ts) and wave extras. Damage numbers sit next to the classic attacks':
    * a rain fireball hurts like a walker shell, a ring or spiral shot like a fortress bullet.
    */
+  /** Stage hazards (LevelDef.hazard). Skyfall reuses the bosses' meteor: gentler and a little slower. */
+  hazards: {
+    skyfall: { dmg: 10, speed: 0.85 },
+    /** Raiders appear this far behind and above a soldier; at most `max` are alive at once. */
+    raid: { behind: 360, above: 200, max: 3 },
+    /** Shockwaves start this far from the soldier, so there is over a second to see them coming. */
+    tremor: { from: 540, speed: 300, dmg: 12 },
+  },
   bossMoves: {
     /** Fire from the sky: `count` (+1 per phase after the first) drops `gap` px apart, falling from `drop` px up. */
     rain: { count: 3, gap: 92, drop: 600, speed: 430, dmg: 14, blast: 44 },

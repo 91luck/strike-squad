@@ -45,6 +45,7 @@ import {
   weekGoals,
   type WeeklyRun,
 } from '../src/weekly';
+import { DAILY_SHARDS, DailyStore, dayBefore, describeTrial } from '../src/daily';
 import { SAVE_KEYS, crazyPlatform, initPlatform, webPlatform, type CrazySdk } from '../src/platform/platform';
 import { SettingsStore, keyLabel, sanitizeSettings } from '../src/settings';
 import { wsUrl } from '../src/env';
@@ -270,6 +271,11 @@ describe('settings', () => {
     expect(sanitizeSettings({ hand: 'left' }).hand).toBe('left');
     expect(sanitizeSettings({ hand: 'up' }).hand).toBe('right');
   });
+  it('music is on by default and only a real boolean turns it off', () => {
+    expect(sanitizeSettings({}).music).toBe(true);
+    expect(sanitizeSettings({ music: false }).music).toBe(false);
+    expect(sanitizeSettings({ music: 'no' }).music).toBe(true);
+  });
   it('formats key labels', () => {
     expect(keyLabel('KeyE')).toBe('E');
     expect(keyLabel('ShiftLeft')).toBe('Shift');
@@ -478,6 +484,33 @@ describe('platform adapter', () => {
     const hang = fakeSdk({ init: () => new Promise(() => undefined) }).sdk;
     expect((await initPlatform('crazygames', { CrazyGames: { SDK: hang } }, 20)).id).toBe('web');
     expect((await initPlatform('crazygames', { CrazyGames: { SDK: sdk } })).id).toBe('crazygames');
+  });
+
+  it('takes the device type from the portal (touch controls by its word, not by touch APIs)', () => {
+    const say = (type: unknown): CrazySdk =>
+      fakeSdk({
+        user: {
+          isUserAccountAvailable: false,
+          getUser: async () => null,
+          systemInfo: { device: { type } },
+        } as never,
+      }).sdk;
+    expect(crazyPlatform(say('desktop')).device).toBe('desktop');
+    expect(crazyPlatform(say('mobile')).device).toBe('mobile');
+    expect(crazyPlatform(say('tablet')).device).toBe('tablet');
+    expect(crazyPlatform(say('smartwatch')).device).toBeNull();
+    expect(crazyPlatform(fakeSdk().sdk).device).toBeNull(); // no system info: the game guesses for itself
+    const broken = fakeSdk({
+      user: {
+        isUserAccountAvailable: false,
+        getUser: async () => null,
+        get systemInfo(): never {
+          throw new Error('not ready');
+        },
+      } as never,
+    }).sdk;
+    expect(crazyPlatform(broken).device).toBeNull();
+    expect(webPlatform().device).toBeNull();
   });
 
   it('reports gameplay start/stop once per change, never twice in a row', () => {
@@ -956,5 +989,64 @@ describe('weekly challenges', () => {
     expect(r.xpGained).toBe(
       runXp({ won: true, stars: 1, first: false, me: undefined, sagaCleared: 1, sagaTotal: 10 }) + WEEKLY_XP,
     );
+  });
+});
+
+describe('the daily trial record', () => {
+  const mem = (): { getItem(k: string): string | null; setItem(k: string, v: string): void } => {
+    const m = new Map<string, string>();
+    return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => void m.set(k, v) };
+  };
+
+  it('pays the first win of a day once, keeps the best score, and starts again the next day', () => {
+    const st = mem();
+    let today = '2026-11-10';
+    const d = new DailyStore(st, () => today);
+    expect(d.wonToday).toBe(false);
+    expect(d.record(today, false, 900)).toEqual({ firstWin: false, best: false, shards: 0 });
+    expect(d.bestToday).toBe(0);
+    expect(d.record(today, true, 1200)).toEqual({ firstWin: true, best: true, shards: DAILY_SHARDS });
+    expect(d.record(today, true, 1000)).toEqual({ firstWin: false, best: false, shards: 0 });
+    expect(d.record(today, true, 1500)).toEqual({ firstWin: false, best: true, shards: 0 });
+    expect(d.bestToday).toBe(1500);
+    expect(d.winStreak).toBe(1);
+    // a reload on the same day remembers it
+    const again = new DailyStore(st, () => today);
+    expect(again.wonToday).toBe(true);
+    expect(again.bestToday).toBe(1500);
+    today = '2026-11-11';
+    expect(again.wonToday).toBe(false);
+    expect(again.bestToday).toBe(0);
+    expect(again.winStreak).toBe(1); // yesterday's win keeps the run alive through today
+    expect(again.record(today, true, 700).firstWin).toBe(true);
+    expect(again.winStreak).toBe(2);
+    expect(again.totalWins).toBe(2);
+    today = '2026-11-13'; // a day missed
+    expect(again.winStreak).toBe(0);
+    expect(again.record(today, true, 10).firstWin).toBe(true);
+    expect(again.winStreak).toBe(1);
+  });
+
+  it('a run started yesterday and finished after midnight counts for nothing; bad saves are ignored', () => {
+    const st = mem();
+    const d = new DailyStore(st, () => '2026-11-11');
+    expect(d.record('2026-11-10', true, 999)).toEqual({ firstWin: false, best: false, shards: 0 });
+    expect(d.wonToday).toBe(false);
+    st.setItem('strikesquad.daily.v1', '{"day":"2026-11-11","best":-5,"won":"yes","wins":"x","streak":null}');
+    const bad = new DailyStore(st, () => '2026-11-11');
+    expect([bad.bestToday, bad.wonToday, bad.totalWins, bad.winStreak]).toEqual([0, false, 0, 0]);
+    st.setItem('strikesquad.daily.v1', 'not json');
+    expect(new DailyStore(st, () => '2026-11-11').wonToday).toBe(false);
+  });
+
+  it('knows the day before across months and years, and describes a trial in three lines', () => {
+    expect(dayBefore('2026-11-01')).toBe('2026-10-31');
+    expect(dayBefore('2027-01-01')).toBe('2026-12-31');
+    expect(dayBefore('2028-03-01')).toBe('2028-02-29');
+    const d = new DailyStore(null, () => '2026-11-10');
+    const text = describeTrial(d.trial);
+    expect(text.lines).toHaveLength(3);
+    expect(text.place).toMatch(/ — /);
+    expect(text.lines[0]).toMatch(/^Astras of the day: \w+ and \w+$/);
   });
 });

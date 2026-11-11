@@ -71,6 +71,7 @@ BOSS_STYLE_IDS.forEach((id, i) => {
     sn: 0,
     im: 0,
     el: 0,
+    fl: 0,
   };
   if (style.body === 'walker') drawAsuraWalker(kit, look, e, 1000, { t: 0.2, wind: 0.6, telegraph: at > 0 });
   else if (style.body === 'gunship')

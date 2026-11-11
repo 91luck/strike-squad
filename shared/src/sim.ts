@@ -31,7 +31,11 @@ import {
   type BossRule,
   type LevelDef,
   type MissionMods,
+  type HazardDef,
+  type Vyuha,
   type WaveSpawn,
+  Tile,
+  tileAt,
 } from './level';
 import { getMission } from './missions';
 import {
@@ -118,6 +122,8 @@ export interface Player extends Mover {
   combo: number;
   comboUntil: number;
   multiN: number;
+  /** Kills by weapon or blade since the carried astra last regained a charge. */
+  astraKills: number;
   multiUntil: number;
   stats: PlayerStats;
   /** Held power (astra) and its charges. */
@@ -142,6 +148,24 @@ export interface Hole {
   born: number;
   until: number;
   owner: string;
+}
+
+/**
+ * The whirlwind (bhavandar) the vayu astra raises: it walks forward, draws troopers in, carries them round and
+ * up its column, and hurls them away when it blows out.
+ */
+export interface Twister {
+  x: number;
+  /** The ground it stands on. */
+  y: number;
+  vx: number;
+  born: number;
+  until: number;
+  owner: string;
+  /** Enemies it is carrying. */
+  held: Set<number>;
+  /** It has crossed burning ground and become a whirl of fire: what it carries is set alight. */
+  fire: boolean;
 }
 
 export interface Enemy {
@@ -169,6 +193,13 @@ export interface Enemy {
   /** Blown back by the wind astra until this tick, at this speed. */
   knockUntil: number;
   knockVx: number;
+  /** Carried by a whirlwind until this tick: no AI and no physics of its own. */
+  liftUntil: number;
+  /** Set alight by the agni astra: burns until this tick (`burnBy` gets the credit). */
+  burnUntil: number;
+  burnBy: string;
+  /** How many troopers the fire passed through to reach this one (it dies out after two). */
+  burnGen: number;
   /** Boss attack state. */
   atk: AttackId;
   atkStart: number;
@@ -268,14 +299,17 @@ export interface Bullet {
 
 export type SimEvent =
   | { e: 'ehit'; id: number; x: number; y: number }
+  | { e: 'regain'; id: string; kind: PowerKind }
   | { e: 'ekill'; id: number; kind: EnemyKind; x: number; y: number; by: string; pts: number }
   | { e: 'hurt'; id: string; dmg: number }
   | { e: 'ko'; id: string }
   | { e: 'respawn'; id: string }
+  | { e: 'hazard'; kind: HazardDef['kind']; x: number; y: number }
   | { e: 'pickup'; id: number; kind: PickupKind; by: string; healed: string[] }
   | { e: 'gate'; id: number }
   | { e: 'checkpoint'; id: number }
-  | { e: 'arena'; id: number; wave: number; of: number }
+  /** `secs` is set for a hold-out arena (survive that long); then `wave` only counts the rounds. */
+  | { e: 'arena'; id: number; wave: number; of: number; secs?: number; vy?: Vyuha }
   | { e: 'clear'; id: number }
   | { e: 'life'; lives: number }
   | { e: 'bossWake'; kind: BossKind; arena: number }
@@ -372,10 +406,10 @@ export interface PlayerSnapshot {
 
 /**
  * Lasting power effects on screen: burning ground (k 0: x..x+w at y), black holes (k 1: centre x,y) and
- * pashupata spirits (k 2: centre x,y).
+ * pashupata spirits (k 2: centre x,y) and vayu whirlwinds (k 3, or k 4 once alight: foot x,y; w = its reach).
  */
 export interface FxSnapshot {
-  k: 0 | 1 | 2;
+  k: 0 | 1 | 2 | 3 | 4;
   x: number;
   y: number;
   w: number;
@@ -406,6 +440,8 @@ export interface EnemySnapshot {
   ra: number;
   rt: number;
   rs: 0 | 1;
+  /** Bit 1: set alight by the agni astra. Bit 2: carried by a whirlwind. */
+  fl: number;
   /** Stunned (spent after a storm, or its brahmashirsha countered) / untouchable (storm). */
   sn: 0 | 1;
   im: 0 | 1;
@@ -443,7 +479,8 @@ export interface Snapshot {
   /** Bodies may not move right of this x (the final boss's front while it stands). */
   lx: number;
   /** The arena currently locked down, if any. */
-  arena: { id: number; w: number; n: number; left: number } | null;
+  /** `t`: seconds left in a hold-out arena (absent in a normal one). */
+  arena: { id: number; w: number; n: number; left: number; t?: number } | null;
   /** The boss currently fighting, if any. */
   boss: { k: BossKind; hp: number; max: number; ph: number; h: 0 | 1 } | null;
   players: PlayerSnapshot[];
@@ -521,6 +558,10 @@ export class Sim {
   arenaState: number[];
   arenaWave: number[];
   private arenaNext: number[];
+  /** Tick a hold-out arena ends at (-1 until entered). */
+  private arenaEnd: number[];
+  /** Raiders of a `raid` hazard still alive (capped). */
+  private raiders = new Set<number>();
   /** Total health of every boss woken in each arena (the boss bar's full length). */
   private arenaBossMax: number[];
   /** Tick at which a taken altar comes back (-1: not waiting). */
@@ -530,6 +571,9 @@ export class Sim {
   private brahmaStrike: { at: number; id: string; x: number; y: number } | null = null;
   burns: Burn[] = [];
   holes: Hole[] = [];
+  twisters: Twister[] = [];
+  /** The stage's hazard holds off until this tick (set when an arena falls). */
+  private calmUntil = 0;
   spirits: Spirit[] = [];
   /** Narayanastra: ticks each soldier has spent fighting during the current storm. */
   readonly resist = new Map<string, number>();
@@ -558,6 +602,7 @@ export class Sim {
     this.arenaState = this.level.arenas.map(() => 0);
     this.arenaWave = this.level.arenas.map(() => 0);
     this.arenaNext = this.level.arenas.map(() => -1);
+    this.arenaEnd = this.level.arenas.map(() => -1);
     this.arenaBossMax = this.level.arenas.map(() => 0);
     this.altarBack = this.level.pickups.map(() => -1);
     this.brahma = this.level.brahma ? 0 : -1;
@@ -642,6 +687,7 @@ export class Sim {
       combo: 0,
       comboUntil: 0,
       multiN: 0,
+      astraKills: 0,
       multiUntil: 0,
       stats: { kills: 0, deaths: 0, bossDamage: 0, score: 0, bestCombo: 0, bestRank: -1, ults: 0 },
     };
@@ -724,6 +770,10 @@ export class Sim {
       hpMul: 1,
       knockUntil: 0,
       knockVx: 0,
+      liftUntil: 0,
+      burnUntil: 0,
+      burnBy: '',
+      burnGen: 0,
       atk: ATTACK.none,
       atkStart: 0,
       atkParam: 0,
@@ -878,6 +928,7 @@ export class Sim {
         if (this.nearestAlive(b.x, b.y - b.h / 2, wakeD)) this.wake(e);
         else continue;
       }
+      if (this.tick < e.liftUntil) continue; // carried by a whirlwind (stepPowers moves it)
       if (this.tick < e.knockUntil) {
         // Blown back by the wind: no AI while it lasts.
         if (e.kind === 'drone' || e.kind === 'jetpack') b.x += e.knockVx * this.dt;
@@ -1763,6 +1814,8 @@ export class Sim {
     this.stepPlayers();
     this.stepPending();
     this.stepArenas();
+    this.stepRests();
+    this.stepHazard();
     this.stepEnemies();
     this.stepPowers();
     this.recordHistory();
@@ -2154,19 +2207,28 @@ export class Sim {
           break;
         }
         case 'vayu': {
-          // A gust: foes ahead are blown away (riot shields torn off), their shots scattered.
+          // A whirlwind walks out ahead: it carries troopers off (riot shields torn away), scatters their
+          // shots, and hurls what it holds when it blows out. The first gust also staggers what stands close.
           const w = PW.vayu;
-          const inGust = (x: number, y: number): boolean =>
-            (x - p.x) * f > -20 && Math.abs(x - p.x) < w.range && Math.abs(y - (fy - 24)) < w.height;
+          this.twisters.push({
+            x: p.x + f * w.ahead,
+            y: fy,
+            vx: f * w.speed,
+            born: this.tick,
+            until: this.tick + this.ticks(w.sec),
+            owner: p.id,
+            held: new Set(),
+            fire: false,
+          });
           for (const e of [...this.enemies.values()]) {
-            if (!e.awake || isBoss(e.kind) || !inGust(e.body.x, e.body.y - e.body.h / 2)) continue;
+            if (!e.awake || isBoss(e.kind) || e.kind === 'turret') continue;
+            const dx = (e.body.x - p.x) * f;
+            if (dx < -20 || dx > w.gust || Math.abs(e.body.y - fy) > w.height) continue;
             e.shield = 0;
             e.knockUntil = this.tick + this.ticks(w.pushSec);
             e.knockVx = f * w.push;
             if (e.body.onGround) e.body.vy = -260;
-            this.damageEnemy(e, w.damage, p.id, e.body.x, e.body.y - e.body.h / 2, 'astra');
           }
-          this.bullets = this.bullets.filter((b) => !this.clearable(b) || !inGust(b.x, b.y));
           break;
         }
         case 'singularity': {
@@ -2406,6 +2468,97 @@ export class Sim {
     return e.kind === 'boss' ? { x: b.x - b.w / 2 + 10, y: b.y - 120 } : { x: b.x, y: b.y - b.h / 2 };
   }
 
+  /** Sets an enemy alight (agni). Bosses only smoulder briefly: the fire is for the host, not the asura. */
+  private ignite(e: Enemy, by: string, gen = 0): void {
+    const A = GAME_CONFIG.powers.agni;
+    if (e.burnUntil <= this.tick) e.burnBy = by;
+    e.burnGen = e.burnUntil > this.tick ? Math.min(e.burnGen, gen) : gen;
+    e.burnUntil = Math.max(
+      e.burnUntil,
+      this.tick + this.ticks(isBoss(e.kind) ? A.alightSec / 3 : A.alightSec),
+    );
+  }
+
+  /** The vayu whirlwinds: walk, gather, carry, and hurl. */
+  private stepTwisters(): void {
+    const w = GAME_CONFIG.powers.vayu;
+    const W = levelWidth(this.level);
+    for (const t of this.twisters) {
+      const age = (this.tick - t.born) / this.tickRate;
+      // it walks until rock stops it
+      const nx = t.x + t.vx * this.dt;
+      if (nx < 24 || nx > W - 24 || solidAtPoint(this.world, nx + Math.sign(t.vx) * 14, t.y - 20)) t.vx = 0;
+      else t.x = nx;
+      const over = t.until <= this.tick;
+      // wind feeds fire: over burning ground the whirlwind catches light
+      if (!t.fire && this.burns.some((f) => t.x > f.x0 - 20 && t.x < f.x1 + 20 && Math.abs(f.y - t.y) < 60)) {
+        t.fire = true;
+        this.emit({ e: 'boom', x: r1(t.x), y: r1(t.y - 40), r: 70 });
+      }
+      for (const e of [...this.enemies.values()]) {
+        if (!e.awake) continue;
+        const b = e.body;
+        const cy = b.y - b.h / 2;
+        const dx = b.x - t.x;
+        const inReach = Math.abs(dx) < w.reach && cy > t.y - w.tall && cy < t.y + 40;
+        if (isBoss(e.kind) || e.kind === 'turret') {
+          // too heavy or bolted down: the wind only tears at them
+          if (inReach && Math.abs(dx) < w.reach * 0.5)
+            this.damageEnemy(e, this.ultDamage(e, w.dps * this.dt), t.owner, b.x, cy, 'astra');
+          continue;
+        }
+        if (!t.held.has(e.id)) {
+          if (!inReach || t.held.size >= w.carry) continue;
+          t.held.add(e.id);
+          e.shield = 0;
+        }
+        if (over) continue;
+        e.liftUntil = this.tick + 2;
+        // round the column and up it: each rider on its own turn of the spiral
+        const ph = age * w.spin + e.id * 2.4;
+        const up = Math.min(1, age / w.riseSec);
+        const h = up * (w.tall * (0.3 + 0.5 * (((e.id * 37) % 10) / 10)));
+        const rad = 14 + h * 0.3;
+        const tx = t.x + Math.cos(ph) * rad;
+        const ty = t.y - h;
+        const k = Math.min(1, this.dt * 9);
+        b.vx = ((tx - b.x) * k) / this.dt;
+        b.vy = ((ty - b.y) * k) / this.dt;
+        b.onGround = false;
+        moveBody(this.world, b, this.dt);
+        b.vx = b.vy = 0;
+        b.facing = Math.cos(ph) > 0 ? 1 : -1;
+        if (t.fire) this.ignite(e, t.owner);
+        this.damageEnemy(e, w.dps * this.dt, t.owner, b.x, b.y - b.h / 2, 'astra');
+      }
+      // their shots are swept up too
+      this.bullets = this.bullets.filter(
+        (bl) =>
+          !this.clearable(bl) ||
+          Math.abs(bl.x - t.x) > w.reach * 0.7 ||
+          bl.y < t.y - w.tall ||
+          bl.y > t.y + 20,
+      );
+      if (over) {
+        // blown out: everything it carried is hurled away, alternately to each side
+        let n = 0;
+        const dir = Math.sign(t.vx) || 1;
+        for (const id of t.held) {
+          const e = this.enemies.get(id);
+          if (!e) continue;
+          const side = n++ % 3 === 2 ? -dir : dir;
+          e.liftUntil = 0;
+          e.knockUntil = this.tick + this.ticks(w.flingSec);
+          e.knockVx = side * w.fling;
+          e.body.vy = -w.flingUp;
+          this.damageEnemy(e, w.flingDamage, t.owner, e.body.x, e.body.y - e.body.h / 2, 'astra');
+        }
+        this.emit({ e: 'boom', x: r1(t.x), y: r1(t.y - 60), r: 90 });
+      }
+    }
+    this.twisters = this.twisters.filter((t) => t.until > this.tick);
+  }
+
   /** Burning ground, black holes and the brahmastra strike, once per tick. */
   private stepPowers(): void {
     const PW = GAME_CONFIG.powers;
@@ -2418,8 +2571,28 @@ export class Sim {
           const b = e.body;
           if (b.x + b.w / 2 < f.x0 || b.x - b.w / 2 > f.x1 || Math.abs(b.y - f.y) > 40) continue;
           this.damageEnemy(e, this.ultDamage(e, dmg), f.owner, b.x, b.y - 10, 'astra');
+          this.ignite(e, f.owner);
         }
     }
+    // Set alight: the fire goes on eating at them after they leave the flames, and catches whoever they brush.
+    {
+      const A = PW.agni;
+      const lit = [...this.enemies.values()].filter((e) => e.awake && e.burnUntil > this.tick);
+      for (const e of lit) {
+        if (!this.enemies.has(e.id)) continue;
+        const b = e.body;
+        // it passes on to those it brushes, but not for ever: two hand-overs, and none to the freshly burnt
+        if (e.burnGen < 2)
+          for (const o of this.enemies.values()) {
+            if (o === e || !o.awake || isBoss(o.kind)) continue;
+            if (o.burnUntil + this.ticks(A.alightSec) > this.tick) continue;
+            if (Math.abs(o.body.x - b.x) < A.spread && Math.abs(o.body.y - b.y) < A.spread)
+              this.ignite(o, e.burnBy, e.burnGen + 1);
+          }
+        this.damageEnemy(e, this.ultDamage(e, A.alightDps * this.dt), e.burnBy, b.x, b.y - b.h / 2, 'astra');
+      }
+    }
+    if (this.twisters.length) this.stepTwisters();
     if (this.holes.length) {
       const g = PW.singularity;
       for (const h of this.holes) {
@@ -2724,6 +2897,7 @@ export class Sim {
       // A plain vaishnava bolt is an astra, not a boss killer (a turned-back orb carries its own damage).
       if (b.kind === 'orb' && b.src < 0) dmg = this.ultDamage(e, dmg);
       this.damageEnemy(e, dmg, b.owner, b.x, b.y, 'gun');
+      if (b.kind === 'flame' && b.power && !b.enemy) this.ignite(e, b.owner);
       if (b.kind === 'orb' && b.src >= 0) this.emit({ e: 'boom', x: r1(b.x), y: r1(b.y), r: 90 });
       if (!b.pierce) return false;
       b.hit?.add(e.id);
@@ -2744,7 +2918,8 @@ export class Sim {
     }
     if (e.rule && this.tick < e.rule.spentUntil) dmg *= GAME_CONFIG.bossAstra.narayana.spentDamage;
     e.hp -= dmg;
-    e.hitTick = this.tick;
+    // a slow burn or a whirlwind's wear does not flash the enemy white every tick: it would stay white
+    if (src !== 'astra' || dmg >= 1) e.hitTick = this.tick;
     const p = this.players.get(by);
     if (p && this.brahma >= 0 && src !== 'astra')
       this.chargeBrahma(dmg * GAME_CONFIG.powers.brahma.perDamage);
@@ -2778,6 +2953,17 @@ export class Sim {
       p.stats.kills++;
       p.stats.score += pts;
       if (src !== 'ult') this.gainUlt(p, U.perKill);
+      // the carried astra comes back with the fighting (but an astra does not feed itself)
+      if (
+        src !== 'astra' &&
+        p.power &&
+        p.powerN < GAME_CONFIG.powers.maxCharges &&
+        ++p.astraKills >= GAME_CONFIG.powers.regainKills
+      ) {
+        p.astraKills = 0;
+        p.powerN++;
+        this.emit({ e: 'regain', id: p.id, kind: p.power });
+      }
       // Style moments.
       let tag: StyleTag | null = src === 'melee' ? 'melee' : src === 'slide' ? 'slide' : null;
       if (!tag && src === 'gun' && !p.onGround && !isBoss(kind)) tag = 'air';
@@ -2926,8 +3112,15 @@ export class Sim {
             if (e.arena === a.id && isBoss(e.kind) && !e.awake) this.wake(e);
           this.emit({ e: 'arena', id: a.id, wave: 0, of: 0 });
           if (a.waves.length) this.startWave(a, 0); // escorts arrive with the boss
-        } else this.startWave(a, 0);
+        } else {
+          if (a.survive > 0) this.arenaEnd[a.id] = this.tick + this.ticks(a.survive);
+          this.startWave(a, 0);
+        }
       } else if (st === 1) {
+        if (a.survive > 0) {
+          this.stepHoldOut(a);
+          continue;
+        }
         let left = 0;
         let bosses = 0;
         for (const e of this.enemies.values()) {
@@ -2947,38 +3140,266 @@ export class Sim {
         }
         if (left > 0) continue;
         if (!a.boss && next < a.waves.length) {
-          if (this.arenaNext[a.id] === -1) this.arenaNext[a.id] = this.tick + this.ticks(1.2);
+          if (this.arenaNext[a.id] === -1) this.arenaNext[a.id] = this.tick + this.ticks(2.5);
           else if (this.tick >= (this.arenaNext[a.id] as number)) this.startWave(a, next);
         } else this.clearArena(a);
       }
     }
   }
 
+  /**
+   * A hold-out arena: the waves come round and round (the next one as soon as one attacker or none is left)
+   * until the time is up; then whoever is still standing flees and the arena is clear.
+   */
+  private stepHoldOut(a: ArenaDef): void {
+    if (this.tick >= (this.arenaEnd[a.id] as number)) {
+      this.pending = this.pending.filter((q) => q.arena !== a.id);
+      for (const e of [...this.enemies.values()]) {
+        if (e.arena !== a.id || isBoss(e.kind)) continue;
+        this.enemies.delete(e.id);
+        this.emit({
+          e: 'ekill',
+          id: e.id,
+          kind: e.kind,
+          x: r1(e.body.x),
+          y: r1(e.body.y - e.body.h / 2),
+          by: '',
+          pts: 0,
+        });
+      }
+      this.clearArena(a);
+      return;
+    }
+    let left = 0;
+    for (const e of this.enemies.values()) if (e.arena === a.id) left++;
+    for (const q of this.pending) if (q.arena === a.id) left++;
+    if (left > 1) return;
+    if (this.arenaNext[a.id] === -1) this.arenaNext[a.id] = this.tick + this.ticks(0.8);
+    else if (this.tick >= (this.arenaNext[a.id] as number))
+      this.startWave(a, (this.arenaWave[a.id] as number) + 1);
+  }
+
+  /**
+   * The stage's hazard (LevelDef.hazard). Skyfall: every few seconds fireballs fall round one soldier, each on a
+   * spot the client marks on the ground first. It rests while a boss is awake (a boss is hazard enough) and for
+   * the opening seconds of a stage.
+   */
+  /** True while a soldier stands in a rest stop. */
+  private resting(p: Player): boolean {
+    return this.level.rests.some((r) => p.x >= r.x0 && p.x <= r.x1);
+  }
+
+  /** The sacred fire of a rest stop heals whoever stands by it. */
+  private stepRests(): void {
+    if (!this.level.rests.length) return;
+    const heal = GAME_CONFIG.mission.restHeal * this.dt;
+    for (const p of this.players.values())
+      if (p.state === 'alive' && p.hp < P.maxHp && this.resting(p)) p.hp = Math.min(P.maxHp, p.hp + heal);
+  }
+
+  private stepHazard(): void {
+    const h = this.level.hazard;
+    if (!h) return;
+    // a breath after an arena falls, and peace for a squad that is resting
+    if (this.tick < this.calmUntil) return;
+    const every = this.ticks(h.every);
+    if (this.tick < this.ticks(8) || this.tick % every !== 0) return;
+    const alive = [...this.players.values()].filter((p) => p.state === 'alive');
+    if (!alive.length) return;
+    if (h.kind !== 'dark' && alive.every((p) => this.resting(p))) return;
+    if (h.kind === 'dark') {
+      // the client darkens the world from the tick (darknessAt); this only announces each spell
+      const first = alive[0] as Player;
+      if (this.tick >= every) this.emit({ e: 'hazard', kind: 'dark', x: r1(first.x), y: r1(first.y) });
+      return;
+    }
+    for (const e of this.enemies.values()) if (isBoss(e.kind) && e.awake) return;
+    const p = alive[this.rng.int(alive.length)] as Player;
+    if (h.kind === 'tremor') {
+      // only at a soldier standing on the ground: the wave runs along that ground
+      const q = alive.find((x) => x.onGround) ?? null;
+      if (!q) return;
+      const Tm = GAME_CONFIG.hazards.tremor;
+      for (const dir of h.count >= 2 ? [1, -1] : [q.facing]) {
+        const w = this.shoot(q.x + dir * Tm.from, q.y - 12, dir > 0 ? Math.PI : 0, Tm.dmg, {
+          kind: 'wave',
+          speed: Tm.speed,
+          size: 12,
+          life: 2.6,
+        });
+        w.vy = 0;
+      }
+      this.emit({ e: 'hazard', kind: 'tremor', x: r1(q.x), y: r1(q.y) });
+      return;
+    }
+    if (h.kind === 'raid') {
+      // Flying raiders dive in from behind the squad's back. Never while an arena is locked (its count of
+      // attackers must stay true), and never more than the cap at once.
+      if (this.activeArena() >= 0) return;
+      for (const id of this.raiders) if (!this.enemies.has(id)) this.raiders.delete(id);
+      const R = GAME_CONFIG.hazards.raid;
+      for (let i = 0; i < h.count && this.raiders.size < R.max; i++) {
+        const x = Math.max(60, p.x - p.facing * (R.behind + i * 70));
+        const y = Math.max(60, p.y - R.above - i * 30);
+        const e = this.spawnAwake('jetpack', x, y, -1);
+        this.raiders.add(e.id);
+        this.emit({ e: 'portal', x: r1(x), y: r1(y), how: 0 });
+      }
+      this.emit({ e: 'hazard', kind: 'raid', x: r1(p.x), y: r1(p.y) });
+      return;
+    }
+    const M = GAME_CONFIG.bossMoves.rain;
+    for (let i = 0; i < h.count; i++) {
+      // spread round the soldier and a little ahead, each one later than the last
+      const x = p.x + (i - (h.count - 1) / 2) * M.gap + this.rng.range(-24, 24) + p.facing * 30;
+      this.shoot(x, p.y - M.drop - i * 60, Math.PI / 2, GAME_CONFIG.hazards.skyfall.dmg, {
+        kind: 'meteor',
+        speed: M.speed * GAME_CONFIG.hazards.skyfall.speed,
+        size: 9,
+        blast: M.blast,
+        life: 3.5,
+      });
+    }
+    this.emit({ e: 'hazard', kind: h.kind, x: r1(p.x), y: r1(p.y) });
+  }
+
   private startWave(a: ArenaDef, n: number): void {
     this.arenaWave[a.id] = n;
     this.arenaNext[a.id] = -1;
-    const wave = a.waves[n] ?? [];
+    const wave = a.waves[n % Math.max(1, a.waves.length)] ?? [];
     let l = 0;
     let r = 0;
-    for (const s of wave) {
-      if (s.side === 'P' || s.side === 'U') {
-        this.queueSpawn(s, a, false);
-        continue;
+    // A wave may come in mirrored (left and right swapped), by the match's own dice: the same stage does not
+    // play out the same way twice.
+    const mirror = this.rng.int(2) === 1;
+    const array = a.vyuha.length ? (a.vyuha[n % a.vyuha.length] as Vyuha) : null;
+    if (array) this.formUp(a, wave, array);
+    else
+      for (const w of wave) {
+        const s: WaveSpawn =
+          mirror && (w.side === 'L' || w.side === 'R') ? { ...w, side: w.side === 'L' ? 'R' : 'L' } : w;
+        if (s.side === 'P' || s.side === 'U') {
+          this.queueSpawn(s, a, false);
+          continue;
+        }
+        let e: Enemy;
+        if (s.side === 'L') e = this.spawnAwake(s.kind, a.left + 40 + l++ * 34, a.floor, a.id);
+        else if (s.side === 'R') e = this.spawnAwake(s.kind, a.right - 40 - r++ * 34, a.floor, a.id);
+        else {
+          const x = a.left + (a.right - a.left) * this.rng.range(0.25, 0.85);
+          e = this.spawnAwake(s.kind, x, 40, a.id);
+        }
+        if (s.elite) this.makeElite(e);
       }
-      let e: Enemy;
-      if (s.side === 'L') e = this.spawnAwake(s.kind, a.left + 40 + l++ * 34, a.floor, a.id);
-      else if (s.side === 'R') e = this.spawnAwake(s.kind, a.right - 40 - r++ * 34, a.floor, a.id);
-      else {
-        const x = a.left + (a.right - a.left) * this.rng.range(0.25, 0.85);
-        e = this.spawnAwake(s.kind, x, 40, a.id);
+    const vy = array ? { vy: array } : {};
+    if (a.survive > 0)
+      this.emit({ e: 'arena', id: a.id, wave: n + 1, of: a.waves.length, secs: a.survive, ...vy });
+    else this.emit({ e: 'arena', id: a.id, wave: n + 1, of: a.waves.length, ...vy });
+  }
+
+  /**
+   * A wave arriving in a battle array (see Vyuha in level.ts). The wave's own entry sides are set aside: the
+   * array decides who comes from where and when. Which end it leads from is the match's own dice.
+   */
+  private formUp(a: ArenaDef, wave: WaveSpawn[], v: Vyuha): void {
+    const alive = [...this.players.values()].filter((p) => p.state === 'alive');
+    const mid = alive.length ? alive.reduce((n, p) => n + p.x, 0) / alive.length : (a.left + a.right) / 2;
+    const c = Math.max(a.left + 140, Math.min(a.right - 140, mid));
+    const isFlyer = (w: WaveSpawn): boolean => w.kind === 'jetpack' || w.kind === 'drone';
+    const heavy = (w: WaveSpawn): number =>
+      w.kind === 'shield' ? 0 : w.elite ? 1 : w.kind === 'grenadier' ? 2 : 3;
+    const ground = wave.filter((w) => !isFlyer(w));
+    const fly = wave.filter(isFlyer);
+    const lead = this.rng.int(2) === 1 ? 1 : -1; // 1: the array leads from the right end
+    const inside = (x: number): number => Math.max(a.left + 30, Math.min(a.right - 30, x));
+    const edge = (side: number, i: number): number =>
+      side > 0 ? a.right - 40 - i * 34 : a.left + 40 + i * 34;
+    /** Puts one enemy in: now, after `sec`, or (announced by cracking ground) rising where it will stand. */
+    const put = (w: WaveSpawn, x: number, y: number, sec = 0, rise = false): void => {
+      x = inside(x);
+      if (rise) this.emit({ e: 'portal', x: r1(x), y: r1(a.floor), how: 1 });
+      const wait = sec + (rise ? GAME_CONFIG.bossMoves.portalSec : 0);
+      if (wait <= 0) {
+        const e = this.spawnAwake(w.kind, x, y, a.id);
+        if (w.elite) this.makeElite(e);
+      } else
+        this.pending.push({
+          kind: w.kind,
+          x,
+          y,
+          arena: a.id,
+          at: this.tick + this.ticks(wait),
+          elite: w.elite === true,
+          fromBoss: false,
+        });
+    };
+    const SKY = 40;
+    /**
+     * Where a trooper dropped over `x` starts its fall: as high as the air is clear above the arena floor, to a
+     * limit. It stops under any ledge, so nobody is left standing on a perch the squad has to climb to.
+     */
+    const drop = (x: number): number => {
+      const col = Math.floor(inside(x) / T);
+      let row = Math.floor(a.floor / T) - 1;
+      const top = row - 6;
+      while (row > top && tileAt(this.level, col, row - 2) === Tile.Empty) row--;
+      return (row + 1) * T - 4;
+    };
+    switch (v) {
+      case 'chakra': {
+        // rings round the squad: the inner ring first, each further ring a beat later
+        ground.forEach((w, i) => {
+          const ring = Math.floor(i / 2);
+          put(w, c + (i % 2 ? 1 : -1) * lead * (150 + ring * 64), a.floor, ring * 0.7, true);
+        });
+        fly.forEach((w, i) => put(w, c + (i - (fly.length - 1) / 2) * 90, SKY, 0.4));
+        break;
       }
-      if (s.elite) this.makeElite(e);
+      case 'ardha': {
+        // two horns, the same weight on each, and the flyers over the middle
+        ground.forEach((w, i) => put(w, edge(i % 2 ? lead : -lead, Math.floor(i / 2)), a.floor));
+        fly.forEach((w, i) => put(w, c + (i - (fly.length - 1) / 2) * 110, SKY));
+        break;
+      }
+      case 'makara': {
+        // the heavy jaw first; the other jaw shuts behind
+        const order = [...ground].sort((x, y) => heavy(x) - heavy(y));
+        const first = Math.ceil(order.length / 2);
+        order.forEach((w, i) =>
+          i < first ? put(w, edge(lead, i), a.floor) : put(w, edge(-lead, i - first), a.floor, 2.2),
+        );
+        fly.forEach((w, i) => put(w, edge(-lead, 2 + i * 2), SKY, 2.2));
+        break;
+      }
+      case 'suchi': {
+        // one file through one gate, the point of the needle first
+        const order = [...ground].sort((x, y) => heavy(x) - heavy(y));
+        order.forEach((w, i) => put(w, edge(lead, 0), a.floor, i * 0.45));
+        fly.forEach((w, i) => put(w, edge(lead, 1), SKY, (order.length + i) * 0.45));
+        break;
+      }
+      case 'vajra': {
+        // three knots out of the sky at once
+        [...fly, ...ground].forEach((w, i) => {
+          const knot = (i % 3) - 1;
+          const x = c + knot * 190 + (Math.floor(i / 3) % 2 ? 22 : -22);
+          put(w, x, isFlyer(w) ? SKY : drop(x), Math.floor(i / 3) * 0.25);
+        });
+        break;
+      }
+      case 'garuda': {
+        // beak, wings, body
+        const order = [...ground].sort((x, y) => heavy(x) - heavy(y));
+        order.forEach((w, i) => put(w, edge(lead, Math.max(0, i - 1)), a.floor, i === 0 ? 0 : 1.3));
+        fly.forEach((w, i) => put(w, c + (i % 2 ? 1 : -1) * (170 + Math.floor(i / 2) * 70), SKY, 0.3));
+        break;
+      }
     }
-    this.emit({ e: 'arena', id: a.id, wave: n + 1, of: a.waves.length });
   }
 
   private clearArena(a: ArenaDef): void {
     this.arenaState[a.id] = 2;
+    this.calmUntil = this.tick + this.ticks(GAME_CONFIG.mission.calmSec);
     if (a.gate >= 0 && !this.gateOpen[a.gate]) {
       this.gateOpen[a.gate] = true;
       this.emit({ e: 'gate', id: a.gate });
@@ -3168,6 +3589,7 @@ export class Sim {
         sn: e.rule && this.tick < e.rule.stunUntil ? 1 : 0,
         im: e.rule?.storm ? 1 : 0,
         el: e.elite ? 1 : 0,
+        fl: (e.burnUntil > this.tick ? 1 : 0) | (e.liftUntil > this.tick ? 2 : 0),
       });
     }
     const ai = this.activeArena();
@@ -3178,6 +3600,8 @@ export class Sim {
       let left = 0;
       for (const e of this.enemies.values()) if (e.arena === ai && !e.fromBoss) left++;
       arena = { id: ai, w: (this.arenaWave[ai] as number) + 1, n: a.waves.length, left };
+      if (a.survive > 0)
+        arena.t = Math.max(0, Math.ceil(((this.arenaEnd[ai] as number) - this.tick) / this.tickRate));
       // One bar for the whole fight: twin bosses add up.
       for (const e of this.enemies.values()) {
         if (e.arena !== ai || !isBoss(e.kind) || !e.awake) continue;
@@ -3235,6 +3659,13 @@ export class Sim {
           y: r1(h.y),
           w: GAME_CONFIG.powers.singularity.radius,
           t: r1((h.until - this.tick) / this.tickRate),
+        })),
+        ...this.twisters.map((t) => ({
+          k: (t.fire ? 4 : 3) as 3 | 4,
+          x: r1(t.x),
+          y: r1(t.y),
+          w: GAME_CONFIG.powers.vayu.reach,
+          t: r1((t.until - this.tick) / this.tickRate),
         })),
         ...this.spirits.map((sp) => ({
           k: 2 as const,

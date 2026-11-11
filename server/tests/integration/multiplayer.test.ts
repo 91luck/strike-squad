@@ -266,7 +266,7 @@ describe('mission', () => {
             0,
             'gun',
           );
-      await advance(ts, 46, clients);
+      await advance(ts, 84, clients);
     }
     expect(a.snap()!.gates & 1).toBe(1);
     expect(b.events('gate')).toHaveLength(1);

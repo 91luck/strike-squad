@@ -1,5 +1,5 @@
 import type { PowerKind, SagaId } from './config';
-import { buildCourse, type CourseDef } from './course';
+import { buildCourse, withRests, type CourseDef } from './course';
 import type { LevelDef } from './level';
 
 /**
@@ -41,6 +41,8 @@ export interface SagaStage {
   brief: string[];
   /** Toughness 1..5. */
   stars: number;
+  /** What sets this stage apart from the one before, in a few words (shown as the stage begins). */
+  twist: string;
 }
 
 export const SAGA: readonly SagaStage[] = [
@@ -52,13 +54,14 @@ export const SAGA: readonly SagaStage[] = [
     astra: 'agni',
     astraName: 'Agneyastra',
     lore: 'The fire astra: flames that ordinary means cannot put out.',
-    how: 'ASTRA button: a wave of fire, then the ground keeps burning. Lure foes onto it.',
+    how: 'ASTRA button: a wall of fire, then burning ground. Whoever it touches burns on.',
     brief: [
       'An asura host has set the forest ablaze. Grab the AGNEYASTRA, climb the burning slope, fire it with ASTRA.',
       'Its fire rolls forward and leaves the ground burning: catch the crowd packed in the ember trench.',
       'Bosses: JWALA-ASUR the fire beast, and AGNI-DAITYA at the heart of the fire.',
     ],
     stars: 1,
+    twist: 'Learn the ropes: ambushes and two asuras',
   },
   {
     id: 'astra-2',
@@ -75,6 +78,7 @@ export const SAGA: readonly SagaStage[] = [
       'Bosses: MAKARA rises from the bay; SAMUDRA-RAKSHAS holds the sea fortress.',
     ],
     stars: 2,
+    twist: 'HOLD THE BRIDGE: survive the tide of asuras',
   },
   {
     id: 'astra-3',
@@ -84,13 +88,14 @@ export const SAGA: readonly SagaStage[] = [
     astra: 'vayu',
     astraName: 'Vayavyastra',
     lore: 'The wind astra: a gale strong enough to lift an army off the ground.',
-    how: 'A gust ahead: shields torn off, foes blown back, their shots scattered.',
+    how: 'A whirlwind walks ahead: it lifts the host off its feet, then hurls it. Over fire it burns.',
     brief: [
       'Ride the updraft over the gorge and float through the thin air. Storms bend every shot; VAYAVYASTRA blows them away.',
       'It tears riot shields straight off: use it on the shield walls.',
       'Bosses: GARJAN-RAKSHAS rides the thunderheads; VAYU-DAITYA waits in the eye of the storm.',
     ],
     stars: 2,
+    twist: 'SKY RAIDERS: they dive in from behind on the wind',
   },
   {
     id: 'astra-4',
@@ -107,6 +112,7 @@ export const SAGA: readonly SagaStage[] = [
       'Bosses: VISH-NAAG in its den, and VISHARAJ, the serpent king.',
     ],
     stars: 3,
+    twist: 'THE EARTH SERPENT: jump the shockwaves, then hold the nest',
   },
   {
     id: 'astra-5',
@@ -123,6 +129,7 @@ export const SAGA: readonly SagaStage[] = [
       'Endless ambushes, and every wall has a road over it and one under it. Bosses: CHHAYA-ASUR and MAYA-SENAPATI.',
     ],
     stars: 3,
+    twist: 'MAYA: the world goes dark, stay in the light',
   },
   {
     id: 'astra-6',
@@ -139,6 +146,7 @@ export const SAGA: readonly SagaStage[] = [
       'Bosses: BHASMA-PRET in the hollow, KAAL-PRET on the crown of ash.',
     ],
     stars: 4,
+    twist: 'ASH RAIN: burning rock falls all stage long',
   },
   {
     id: 'astra-7',
@@ -155,6 +163,7 @@ export const SAGA: readonly SagaStage[] = [
       'Pass a storm without anyone fighting it, and the boss’s second call rebounds on the boss itself.',
     ],
     stars: 4,
+    twist: 'HOLD THE LINE: outlast the war drums',
   },
   {
     id: 'astra-8',
@@ -171,6 +180,7 @@ export const SAGA: readonly SagaStage[] = [
       'Bosses: CHAKRA-VIMANA in the sky, VYUH-SENANI at the heart of the formation.',
     ],
     stars: 5,
+    twist: 'Spinning blades, and a ring to hold',
   },
   {
     id: 'astra-9',
@@ -187,6 +197,7 @@ export const SAGA: readonly SagaStage[] = [
       'Bosses: DWAND-YODHA and DWAND-RAJ.',
     ],
     stars: 5,
+    twist: 'Duels: one great warrior at a time',
   },
   {
     id: 'astra-10',
@@ -203,6 +214,7 @@ export const SAGA: readonly SagaStage[] = [
       'If nobody can, dash through the blast at the last moment. It cannot be called back: it scorches him too.',
     ],
     stars: 5,
+    twist: 'Everything at once: sky fire, three bosses',
   },
 ];
 
@@ -247,7 +259,12 @@ const AGNIVAN: CourseDef = {
       art: 'vana',
       len: 28,
       cp: true,
-      arena: { name: 'ASURA AMBUSH', room: 'twin', waves: ['3SR SL', '2SR GR', '3SL S*R'] },
+      arena: {
+        name: 'ASURA AMBUSH',
+        vyuha: ['ardha', 'suchi', 'makara'],
+        room: 'twin',
+        waves: ['3SR SL', '2SR GR', '3SL S*R'],
+      },
     },
     {
       zone: 'Ember Trench',
@@ -262,11 +279,11 @@ const AGNIVAN: CourseDef = {
       art: 'vana',
       len: 34,
       cp: true,
-      loot: '+4 a8',
+      loot: '+4 v8',
       arena: { name: 'JWALA-ASUR', room: 'open', bosses: ['walker'], hp: 0.9, waves: ['SR'] },
     },
     { zone: 'Smoke Pillars', art: 'vana', land: 'pillars', len: 30, foes: 'S7^ D12 G17^ J22', loot: '+22^' },
-    { zone: 'Ash Canopy', art: 'vana', land: 'catwalks', len: 30, foes: 'S5 T13^ S18 H24', loot: '+14' },
+    { zone: 'Ash Canopy', art: 'vana', land: 'catwalks', len: 30, foes: 'S5 T13^ S18 H24', loot: '+14 v22' },
     {
       zone: 'Heart of the Fire',
       art: 'inferno',
@@ -308,14 +325,20 @@ const SAGAR_SETU: CourseDef = {
       land: 'chasm',
       len: 36,
       foes: 'S6 D13 S20 J21 D28',
-      loot: '+14',
+      loot: '+14 a22',
     },
     {
-      zone: 'Tide Ambush',
+      zone: 'The Bridge',
       art: 'sagar',
       len: 30,
       cp: true,
-      arena: { name: 'TIDE AMBUSH', room: 'high', waves: ['3SL 2SR', '2SU HR GR', '2SR 2SU J^'] },
+      arena: {
+        name: 'HOLD THE BRIDGE',
+        vyuha: ['suchi', 'vajra', 'suchi'],
+        room: 'high',
+        survive: 22,
+        waves: ['3SL 2SR', '2SU HR GR', '2SR 2SU J^'],
+      },
     },
     {
       zone: 'Sea Wall',
@@ -343,7 +366,14 @@ const SAGAR_SETU: CourseDef = {
       foes: 'D7 S11^ G16^ H25',
       loot: 'w21* l15^',
     },
-    { zone: 'Flooded Trench', art: 'sagar', land: 'trench', len: 30, foes: 'S9_ G15 H20_ S23_', loot: '+27' },
+    {
+      zone: 'Flooded Trench',
+      art: 'sagar',
+      land: 'trench',
+      len: 30,
+      foes: 'S9_ G15 H20_ S23_',
+      loot: '+27 v12',
+    },
     {
       zone: 'Samudra Throne',
       art: 'sagar',
@@ -366,6 +396,7 @@ const VAYU_SHIKHAR: CourseDef = {
   name: 'Vayu Shikhar',
   faction: 'demon',
   tint: 245,
+  hazard: { kind: 'raid', every: 11, count: 2 },
   mods: { enemyHp: 1, enemyFire: 1, enemyDamage: 1, bossHp: 0.95, bossTempo: 1 },
   sections: [
     { zone: 'Foothills', art: 'shikhar', land: 'flat', len: 24, foes: 'S10 H15 S20', loot: 'v6' },
@@ -376,7 +407,7 @@ const VAYU_SHIKHAR: CourseDef = {
       len: 34,
       lifts: [15],
       foes: 'S7 D12 S20^ J25',
-      loot: '+22^',
+      loot: '+22^ g12',
     },
     {
       zone: 'Storm Ledges',
@@ -392,7 +423,12 @@ const VAYU_SHIKHAR: CourseDef = {
       art: 'shikhar',
       len: 30,
       cp: true,
-      arena: { name: 'GALE AMBUSH', room: 'tiers', waves: ['2SR 2J^ SL', '2SP 2HR', 'GR 3J^ H*L'] },
+      arena: {
+        name: 'GALE AMBUSH',
+        vyuha: ['garuda', 'vajra', 'ardha'],
+        room: 'tiers',
+        waves: ['2SR 2J^ SL', '2SP 2HR', 'GR 3J^ H*L'],
+      },
     },
     {
       zone: 'Thin Air',
@@ -404,7 +440,7 @@ const VAYU_SHIKHAR: CourseDef = {
       field: { kind: 'lowg', power: 0.45 },
       stash: 30,
       foes: 'S5 D15 J19 S31',
-      loot: '+17 l30^',
+      loot: '+17 l30^ a19',
     },
     {
       zone: 'Thunder Nest',
@@ -421,7 +457,7 @@ const VAYU_SHIKHAR: CourseDef = {
       len: 32,
       field: { kind: 'magnet', power: 1.1 },
       foes: 'S6^ D12 G17^ J23 S25^',
-      loot: '+18^',
+      loot: '+18^ g8',
     },
     {
       zone: 'Summit Walk',
@@ -454,6 +490,7 @@ const NAAG_LOK: CourseDef = {
   name: 'Naag Lok',
   faction: 'demon',
   tint: 115,
+  hazard: { kind: 'tremor', every: 10, count: 1 },
   mods: { enemyHp: 1.05, enemyFire: 1.05, enemyDamage: 1.05, bossHp: 1, bossTempo: 1.02 },
   sections: [
     { zone: 'Serpent Gate', art: 'naglok', land: 'flat', len: 24, foes: 'S11 D15 S19', loot: 'n6' },
@@ -479,7 +516,12 @@ const NAAG_LOK: CourseDef = {
       art: 'naglok',
       len: 30,
       cp: true,
-      arena: { name: 'COIL AMBUSH', room: 'twin', waves: ['2SU 2SL', 'HR GU 2J^', '2SU HR G*L'] },
+      arena: {
+        name: 'COIL AMBUSH',
+        vyuha: ['makara', 'chakra', 'suchi'],
+        room: 'twin',
+        waves: ['2SU 2SL', 'HR GU 2J^', '2SU HR G*L'],
+      },
     },
     {
       zone: 'Root Halls',
@@ -506,11 +548,17 @@ const NAAG_LOK: CourseDef = {
       loot: 'n13^ +30',
     },
     {
-      zone: 'Nest Ambush',
+      zone: 'The Nest',
       art: 'naglok',
       len: 30,
       cp: true,
-      arena: { name: 'NEST AMBUSH', room: 'tiers', waves: ['2HR 2HL J^', '2GU 3J^', '3SU 3SL'] },
+      arena: {
+        name: 'THE NEST WAKES',
+        vyuha: ['chakra', 'vajra', 'chakra'],
+        room: 'tiers',
+        survive: 25,
+        waves: ['2HR 2HL J^', '2GU 3J^', '3SU 3SL'],
+      },
     },
     {
       zone: 'Sunken Temple',
@@ -544,6 +592,7 @@ const MAYA_NAGRI: CourseDef = {
   name: 'Maya Nagri',
   faction: 'demon',
   tint: 290,
+  hazard: { kind: 'dark', every: 16, count: 5 },
   brahma: true,
   mods: { enemyHp: 1.1, enemyFire: 1.05, enemyDamage: 1.05, bossHp: 1.05, bossTempo: 1.05 },
   sections: [
@@ -564,6 +613,7 @@ const MAYA_NAGRI: CourseDef = {
       cp: true,
       arena: {
         name: 'ILLUSION AMBUSH',
+        vyuha: ['vajra', 'ardha', 'chakra', 'garuda'],
         room: 'twin',
         waves: ['3SP 2SL', '2HL 2J^ GP', '2SP 3SR', 'HR HP 2G*P'],
       },
@@ -593,6 +643,7 @@ const MAYA_NAGRI: CourseDef = {
       cp: true,
       arena: {
         name: 'ENDLESS CORRIDOR',
+        vyuha: ['suchi', 'makara', 'suchi', 'ardha'],
         room: 'high',
         waves: ['3SP 2SL', '2HP 2HL J^', '3GR 2J^', '3SR 3SP'],
       },
@@ -628,6 +679,7 @@ const BHASM_PARVAT: CourseDef = {
   name: 'Bhasm Parvat',
   faction: 'demon',
   tint: 35,
+  hazard: { kind: 'skyfall', every: 8, count: 3 },
   mods: { enemyHp: 1.15, enemyFire: 1.1, enemyDamage: 1.1, bossHp: 1.05, bossTempo: 1.06 },
   sections: [
     { zone: 'Ash Fields', art: 'bhasm', land: 'flat', len: 24, foes: 'S10 S14 G19', loot: 'p6' },
@@ -637,16 +689,21 @@ const BHASM_PARVAT: CourseDef = {
       land: 'ascent',
       len: 36,
       foes: 'S4 S12^ G16^ T24^ S28^ D33',
-      loot: '+17^',
+      loot: '+17^ n9',
     },
     {
       zone: 'Ghost Ambush',
       art: 'bhasm',
       len: 30,
       cp: true,
-      arena: { name: 'GHOST AMBUSH', room: 'high', waves: ['2SU 2SL J^', 'HR 2GU', '2J^ SU HR'] },
+      arena: {
+        name: 'GHOST AMBUSH',
+        vyuha: ['chakra', 'garuda', 'makara'],
+        room: 'high',
+        waves: ['2SU 2SL J^', 'HR 2GU', '2J^ SU HR'],
+      },
     },
-    { zone: 'Cinder Gorge', art: 'bhasm', land: 'chasm', len: 32, foes: 'S6 D12 J18 S24', loot: '+13' },
+    { zone: 'Cinder Gorge', art: 'bhasm', land: 'chasm', len: 32, foes: 'S6 D12 J18 S24', loot: '+13 v11' },
     {
       zone: 'Pret Hollow',
       art: 'bhasm',
@@ -670,14 +727,18 @@ const BHASM_PARVAT: CourseDef = {
       land: 'pillars',
       len: 32,
       foes: 'S6^ G11^ D16 S19^ J24',
-      loot: '+13^',
+      loot: '+13^ a6',
     },
     {
       zone: 'Wraith Ambush',
       art: 'bhasm',
       len: 30,
       cp: true,
-      arena: { name: 'WRAITH AMBUSH', waves: ['2HU HL 2J^', '2GR 2J^ SU', '3SU 3S*L'] },
+      arena: {
+        name: 'WRAITH AMBUSH',
+        vyuha: ['ardha', 'chakra', 'vajra'],
+        waves: ['2HU HL 2J^', '2GR 2J^ SU', '3SU 3S*L'],
+      },
     },
     {
       zone: 'Crown of Ash',
@@ -718,7 +779,12 @@ const SAMARPAN_MAIDAN: CourseDef = {
       art: 'kurukshetra',
       len: 30,
       cp: true,
-      arena: { name: 'CONCH AMBUSH', room: 'open', waves: ['3SR 2SL', 'HR 2J^ G*L', '2SL 2SR J^'] },
+      arena: {
+        name: 'CONCH AMBUSH',
+        vyuha: ['makara', 'garuda', 'ardha'],
+        room: 'open',
+        waves: ['3SR 2SL', 'HR 2J^ G*L', '2SL 2SR J^'],
+      },
     },
     {
       zone: 'Chariot Wall',
@@ -753,11 +819,17 @@ const SAMARPAN_MAIDAN: CourseDef = {
       loot: '+18 n31',
     },
     {
-      zone: 'War Drums',
+      zone: 'The Line',
       art: 'kurukshetra',
       len: 32,
       cp: true,
-      arena: { name: 'WAR DRUMS', room: 'tiers', waves: ['3SR 2SL', '2HR HL 2J^', '3GR 2J^', '3SR 3SL H*R'] },
+      arena: {
+        name: 'HOLD THE LINE',
+        vyuha: ['garuda', 'suchi', 'ardha', 'vajra'],
+        room: 'tiers',
+        survive: 30,
+        waves: ['3SR 2SL', '2HR HL 2J^', '3GR 2J^', '3SR 3SL H*R'],
+      },
     },
     {
       zone: 'Field of Arrows',
@@ -808,7 +880,13 @@ const CHAKRA_DURG: CourseDef = {
       art: 'chakra',
       len: 30,
       cp: true,
-      arena: { name: 'SECOND RING', room: 'twin', waves: ['2SR 2SL HP', '2HL 2J^ SP', 'GR GL 2S*P'] },
+      arena: {
+        name: 'SECOND RING',
+        vyuha: ['chakra', 'makara', 'chakra'],
+        room: 'twin',
+        survive: 24,
+        waves: ['2SR 2SL HP', '2HL 2J^ SP', 'GR GL 2S*P'],
+      },
     },
     {
       zone: 'Blade Pillars',
@@ -816,7 +894,7 @@ const CHAKRA_DURG: CourseDef = {
       land: 'pillars',
       len: 30,
       foes: 'S7^ J12 S16^ J22',
-      loot: '+12^',
+      loot: '+12^ v20',
     },
     {
       zone: 'Chakravyuh',
@@ -849,7 +927,7 @@ const CHAKRA_DURG: CourseDef = {
       land: 'bridge',
       len: 32,
       foes: 'S5 J10 D15 S20 H25 J28',
-      loot: '+14',
+      loot: '+14 n22',
     },
     {
       zone: 'Heart of the Vyuh',
@@ -890,7 +968,7 @@ const DWAND_BHOOMI: CourseDef = {
       land: 'ascent',
       len: 32,
       foes: 'S4 G13^ S17^ T23^ S29',
-      loot: '+12^',
+      loot: '+12^ c20',
     },
     {
       zone: 'Herald Ambush',
@@ -899,6 +977,7 @@ const DWAND_BHOOMI: CourseDef = {
       cp: true,
       arena: {
         name: 'HERALD AMBUSH',
+        vyuha: ['vajra', 'suchi', 'garuda', 'ardha'],
         room: 'tiers',
         waves: ['2SR 2SL', 'HR 2J^ GL', '2SL S*R J^', 'HR HL GR'],
       },
@@ -908,7 +987,7 @@ const DWAND_BHOOMI: CourseDef = {
       art: 'dwand',
       len: 38,
       cp: true,
-      loot: '+4',
+      loot: '+4 n9',
       arena: {
         name: 'DWAND-YODHA',
         room: 'open',
@@ -927,6 +1006,7 @@ const DWAND_BHOOMI: CourseDef = {
       cp: true,
       arena: {
         name: 'CHAMPION AMBUSH',
+        vyuha: ['ardha', 'makara', 'chakra', 'vajra'],
         room: 'twin',
         waves: ['2SR 2SL', '2HR 2HL J^', '2GR 2J^', '3SR 3SL 2H*R'],
       },
@@ -964,6 +1044,7 @@ const MAHAYUDDH: CourseDef = {
   name: 'Mahayuddh',
   faction: 'demon',
   tint: 330,
+  hazard: { kind: 'skyfall', every: 7, count: 3 },
   brahma: true,
   mods: { enemyHp: 1.35, enemyFire: 1.2, enemyDamage: 1.2, bossHp: 1.18, bossTempo: 1.14 },
   sections: [
@@ -984,6 +1065,7 @@ const MAHAYUDDH: CourseDef = {
       cp: true,
       arena: {
         name: 'HOST OF ASURAS',
+        vyuha: ['ardha', 'suchi', 'vajra', 'makara', 'chakra'],
         room: 'tiers',
         waves: ['3SR 2SL', '2HU 2HL J^', '3GP 2J^', '2HR SL 2GL J^', '3SU 3SP S*L'],
       },
@@ -1064,27 +1146,27 @@ const MAHAYUDDH: CourseDef = {
 
 /** The stages as course data (the tests read them to check every stage keeps a shape of its own). */
 export const SAGA_COURSES: Record<SagaId, CourseDef> = {
-  'astra-1': AGNIVAN,
-  'astra-2': SAGAR_SETU,
-  'astra-3': VAYU_SHIKHAR,
-  'astra-4': NAAG_LOK,
-  'astra-5': MAYA_NAGRI,
-  'astra-6': BHASM_PARVAT,
-  'astra-7': SAMARPAN_MAIDAN,
-  'astra-8': CHAKRA_DURG,
-  'astra-9': DWAND_BHOOMI,
-  'astra-10': MAHAYUDDH,
+  'astra-1': withRests(AGNIVAN),
+  'astra-2': withRests(SAGAR_SETU),
+  'astra-3': withRests(VAYU_SHIKHAR),
+  'astra-4': withRests(NAAG_LOK),
+  'astra-5': withRests(MAYA_NAGRI),
+  'astra-6': withRests(BHASM_PARVAT),
+  'astra-7': withRests(SAMARPAN_MAIDAN),
+  'astra-8': withRests(CHAKRA_DURG),
+  'astra-9': withRests(DWAND_BHOOMI),
+  'astra-10': withRests(MAHAYUDDH),
 };
 
 export const SAGA_BUILDERS: Record<SagaId, () => LevelDef> = {
-  'astra-1': () => buildCourse(AGNIVAN),
-  'astra-2': () => buildCourse(SAGAR_SETU),
-  'astra-3': () => buildCourse(VAYU_SHIKHAR),
-  'astra-4': () => buildCourse(NAAG_LOK),
-  'astra-5': () => buildCourse(MAYA_NAGRI),
-  'astra-6': () => buildCourse(BHASM_PARVAT),
-  'astra-7': () => buildCourse(SAMARPAN_MAIDAN),
-  'astra-8': () => buildCourse(CHAKRA_DURG),
-  'astra-9': () => buildCourse(DWAND_BHOOMI),
-  'astra-10': () => buildCourse(MAHAYUDDH),
+  'astra-1': () => buildCourse(SAGA_COURSES['astra-1']),
+  'astra-2': () => buildCourse(SAGA_COURSES['astra-2']),
+  'astra-3': () => buildCourse(SAGA_COURSES['astra-3']),
+  'astra-4': () => buildCourse(SAGA_COURSES['astra-4']),
+  'astra-5': () => buildCourse(SAGA_COURSES['astra-5']),
+  'astra-6': () => buildCourse(SAGA_COURSES['astra-6']),
+  'astra-7': () => buildCourse(SAGA_COURSES['astra-7']),
+  'astra-8': () => buildCourse(SAGA_COURSES['astra-8']),
+  'astra-9': () => buildCourse(SAGA_COURSES['astra-9']),
+  'astra-10': () => buildCourse(SAGA_COURSES['astra-10']),
 };

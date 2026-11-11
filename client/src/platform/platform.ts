@@ -58,6 +58,11 @@ export interface Platform {
   onJoinRoom(cb: (code: string) => void): void;
   /** The portal muted or unmuted the game (called once right away with the current state). */
   onMute(cb: (muted: boolean) => void): void;
+  /**
+   * What kind of device the portal says this is, or null where nobody says (then the game decides by itself).
+   * CrazyGames asks games to use this rather than touch APIs: many laptops have touch screens.
+   */
+  readonly device: 'desktop' | 'tablet' | 'mobile' | null;
   /** May the game change the page URL (history.replaceState)? Not inside a portal's iframe. */
   readonly ownsUrl: boolean;
 }
@@ -94,10 +99,21 @@ export function webPlatform(): Platform {
     onJoinRoom: () => undefined,
     onMute: () => undefined,
     ownsUrl: true,
+    device: null,
   };
 }
 
 // ---------------------------------------------------------------- CrazyGames
+
+/** The device type the portal reports, or null if it reports none (or something unknown). */
+export function deviceOf(sdk: CrazySdk): Platform['device'] {
+  try {
+    const t = sdk.user?.systemInfo?.device?.type;
+    return t === 'desktop' || t === 'tablet' || t === 'mobile' ? t : null;
+  } catch {
+    return null;
+  }
+}
 
 /** The parts of the CrazyGames HTML5 SDK v3 this game uses (https://docs.crazygames.com/sdk/html5-v3/intro). */
 export interface CrazySdk {
@@ -131,6 +147,8 @@ export interface CrazySdk {
   };
   user?: {
     isUserAccountAvailable: boolean;
+    /** https://docs.crazygames.com/sdk/html5-v3/user : device.type is desktop, tablet or mobile. */
+    systemInfo?: { device?: { type?: string } };
     getUser(): Promise<{ username: string } | null>;
   };
   data?: StorageLike;
@@ -205,6 +223,7 @@ export function crazyPlatform(sdk: CrazySdk): Platform {
     ads: true,
     storage,
     ownsUrl: false,
+    device: deviceOf(sdk),
     loadingStop: () => safe(() => sdk.game.loadingStop(), undefined),
     gameplay(on) {
       if (on === playing) return;

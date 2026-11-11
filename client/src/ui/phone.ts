@@ -6,8 +6,22 @@
 
 type LockableOrientation = ScreenOrientation & { lock?: (o: 'landscape') => Promise<void> };
 
+let portalDevice: 'desktop' | 'tablet' | 'mobile' | null = null;
+
+/** The portal's word on the device (see Platform.device): it overrides the game's own guess. */
+export function setPortalDevice(d: 'desktop' | 'tablet' | 'mobile' | null): void {
+  portalDevice = d;
+}
+
+/**
+ * A phone or tablet: the portal's word if it gave one, else a guess from the browser. The guess counts a
+ * coarse pointer or a touch screen; a laptop with a touch screen guesses wrong, which is why the portal's word
+ * comes first.
+ */
 export const isTouchDevice = (): boolean =>
-  matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  portalDevice !== null
+    ? portalDevice !== 'desktop'
+    : matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
 export const isIOS = (): boolean =>
   /iPhone|iPad|iPod/.test(navigator.userAgent) ||

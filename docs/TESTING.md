@@ -66,7 +66,24 @@ Vitest breakdown: shared simulation **57**, server multiplayer **32**, server se
 29. **In a mission on an upright phone the touch buttons covered the world and the HUD overlapped itself.** Seen in screenshots; upright phones now get a console layout (the view on top, a control deck under it) and a compact HUD.
 30. **A final boss was drawn with the old art** because the look was looked up by arena bounds and a final boss stands past its arena's edge. Seen in screenshots; the nearest boss arena is used.
 31. **A portal effect drew an ellipse with a negative radius** in its first frame (a console error). Seen in the browser log; radii are clamped.
+32. **Boss fights stuttered: a shaded boss cost about 35 ms a frame** on a canvas drawn without a graphics card. Found by profiling an eight-player boss fight (median frame 57 ms). A boss's picture is now kept between frames and the renderer's quality governor redraws it every second or third frame on a slow machine (`Renderer.govern`, `pixelated(..., keep)`).
+33. **Two full-screen gradient fills and a vignette every frame cost about 20 ms** (sky, sun glow, colour grade), more than everything else in the scene together. Found by switching drawing steps off one at a time. They are painted once per zone into pictures and copied (`Renderer.sky`, `Renderer.grade`). Open-field frame: 42 ms → 21 ms; eight-player boss fight: 57 ms → 20 ms (headless Chromium, 1920x1080, software rendering).
+34. **The rim light on boss parts used a clip per part** (about 70 save/clip/restore a frame). Replaced by stroking only the edges that face the light (`asura-shade.ts`).
+35. **Two burning troopers standing together lit each other for ever.** Found by the new agni test (a trooper was still alight long after the fire should have died). The fire is now handed on twice at most, and never to one that has only just stopped burning.
+36. **A "thunderbolt" wave left troopers standing on a ledge above the arena**, where a lone computer player could not reach them, so the arena never cleared (stages 3 and 5 hit the 15-minute cap). Found by the "never traps a squad" test. Dropped troopers now start under any ledge and land on the arena floor.
+37. **Troopers worn down by a whirlwind or a slow burn stayed white** (the hit flash was set again every tick). Seen in screenshots; damage under 1 a tick from an astra no longer flashes.
+38. **The bow could not be seen as an astra was loosed**: the astra's own flash was drawn over it. Seen in screenshots; the bow is drawn after the flash.
+39. **A lone computer player that swapped its rain for another astra at a rest stop could not get past the wall of fire in stage 2** (it did not fetch rain from the altar and the run hit the time cap). Found by the "never traps a squad" test. Rest stops before a wall of fire now offer rain; the computer player's altar-fetching itself was not fixed.
+40. **In the smallest CrazyGames frames (821x462, 800x450 on phones) the game fell back to the classic low-resolution art** (scale 1.155, HD started at 1.25). Found by capturing the game at the portal's listed frame sizes; HD now starts at 1.1.
+41. **In a 907x510 frame the menu was cut off below "Play Astra Saga"** and a toast covered the menu's buttons. Found the same way; the compact menu now applies up to 640 px tall, and outside a match toasts sit top right.
+42. **Pause was only on Escape**, which CrazyGames' guidelines say to avoid (in fullscreen it leaves fullscreen). P now pauses too, unless the player bound P to fire or jump.
 
 ## Not verified
+
+- Pacing was measured with computer squads only (share of time with an enemy near, quiet stretches, astras loosed). Whether a stage now feels well paced to a person, and whether three charges plus regained charges make any boss too easy, was not playtested by people.
+
+- The whirlwind, the fire, the bow and the battle arrays were checked by tests and in screenshots, not by people playing. Frame time with several whirlwinds and many burning troopers on screen was not measured. The daily trial was run by computer squads for seven days of dates, not for every date.
+
+- Frame rates on real phones, Chromebooks and with a graphics card: the numbers above are from headless Chromium on a CPU. Eight real players over the internet were not tried; the simulation costs 0.1 ms a tick with eight players and a snapshot is about 5 KB (15 a second), measured with eight computer players.
 
 Real phones, Firefox/Safari, sound by ear, a live deployment, the Docker image build, GitHub Actions, and how fun/difficult it is for people (the playtest uses computer players).

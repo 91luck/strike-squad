@@ -4,6 +4,7 @@ import { drawArrow, drawChakra, drawSerpent } from '../game/astra-fx';
 import { drawThemedWalker, type BossKit } from '../game/boss-art';
 import { Renderer } from '../game/renderer';
 import { CENTER_X, FEET_Y, charFrame, heroLook } from '../game/sprites';
+import { HD, HD_CENTER, HD_FEET, hdCanvases } from '../game/hero-hd';
 
 /**
  * Key art for the store pages (CrazyGames covers): a real level from the game as the backdrop (drawn by the
@@ -171,6 +172,7 @@ const bossScale = (W * L.bossW) / GAME_CONFIG.enemies.walker.width;
     sn: 0,
     im: 0,
     el: 0,
+    fl: 0,
   };
   ctx.save();
   ctx.translate(bossX, groundY);
@@ -192,9 +194,11 @@ function hero(
   aim: 'f' | 'uf' = 'f',
 ): { mx: number; my: number } {
   const f = charFrame(`key${id}`, heroLook(id), 'run', 2, aim);
-  const s = heightPx / FEET_Y;
-  const dx = x - CENTER_X * s;
-  const dy = groundY - FEET_Y * s;
+  // high-definition frames (hero-hd.ts) have twice the pixels and their own anchor
+  const hd = hdCanvases.has(f.img);
+  const s = heightPx / FEET_Y / (hd ? HD : 1);
+  const dx = x - (hd ? HD_CENTER : CENTER_X) * s;
+  const dy = groundY - (hd ? HD_FEET : FEET_Y) * s;
   ctx.save();
   ctx.globalAlpha = alpha;
   ctx.shadowColor = 'rgba(255,214,120,0.9)';
@@ -209,7 +213,8 @@ function hero(
   ctx.ellipse(x, groundY + 2, 16 * s, 3 * s, 0, 0, Math.PI * 2);
   ctx.fill();
   // Muzzle offsets are measured from the feet anchor (centre x, ground y).
-  return { mx: x + f.muzzleX * s, my: groundY + f.muzzleY * s };
+  const ws = heightPx / FEET_Y; // muzzle offsets are in world pixels
+  return { mx: x + f.muzzleX * ws, my: groundY + f.muzzleY * ws };
 }
 const heroX = W * L.heroX;
 const heroH = H * L.heroH;

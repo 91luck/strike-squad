@@ -295,7 +295,9 @@ export class Autopilot {
         }
         const homing = p.power === 'naga' || p.power === 'sudarshana' || p.power === 'pashupata';
         if (p.power && p.powerN > 0)
-          astra = crowd >= 2 || (bossNear && p.power !== 'vayu') || (homing && crowd >= 1);
+          // a real crowd, not the first pair of troopers: a teammate's astra going off in the opening seconds
+          // looks chaotic and wastes it
+          astra = crowd >= 3 || (bossNear && p.power !== 'vayu') || (homing && crowd >= 2);
         else if (brahmaReady) {
           // Keep it for a brahmashirsha when one may come.
           const shirsha = [...sim.enemies.values()].some((e) => e.rule?.rules.includes('brahmashirsha'));

@@ -1,6 +1,16 @@
 /** Procedural sound effects (no asset files => loads instantly, fully original, zero licensing). */
 export type SfxName =
-  'fire' | 'hit' | 'wall' | 'explode' | 'powerup' | 'ability' | 'beep' | 'go' | 'victory' | 'defeat';
+  | 'fire'
+  | 'hit'
+  | 'wall'
+  | 'explode'
+  | 'powerup'
+  | 'ability'
+  | 'beep'
+  | 'go'
+  | 'victory'
+  | 'defeat'
+  | 'astra';
 
 export class Sfx {
   private ctx: AudioContext | null = null;
@@ -21,6 +31,11 @@ export class Sfx {
       this.apply();
     }
     if (this.ctx.state === 'suspended') void this.ctx.resume();
+  }
+
+  /** The audio context and the bus everything (music too) goes through, once unlocked. */
+  audio(): { ctx: AudioContext; out: AudioNode } | null {
+    return this.ctx && this.master ? { ctx: this.ctx, out: this.master } : null;
   }
 
   setVolume(percent: number, muted: boolean): void {
@@ -65,6 +80,14 @@ export class Sfx {
         break;
       case 'victory':
         [523, 659, 784, 1047].forEach((f, i) => this.tone(t + i * 0.12, f, f, 0.2, 'triangle', 0.24));
+        break;
+      case 'astra':
+        // a deep swell, a shimmering chord rising over it, and a rush of air
+        this.tone(t, 70, 140, 0.9, 'sawtooth', 0.16);
+        [293.7, 440, 587.3, 880, 1174.7].forEach((f, i) =>
+          this.tone(t + 0.05 + i * 0.06, f, f * 1.01, 0.8, 'triangle', 0.1),
+        );
+        this.noise(t, 0.7, 0.18, 6000);
         break;
       case 'defeat':
         [392, 330, 262, 196].forEach((f, i) => this.tone(t + i * 0.16, f, f * 0.97, 0.24, 'triangle', 0.24));

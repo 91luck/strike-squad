@@ -2,7 +2,9 @@ import {
   Autopilot,
   GAME_CONFIG,
   Sim,
+  dailyLevel,
   type BoardEntry,
+  type DailyTrial,
   type Difficulty,
   type MissionEnd,
   type MissionId,
@@ -18,6 +20,8 @@ export interface SoloOptions {
   buddies: number;
   mission: MissionId;
   hero: number;
+  /** The daily trial: its stage dealt the day's hazard, astras and battle array, on the day's own dice. */
+  daily?: DailyTrial;
 }
 
 const BUDDY_NAMES = ['Bolt', 'Nova', 'Tusk'];
@@ -51,9 +55,10 @@ export class SoloMatch {
     seed = (Math.random() * 2 ** 31) | 0 || 1,
   ) {
     this.sim = new Sim({
-      seed,
+      seed: opts.daily ? opts.daily.seed : seed,
       tickRate: GAME_CONFIG.tickRate,
       settings: { difficulty: opts.difficulty, mission: opts.mission },
+      ...(opts.daily ? { level: dailyLevel(opts.daily) } : {}),
     });
     this.sim.addPlayer({ id: this.meId, name: opts.name, slot: 0, hero: opts.hero });
     for (let i = 0; i < Math.min(3, opts.buddies); i++)

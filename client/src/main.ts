@@ -1,3 +1,4 @@
+import { HD, HD_CENTER, HD_FEET, hdCanvases } from './game/hero-hd';
 import '@fontsource/russo-one/latin-400.css';
 import '@fontsource/chakra-petch/latin-400.css';
 import '@fontsource/chakra-petch/latin-600.css';
@@ -26,6 +27,7 @@ import {
   type SagaId,
   type ServerMessage,
 } from '@strikesquad/shared';
+import { Music } from './audio/music';
 import { Sfx } from './audio/sfx';
 import { inviteLink, httpBase } from './env';
 import { OnlineMatch } from './game/online';
@@ -48,9 +50,17 @@ import {
   type RunReward,
 } from './profile';
 import { teaserFor } from './villains';
+import { DAILY_SHARDS, DailyStore, describeTrial } from './daily';
 import { CHEST_SHARDS, WEEKLY_SHARDS, WEEKLY_XP, WeeklyStore, type WeeklyReward } from './weekly';
 import { SettingsStore, keyLabel } from './settings';
-import { canFullscreen, enterLandscapeFullscreen, isIOS, isStandalone, phoneMatchGesture } from './ui/phone';
+import {
+  canFullscreen,
+  enterLandscapeFullscreen,
+  isIOS,
+  isStandalone,
+  phoneMatchGesture,
+  setPortalDevice,
+} from './ui/phone';
 import {
   $,
   closeOverlay,
@@ -77,10 +87,17 @@ const settings = new SettingsStore(platform.storage);
 const progress = new ProgressStore(platform.storage);
 const profile = new ProfileStore(platform.storage);
 const weekly = new WeeklyStore(platform.storage, () => localDay());
+const daily = new DailyStore(platform.storage, () => localDay());
 // A hero chosen before it was unlocked (or from a wiped profile) falls back to the first one.
 if (!profile.heroOpen(settings.value.hero)) settings.update({ hero: 0 });
 const sfx = new Sfx();
+const music = new Music(() => sfx.audio());
+// Out of a mission (menus, lobby, results) the calm menu theme plays; missions switch themes themselves.
+document.addEventListener('screenchange', (e) => {
+  if ((e as CustomEvent<string>).detail !== 'game') music.play('menu');
+});
 const view = new MatchView($('game') as HTMLCanvasElement, sfx, () => settings.value);
+view.music = music;
 
 let me: { id: string; name: string } | null = null;
 let room: RoomInfo | null = null;
@@ -103,7 +120,12 @@ const SERVER_LABEL: Record<ServerStatus, string> = {
 let wakeTimer = 0;
 let wakeStarted = 0;
 
-const touchCapable = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
+setPortalDevice(platform.device);
+/** Touch controls: the portal's word on the device when it gives one, else a coarse pointer or touch events. */
+const touchCapable =
+  platform.device !== null
+    ? platform.device !== 'desktop'
+    : matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
 
 const input = new InputController({
   settings: () => settings.value,
@@ -413,24 +435,48 @@ function startOnlineMatch(m: Extract<ServerMessage, { t: 'matchStart' }>): void 
   maybeCoach();
 }
 
-/** Control hints the first time someone plays (adapted to touch or keyboard). */
+/**
+ * The keys as printed on this player's keyboard (AZERTY shows Z Q S D where QWERTY shows W A S D): the game reads
+ * physical key positions, so only the labels change. Filled in once, where the browser can tell.
+ */
+let keyboardLayout: Map<string, string> | null = null;
+void (navigator as unknown as { keyboard?: { getLayoutMap?: () => Promise<Map<string, string>> } }).keyboard
+  ?.getLayoutMap?.()
+  .then((m) => {
+    keyboardLayout = m;
+  })
+  .catch(() => undefined);
+const keyName = (code: string): string => keyboardLayout?.get(code)?.toUpperCase() ?? keyLabel(code);
+
+/** Control hints the first time someone plays: a picture of the keys (or the thumbs), not a paragraph. */
 function maybeCoach(): void {
   if (settings.value.coachSeen) return;
   settings.update({ coachSeen: true });
-  view.showCoach(
-    touchCapable
-      ? `Left thumb: run & aim · Right: Jump (twice = double jump), Dash, Knife, SUPER, ASTRA · ${input.autoFire() ? 'Fire is automatic' : 'Hold Fire, or tap AUTO FIRE'}`
-      : `Move A/D · Aim W/S · Jump ${keyLabel(settings.value.keyJump)} (twice: double) · Fire ${keyLabel(settings.value.keyFire)} · Dash Shift · Slide ↓+Shift · Knife F · Super Q · Astra R`,
-    9000,
-  );
-  const dismiss = (): void => {
-    if (currentScreen() === 'game' && !$('overlay-countdown').hidden) return; // keep it during the countdown
-    view.hideCoach();
-    $('touch').removeEventListener('pointerdown', dismiss);
-    window.removeEventListener('keydown', dismiss);
-  };
-  $('touch').addEventListener('pointerdown', dismiss);
-  window.addEventListener('keydown', dismiss);
+  if (touchCapable)
+    view.showCoachKeys(
+      [
+        { keys: ['👈'], label: 'Run & aim' },
+        { keys: ['⤒'], label: 'Jump ×2' },
+        { keys: ['»'], label: 'Dash' },
+        { keys: ['✴'], label: 'Astra' },
+        ...(input.autoFire() ? [{ keys: ['🔫'], label: 'Fires by itself' }] : []),
+      ],
+      10000,
+    );
+  else
+    view.showCoachKeys(
+      [
+        { keys: [keyName('KeyA'), keyName('KeyD')], label: 'Move' },
+        { keys: [keyName('KeyW'), keyName('KeyS')], label: 'Aim' },
+        { keys: [keyName(settings.value.keyJump)], label: 'Jump ×2' },
+        { keys: [keyName(settings.value.keyFire)], label: 'Fire' },
+        { keys: ['Shift'], label: 'Dash' },
+        { keys: [keyName('KeyF')], label: 'Knife' },
+        { keys: [keyName('KeyQ')], label: 'Super' },
+        { keys: [keyName('KeyR')], label: 'Astra' },
+      ],
+      10000,
+    );
 }
 
 function stopOnline(): void {
@@ -465,17 +511,30 @@ input.onAutoFireChange = (on) => {
   if (currentScreen() === 'game') view.notice(on ? 'Auto-fire ON' : 'Auto-fire OFF');
 };
 
+/** True when the game runs inside another site's frame (CrazyGames and other portals). */
+function embedded(): boolean {
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true; // a cross-origin parent blocks the check: that is a frame too
+  }
+}
+
 function setupTouch(): void {
   $('touch').hidden = !touchCapable;
   if (touchCapable) input.usedTouch = true;
   showAutoFire(input.autoFire());
   if (settings.value.coachSeen) $('joy-zone').classList.add('used');
   const portrait = touchCapable && window.innerHeight > window.innerWidth;
-  $('overlay-portrait').hidden = !portrait || sessionStorage.getItem('portraitDismissed') === '1';
+  // Portals (CrazyGames) ask players to rotate themselves; a second prompt of ours would only get in the way, and
+  // the upright console layout is playable anyway.
+  $('overlay-portrait').hidden =
+    !portrait || embedded() || sessionStorage.getItem('portraitDismissed') === '1';
   // Android browsers can rotate + go fullscreen from a tap; iPhones can't, so give them the next best thing.
   $('btn-portrait-rotate').hidden = !canFullscreen() || isStandalone() || isIOS();
+  // Inside a portal's frame "Add to Home Screen" would save the portal page, not the game: no such tip there.
   $('portrait-tip').textContent =
-    isIOS() && !isStandalone()
+    isIOS() && !isStandalone() && !embedded()
       ? 'Tip: in Safari tap Share → "Add to Home Screen" and open the game from there to hide the browser bars.'
       : '';
   view.resize();
@@ -528,6 +587,7 @@ function startPractice(opts: SoloOptions): void {
   setupTouch();
   missionControls(opts.mission);
   continueUsed = false;
+  view.intro = opts.daily ? `Daily trial · ${describeTrial(opts.daily).lines[1]}` : null;
   practice = new SoloMatch(opts, view, input, (r) => onSoloEnd(r));
   practice.run();
   platform.gameplay(true);
@@ -639,7 +699,7 @@ $('btn-fullscreen').addEventListener('click', async () => {
   }
   if (!canFullscreen()) {
     toast(
-      isIOS()
+      isIOS() && !embedded()
         ? 'iPhone browsers have no fullscreen. Use Share → "Add to Home Screen".'
         : 'Fullscreen is not available here.',
     );
@@ -681,7 +741,14 @@ function showResults(r: MissionEnd, isOnline: boolean): void {
   const meId = isOnline ? me?.id : 'me';
   const won = r.result === 'won';
   const title = $('h-results');
-  title.textContent = won ? 'Mission complete!' : 'Mission failed';
+  title.textContent =
+    practiceOpts?.daily && !isOnline
+      ? won
+        ? 'Daily trial won!'
+        : 'Daily trial lost'
+      : won
+        ? 'Mission complete!'
+        : 'Mission failed';
   title.dataset.result = won ? 'win' : 'loss';
   const players = r.board.length;
   const best = r.board.reduce((n, b) => Math.max(n, b.rank), -1);
@@ -690,7 +757,17 @@ function showResults(r: MissionEnd, isOnline: boolean): void {
   // Stars: 1 for finishing, +1 with a life to spare, +1 with a life to spare for every soldier.
   const stars = !won ? 0 : 1 + (r.livesLeft >= 1 ? 1 : 0) + (r.livesLeft >= players ? 1 : 0);
   const shardsBefore = progress.shards;
-  const first = won && progress.won(played.id, r.timeSec, played.difficulty, stars);
+  // A daily trial is its own record: it does not clear (or unlock) the stage it borrows.
+  const trial = !isOnline ? (practiceOpts?.daily ?? null) : null;
+  const first = !trial && won && progress.won(played.id, r.timeSec, played.difficulty, stars);
+  if (trial) {
+    const d = daily.record(trial.day, won, r.score);
+    if (d.shards > 0) progress.grantShards(d.shards);
+    if (d.firstWin) {
+      toast(`Daily trial won · ${daily.winStreak} day${daily.winStreak === 1 ? '' : 's'} in a row`);
+      platform.happytime();
+    } else if (d.best) toast(`New best for today: ${r.score}`);
+  }
   if (first) {
     toast(`${info.name} completed for the first time!`);
     platform.happytime();
@@ -721,7 +798,8 @@ function showResults(r: MissionEnd, isOnline: boolean): void {
   const bonusShards = (reward?.shards ?? 0) + (week?.shards ?? 0);
   if (bonusShards > 0) progress.grantShards(bonusShards);
   renderReward(reward, week);
-  renderUpNext(played.id, won);
+  if (trial) $('result-next').hidden = true;
+  else renderUpNext(played.id, won);
   renderPlayerCard();
   fillMissionSelects();
   $('result-sub').textContent = won
@@ -873,6 +951,8 @@ function renderPlayerCard(): void {
   $('pc-bar').setAttribute('aria-valuenow', String(pct));
   $('pc-streak').textContent = profile.streak > 0 ? `🔥 ${profile.streak}-day streak` : '';
   $('btn-weekly').textContent = `📅 Weekly ${weekly.finishedCount}/3`;
+  $('btn-daily').textContent = daily.wonToday ? '⚔ Daily trial ✓' : '⚔ Daily trial';
+  $('btn-daily').classList.toggle('done', daily.wonToday);
   const next = profile.nextHero();
   const xp = bar.need > 0 ? ` · ${bar.into}/${bar.need} XP` : '';
   $('pc-next').textContent = next
@@ -1022,7 +1102,8 @@ $('btn-next-mission').addEventListener('click', async () => {
     conn.send({ t: 'setSettings', settings: { mission: next } });
     conn.send({ t: 'startMatch' });
   } else if (practiceOpts) {
-    const opts = { ...practiceOpts, mission: next };
+    const { daily: _trial, ...rest } = practiceOpts;
+    const opts = { ...rest, mission: next };
     await breakAd();
     startPractice(opts);
   }
@@ -1288,6 +1369,39 @@ function sagaOptions(id: SagaId): SoloOptions {
   };
 }
 
+// ---------------------------------------------------------------- the daily trial
+
+function renderDaily(): void {
+  const t = daily.trial;
+  const d = describeTrial(t);
+  $('daily-place').textContent =
+    `Today's battle: ${d.place}. The same trial for every player today; a new one tomorrow.`;
+  $('daily-list').replaceChildren(...d.lines.map((line) => el('li', {}, el('span', { text: line }))));
+  const streak = daily.winStreak;
+  $('daily-record').textContent = daily.wonToday
+    ? `Won today · best score ${daily.bestToday} · ${streak} day${streak === 1 ? '' : 's'} in a row. Fight again to beat your score.`
+    : `Not won yet today${streak > 0 ? ` · ${streak}-day run to keep alive` : ''}. The first win of the day pays ${DAILY_SHARDS} ✦.`;
+}
+
+$('btn-daily').addEventListener('click', () => {
+  renderDaily();
+  openOverlay('modal-daily');
+});
+$('btn-daily-play').addEventListener('click', async () => {
+  const t = daily.trial;
+  closeOverlay('modal-daily');
+  phoneMatchGesture();
+  await breakAd();
+  startPractice({
+    name: currentName(),
+    mission: t.stage,
+    difficulty: 'normal',
+    buddies: 1,
+    hero: settings.value.hero,
+    daily: t,
+  });
+});
+
 /** Start a saga stage (solo, offline-capable). */
 async function playSaga(id: SagaId): Promise<void> {
   if (!progress.unlocked(id)) return;
@@ -1427,6 +1541,8 @@ function syncSettingsUi(): void {
   const s = settings.value;
   ($('set-volume') as HTMLInputElement).value = String(s.volume);
   ($('set-mute') as HTMLInputElement).checked = s.muted;
+  ($('set-music') as HTMLInputElement).checked = s.music;
+  music.setEnabled(s.music);
   ($('set-autofire') as HTMLInputElement).checked = s.autoFire;
   ($('set-reduce') as HTMLInputElement).checked = s.reduceMotion;
   ($('set-fps') as HTMLInputElement).checked = s.showStats;
@@ -1446,10 +1562,11 @@ function syncSettingsUi(): void {
 settings.onChange(syncSettingsUi);
 syncSettingsUi();
 
-const bindCheck = (id: string, key: 'muted' | 'reduceMotion' | 'showStats' | 'autoFire'): void => {
+const bindCheck = (id: string, key: 'muted' | 'reduceMotion' | 'showStats' | 'autoFire' | 'music'): void => {
   $(id).addEventListener('change', (e) => settings.update({ [key]: (e.target as HTMLInputElement).checked }));
 };
 bindCheck('set-mute', 'muted');
+bindCheck('set-music', 'music');
 bindCheck('set-autofire', 'autoFire');
 bindCheck('set-reduce', 'reduceMotion');
 bindCheck('set-fps', 'showStats');
@@ -1478,9 +1595,11 @@ function rebind(which: 'keyFire' | 'keyJump', btn: HTMLElement): void {
 $('rebind-fire').addEventListener('click', () => rebind('keyFire', $('rebind-fire')));
 $('rebind-jump').addEventListener('click', () => rebind('keyJump', $('rebind-jump')));
 
-// Browsers only start audio after a gesture.
-window.addEventListener('pointerdown', () => sfx.unlock(), { once: true });
-window.addEventListener('keydown', () => sfx.unlock(), { once: true });
+// Browsers only start audio after a gesture, and iOS suspends it again after an interruption (a call, another
+// app); it may only be resumed inside a gesture (CrazyGames technical requirements), so every tap, click and key
+// checks it. `unlock` does nothing when the audio is already running.
+for (const type of ['pointerdown', 'touchend', 'click', 'keydown'])
+  window.addEventListener(type, () => sfx.unlock(), { passive: true });
 
 // ---------------------------------------------------------------- boot
 
@@ -1492,6 +1611,7 @@ installModalKeys([
   'modal-codex',
   'modal-trophies',
   'modal-weekly',
+  'modal-daily',
 ]);
 
 // Arrow keys and Space play the game; they must never scroll the page around it (it may sit in a portal's frame).
@@ -1514,6 +1634,8 @@ $('join-name').addEventListener('change', () => currentName('join-name'));
 // The mission scrolls slowly behind the main menu (only while the menu is visible and the tab is shown).
 const scenery = new Renderer($('attract') as HTMLCanvasElement, { maxDpr: 1.5 });
 let sceneryRaf = 0;
+// Behind the menu: the stage the big button will start (its world, its army), so the first look is the saga.
+const sceneryLevel = (): void => scenery.setLevel(getMission(progress.nextSagaStage()));
 const sceneryFrame = (t: number): void => {
   scenery.drawScenery(settings.value.reduceMotion ? 0 : t);
   if (!settings.value.reduceMotion) sceneryRaf = requestAnimationFrame(sceneryFrame);
@@ -1522,6 +1644,7 @@ const syncScenery = (): void => {
   cancelAnimationFrame(sceneryRaf);
   cancelAnimationFrame(heroRaf);
   if (currentScreen() === 'menu' && !document.hidden) {
+    sceneryLevel();
     scenery.resize();
     sceneryRaf = requestAnimationFrame(sceneryFrame);
     heroRaf = requestAnimationFrame(heroFrame);
@@ -1563,7 +1686,17 @@ function heroFrame(t: number): void {
   g.beginPath();
   g.ellipse(ox, oy - 2, 34, 7, 0, 0, Math.PI * 2);
   g.fill();
-  g.drawImage(f.img, ox - CENTER_X * S, oy - FEET_Y * S, f.img.width * S, f.img.height * S);
+  // A high-definition frame (hero-hd.ts) has twice the pixels and its own anchor: draw it at half the scale.
+  const hd = hdCanvases.has(f.img);
+  const k = hd ? S / HD : S;
+  g.imageSmoothingEnabled = false;
+  g.drawImage(
+    f.img,
+    ox - (hd ? HD_CENTER : CENTER_X) * k,
+    oy - (hd ? HD_FEET : FEET_Y) * k,
+    f.img.width * k,
+    f.img.height * k,
+  );
   if (firing && Math.floor(t / 60) % 2 === 0) {
     const mx = ox + f.muzzleX * S;
     const my = oy + f.muzzleY * S;
@@ -1710,6 +1843,10 @@ boot();
 
 // Exposed for end-to-end tests and debugging only; carries no authority (the server is the authority).
 (window as unknown as { __strikesquad?: unknown }).__strikesquad = {
+  /** The renderer, for profiling and its quality stats. */
+  get renderer() {
+    return view.renderer;
+  },
   get screen() {
     return currentScreen();
   },
@@ -1753,6 +1890,9 @@ boot();
   },
   get weekly() {
     return { goals: weekly.goals(), chest: weekly.chestOpened };
+  },
+  get daily() {
+    return { trial: daily.trial, won: daily.wonToday, best: daily.bestToday, streak: daily.winStreak };
   },
   get profile() {
     return {

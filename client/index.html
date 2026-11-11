@@ -22,7 +22,7 @@
     <link rel="icon" href="/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/icon-192.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <title>STRIKE SQUAD: Co-op Missions</title>
+    <title>STRIKE SQUAD: Astra Saga</title>
   </head>
   <body>
     <a class="skip-link" href="#app">Skip to game</a>
@@ -37,12 +37,9 @@
         <div class="menu-panel">
           <h1 id="title" class="logo">
             <span class="logo-line">Strike</span><span class="logo-line two">Squad</span>
-            <small>Co-op Missions · 1–8 friends</small>
+            <small class="logo-saga">Astra Saga</small>
           </h1>
-          <p class="tagline">
-            The Astra Saga: ten stages, ten divine astras, a dozen giant bosses. Solo, or with up to 8
-            friends.
-          </p>
+          <p class="tagline">Ten divine astras. Twenty-two giant asuras. Solo, or with up to 8 friends.</p>
           <div id="player-card" class="player-card" data-testid="player-card">
             <b id="pc-level" class="pc-level" data-testid="pc-level">LV 1</b>
             <div
@@ -59,6 +56,9 @@
             <span id="pc-streak" class="pc-streak" data-testid="pc-streak"></span>
             <button id="btn-weekly" class="pc-weekly" type="button" data-testid="btn-weekly">
               Weekly 0/3
+            </button>
+            <button id="btn-daily" class="pc-weekly pc-daily" type="button" data-testid="btn-daily">
+              Daily trial
             </button>
             <small id="pc-next" class="pc-next" data-testid="pc-next"></small>
           </div>
@@ -563,17 +563,6 @@
           <p id="countdown-sub">Lock and load!</p>
         </div>
         <div id="coach" class="coach" hidden data-testid="coach"></div>
-        <!-- Astra cut-in: a sweeping band with the astra's name when one is called -->
-        <div id="cutin" class="cutin" hidden aria-hidden="true" data-testid="cutin">
-          <div class="cutin-band">
-            <span id="cutin-icon" class="cutin-icon"></span>
-            <div class="cutin-text">
-              <b id="cutin-name"></b>
-              <span id="cutin-deva" class="cutin-deva" lang="sa"></span>
-              <small id="cutin-who"></small>
-            </div>
-          </div>
-        </div>
         <div id="overlay-portrait" class="overlay" hidden>
           <div class="big small-big" aria-hidden="true">⟳</div>
           <p>Turn your phone sideways for a bigger view.</p>
@@ -920,6 +909,7 @@
           <label class="check"
             ><input id="set-mute" type="checkbox" data-testid="set-mute" /> Mute all sound</label
           >
+          <label class="check"><input id="set-music" type="checkbox" data-testid="set-music" /> Music</label>
           <label class="check"
             ><input id="set-autofire" type="checkbox" data-testid="set-autofire" /> Auto-fire on touch
             screens</label
@@ -1019,6 +1009,28 @@
           <p id="weekly-sub" class="lead"></p>
           <ul id="weekly-list" class="weekly-list" data-testid="weekly-list"></ul>
           <button class="btn primary" type="button" data-close>Close</button>
+        </div>
+      </div>
+
+      <div
+        id="modal-daily"
+        class="overlay modal-overlay"
+        hidden
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="h-daily"
+      >
+        <div class="card scroll wide">
+          <h2 id="h-daily">Daily trial</h2>
+          <p id="daily-place" class="lead" data-testid="daily-place"></p>
+          <ul id="daily-list" class="weekly-list" data-testid="daily-list"></ul>
+          <p id="daily-record" class="lead" data-testid="daily-record"></p>
+          <div class="row">
+            <button id="btn-daily-play" class="btn primary" type="button" data-testid="btn-daily-play">
+              Fight today's trial
+            </button>
+            <button class="btn ghost" type="button" data-close>Close</button>
+          </div>
         </div>
       </div>
 

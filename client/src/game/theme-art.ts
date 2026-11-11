@@ -1,4 +1,5 @@
 import type { Faction } from '@strikesquad/shared';
+import { litLayer, type LitBox } from './boss-art';
 import type { ZoneStyle } from './world-art';
 
 /**
@@ -12,7 +13,14 @@ import type { ZoneStyle } from './world-art';
 type Ctx = CanvasRenderingContext2D;
 const INK = '#120f17';
 
+/** While a body is painted into a lit layer (litEnemy), its glows are held back and drawn on top afterwards. */
+let deferGlow: ((x: number, y: number, r: number, color: string) => void) | null = null;
+
 function glow(ctx: Ctx, x: number, y: number, r: number, color: string): void {
+  if (deferGlow) {
+    deferGlow(x, y, r, color);
+    return;
+  }
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
   const g = ctx.createRadialGradient(x, y, 0, x, y, r);
@@ -21,6 +29,26 @@ function glow(ctx: Ctx, x: number, y: number, r: number, color: string): void {
   ctx.fillStyle = g;
   ctx.fillRect(x - r, y - r, r * 2, r * 2);
   ctx.restore();
+}
+
+/**
+ * Paints a small enemy body into a lit high-definition layer (form shading, rim light, grain on the heroes'
+ * pixel grid: boss-art.ts litLayer), its glows kept bright on top.
+ */
+function litEnemy(main: Ctx, box: LitBox, paint: (g: Ctx) => void): void {
+  const later: (() => void)[] = [];
+  litLayer(main, box, (g, toWorld) => {
+    deferGlow = (x, y, r, color) => {
+      const [wx, wy, sx] = toWorld(x, y);
+      later.push(() => glow(main, wx, wy, r * sx, color));
+    };
+    try {
+      paint(g);
+    } finally {
+      deferGlow = null;
+    }
+  });
+  for (const f of later) f();
 }
 
 // ------------------------------------------------------------------ enemy fire
@@ -279,6 +307,12 @@ export function drawGate(
 
 /** A shield trooper's shield, in front of the body (`f` = facing). */
 export function drawShield(ctx: Ctx, faction: Faction, x: number, top: number, flash: boolean): void {
+  // the energy barrier is pure light; real shields are lit like the troopers carrying them
+  if (faction === 'void') paintShield(ctx, faction, x, top, flash);
+  else litEnemy(ctx, { x: x - 12, y: top - 6, w: 24, h: 52 }, (g) => paintShield(g, faction, x, top, flash));
+}
+
+function paintShield(ctx: Ctx, faction: Faction, x: number, top: number, flash: boolean): void {
   const hit = (c: string): string => (flash ? '#ffffff' : c);
   ctx.fillStyle = INK;
   switch (faction) {
@@ -354,61 +388,302 @@ export function drawShield(ctx: Ctx, faction: Faction, x: number, top: number, f
  * an alien hover disc. Drawn behind the body.
  */
 export function drawFlyer(ctx: Ctx, faction: Faction, x: number, y: number, f: number, nowMs: number): void {
+  // jet flames and the alien hover disc are light; wings are lit like bodies
+  if (faction === 'army' || faction === 'void') paintFlyer(ctx, faction, x, y, f, nowMs);
+  else litEnemy(ctx, { x: x - 56, y: y - 72, w: 112, h: 96 }, (g) => paintFlyer(g, faction, x, y, f, nowMs));
+}
+
+// ------------------------------------------------------------------ motion
+
+/**
+ * The draw calls only get a position, so motion is tracked here: each call is matched to the nearest track of the
+ * same kind seen in the last 250 ms, which gives a smoothed velocity (for banking and flap speed) and a flap phase
+ * that keeps running smoothly between frames. Tracks unseen for a second are dropped.
+ */
+interface Track {
+  x: number;
+  y: number;
+  t: number;
+  vx: number;
+  vy: number;
+  phase: number;
+  /** Frame stamp of the last match, so two enemies never share a track in one frame. */
+  used: number;
+  /** Milliseconds since this track was last drawn (for advancing its wing beat). */
+  dtMs: number;
+}
+
+const tracks = new Map<string, Track[]>();
+let lastPrune = 0;
+
+function motion(kind: string, x: number, y: number, nowMs: number): Track {
+  let list = tracks.get(kind);
+  if (!list) tracks.set(kind, (list = []));
+  if (nowMs - lastPrune > 1000) {
+    lastPrune = nowMs;
+    for (const [k, l] of tracks) {
+      const keep = l.filter((t) => nowMs - t.t < 1000);
+      if (keep.length) tracks.set(k, keep);
+      else tracks.delete(k);
+    }
+    list = tracks.get(kind) ?? [];
+    tracks.set(kind, list);
+  }
+  let best: Track | null = null;
+  let bd = 48 * 48;
+  for (const t of list) {
+    if (t.used === nowMs || nowMs - t.t > 250 || nowMs < t.t) continue;
+    const d = (t.x - x) ** 2 + (t.y - y) ** 2;
+    if (d < bd) {
+      bd = d;
+      best = t;
+    }
+  }
+  if (!best) {
+    best = { x, y, t: nowMs, vx: 0, vy: 0, phase: Math.random(), used: nowMs, dtMs: 16 };
+    list.push(best);
+    return best;
+  }
+  const dt = Math.max(1, nowMs - best.t) / 1000;
+  const k = Math.min(1, dt * 8); // about 1/8 s of smoothing
+  best.vx += ((x - best.x) / dt - best.vx) * k;
+  best.vy += ((y - best.y) / dt - best.vy) * k;
+  best.dtMs = Math.min(50, nowMs - best.t);
+  best.x = x;
+  best.y = y;
+  best.t = nowMs;
+  best.used = nowMs;
+  return best;
+}
+
+/**
+ * Wing beat: advances the track's phase (beats a second: faster when climbing) and returns the wing angle, from
+ * +1 (raised) to -1 (swept down). The downstroke takes 35 % of the beat and the recovery the rest, like a real
+ * wing: it snaps down and floats back up.
+ */
+function beat(t: Track, rate: number): number {
+  const dtMs = t.dtMs;
+  const climb = Math.max(0, Math.min(1, -t.vy / 160));
+  t.phase = (t.phase + (dtMs / 1000) * rate * (1 + climb * 0.7)) % 1;
+  const p = t.phase;
+  const ease = (u: number) => u * u * (3 - 2 * u);
+  return p < 0.35 ? 1 - 2 * ease(p / 0.35) : -1 + 2 * ease((p - 0.35) / 0.65);
+}
+
+/** Banking: nose down when speeding forward, tilted by climbing or diving (radians). */
+function bankOf(t: Track, f: number): number {
+  return Math.max(-0.35, Math.min(0.35, (t.vx * f) / 900 + t.vy / 700));
+}
+
+// ------------------------------------------------------------------ wings
+
+type WingStyle = 'feather' | 'bat' | 'scarab' | 'bronze';
+
+/**
+ * One wing seen from the side, hinged at (rx, ry), reaching back (away from facing f). `a` is the beat angle
+ * (+1 raised, -1 down), `far` draws the far wing darker. The hand lags the arm (it trails on the downstroke and
+ * leads on the recovery), which is what makes a flap read as a flap.
+ */
+function wing(
+  ctx: Ctx,
+  rx: number,
+  ry: number,
+  f: number,
+  a: number,
+  span: number,
+  style: WingStyle,
+  tones: [string, string, string],
+  far: boolean,
+): void {
+  const [dark, base, light] = far ? [shade(tones[0], -0.35), shade(tones[1], -0.35), tones[1]] : tones;
+  const arm = a * 0.95; // radians above the horizontal
+  const lagged = arm + (a < 0 ? 0.35 : -0.25);
+  const s1 = span * 0.45;
+  const s2 = span * 0.6;
+  const ex = rx - f * Math.cos(arm) * s1;
+  const ey = ry - Math.sin(arm) * s1;
+  const tx = ex - f * Math.cos(lagged) * s2;
+  const ty = ey - Math.sin(lagged) * s2;
+  if (style === 'scarab') {
+    // a raised shell case and a blur of hind wings
+    ctx.fillStyle = INK;
+    ctx.beginPath();
+    ctx.ellipse((rx + ex) / 2, (ry + ey) / 2 - 2, span * 0.32, 5, -f * arm * 0.6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = base;
+    ctx.beginPath();
+    ctx.ellipse((rx + ex) / 2, (ry + ey) / 2 - 2, span * 0.3, 4, -f * arm * 0.6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = light;
+    ctx.fillRect((rx + ex) / 2 - 3, (ry + ey) / 2 - 5, 5, 1.5);
+    ctx.fillStyle = far ? 'rgba(204,251,241,0.35)' : 'rgba(204,251,241,0.6)';
+    ctx.beginPath();
+    ctx.ellipse((ex + tx) / 2, (ey + ty) / 2, span * 0.4, 3.5, Math.atan2(ty - ey, tx - ex), 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
+  // the leading edge (arm and hand) and the trailing edge back to the body
+  const back = { x: rx - f * span * 0.3, y: ry + 8 };
+  const outline = (grow: number) => {
+    ctx.beginPath();
+    ctx.moveTo(rx, ry - grow);
+    ctx.lineTo(ex, ey - grow);
+    ctx.lineTo(tx - f * grow, ty);
+    if (style === 'bat') {
+      // scalloped membrane between the fingers
+      const n = 3;
+      for (let i = 1; i <= n; i++) {
+        const u = i / n;
+        const px = tx + (back.x - tx) * u;
+        const py = ty + (back.y - ty) * u;
+        const cx = tx + (back.x - tx) * (u - 0.5 / n) + f * 2;
+        const cy = ty + (back.y - ty) * (u - 0.5 / n) - 5;
+        ctx.quadraticCurveTo(cx, cy, px, py + grow);
+      }
+    } else {
+      ctx.lineTo(back.x, back.y + grow);
+    }
+    ctx.lineTo(rx, ry + 4 + grow);
+    ctx.closePath();
+  };
+  ctx.fillStyle = INK;
+  outline(1);
+  ctx.fill();
+  ctx.fillStyle = dark;
+  outline(0);
+  ctx.fill();
+  // mid tone over the inner half, light along the leading edge
+  ctx.save();
+  outline(0);
+  ctx.clip();
+  ctx.fillStyle = base;
+  ctx.beginPath();
+  ctx.moveTo(rx, ry);
+  ctx.lineTo(ex, ey);
+  ctx.lineTo(tx, ty);
+  ctx.lineTo((tx + back.x) / 2, (ty + back.y) / 2 - 3);
+  ctx.lineTo(rx, ry + 3);
+  ctx.closePath();
+  ctx.fill();
+  ctx.strokeStyle = light;
+  ctx.lineWidth = 1.6;
+  ctx.beginPath();
+  ctx.moveTo(rx, ry);
+  ctx.lineTo(ex, ey);
+  ctx.lineTo(tx, ty);
+  ctx.stroke();
+  if (style === 'bat') {
+    // finger bones
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = 1;
+    for (const u of [0.33, 0.66]) {
+      ctx.beginPath();
+      ctx.moveTo(ex, ey);
+      ctx.lineTo(tx + (back.x - tx) * u, ty + (back.y - ty) * u);
+      ctx.stroke();
+    }
+  } else {
+    // primaries: separated feather tips, darker between
+    ctx.strokeStyle = style === 'bronze' ? shade(dark, -0.3) : INK;
+    ctx.lineWidth = 1;
+    for (let i = 1; i <= 4; i++) {
+      const u = i / 5;
+      const fx = ex + (tx - ex) * u;
+      const fy = ey + (ty - ey) * u;
+      ctx.beginPath();
+      ctx.moveTo(fx, fy);
+      ctx.lineTo(fx + (back.x - fx) * 0.45, fy + (back.y - fy) * 0.45);
+      ctx.stroke();
+    }
+  }
+  ctx.restore();
+}
+
+function hexRgb(c: string): [number, number, number] {
+  const n = parseInt(c.replace('#', ''), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+function shade(c: string, amt: number): string {
+  if (!c.startsWith('#')) return c;
+  const [r, g, b] = hexRgb(c);
+  const m = (v: number) => Math.round(amt < 0 ? v * (1 + amt) : v + (255 - v) * amt);
+  return `rgb(${m(r)},${m(g)},${m(b)})`;
+}
+
+function paintFlyer(ctx: Ctx, faction: Faction, x: number, y: number, f: number, nowMs: number): void {
   if (faction === 'army') {
+    // jetpack: twin nozzles, a flame that flares when climbing and gutters when coasting
+    const t = motion('jet-army', x, y, nowMs);
+    const thrust = Math.max(0.4, Math.min(1.4, 0.8 - t.vy / 250));
+    const nx = Math.round(x - f * 9);
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    const fl = 8 + Math.random() * 8;
-    const g = ctx.createLinearGradient(0, y - 18, 0, y - 18 + fl + 10);
-    g.addColorStop(0, '#fff3b0');
-    g.addColorStop(0.4, '#ffb02e');
-    g.addColorStop(1, 'rgba(255,60,0,0)');
-    ctx.fillStyle = g;
-    ctx.fillRect(Math.round(x - f * 9) - 3, y - 18, 6, fl + 10);
+    for (const dx of [-3, 3]) {
+      const fl = (8 + Math.random() * 7) * thrust;
+      const g = ctx.createLinearGradient(0, y - 18, 0, y - 18 + fl + 10);
+      g.addColorStop(0, '#fff3b0');
+      g.addColorStop(0.4, '#ffb02e');
+      g.addColorStop(1, 'rgba(255,60,0,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(nx + dx - 2.5, y - 18);
+      ctx.lineTo(nx + dx + 2.5, y - 18);
+      ctx.lineTo(nx + dx - f * t.vx * 0.01, y - 18 + fl + 10);
+      ctx.closePath();
+      ctx.fill();
+    }
     ctx.restore();
     ctx.fillStyle = INK;
-    ctx.fillRect(Math.round(x - f * 9) - 5, y - 36, 10, 18);
+    ctx.fillRect(nx - 6, y - 37, 12, 20);
+    ctx.fillStyle = '#4b5563';
+    ctx.fillRect(nx - 5, y - 36, 10, 18);
     ctx.fillStyle = '#6b7280';
-    ctx.fillRect(Math.round(x - f * 9) - 4, y - 35, 8, 16);
+    ctx.fillRect(nx - 5, y - 36, 4, 18);
+    ctx.fillStyle = '#9ca3af';
+    ctx.fillRect(nx - 4, y - 35, 2, 16);
+    ctx.fillStyle = INK;
+    ctx.fillRect(nx - 5, y - 19, 4, 2);
+    ctx.fillRect(nx + 1, y - 19, 4, 2);
     return;
   }
   if (faction === 'void') {
-    // a hover disc under the feet with a glow beam
+    // a hover disc under the feet that tilts with the drift, chasing lights and a beam
+    const t = motion('jet-void', x, y, nowMs);
+    const tilt = Math.max(-0.25, Math.min(0.25, t.vx / 800));
     glow(ctx, x, y + 6, 18, 'rgba(240,171,252,0.5)');
+    ctx.save();
+    ctx.translate(x, y + 1);
+    ctx.rotate(tilt);
     ctx.fillStyle = INK;
-    ctx.fillRect(x - 15, y - 2, 30, 7);
-    ctx.fillStyle = '#94a3b8';
-    ctx.fillRect(x - 14, y - 1, 28, 4);
-    ctx.fillStyle = Math.floor(nowMs / 150) % 2 ? '#f0abfc' : '#67e8f9';
-    for (let i = -10; i <= 10; i += 5) ctx.fillRect(x + i, y + 3, 2, 2);
+    ctx.fillRect(-16, -3, 32, 8);
+    ctx.fillStyle = '#64748b';
+    ctx.fillRect(-15, -2, 30, 6);
+    ctx.fillStyle = '#cbd5e1';
+    ctx.fillRect(-15, -2, 30, 2);
+    for (let i = 0; i < 5; i++) {
+      const on = (Math.floor(nowMs / 90) + i) % 5 === 0;
+      ctx.fillStyle = on ? '#f0abfc' : '#67e8f9';
+      ctx.fillRect(-11 + i * 5, 2, 2, 2);
+    }
+    ctx.restore();
     return;
   }
-  const flap = Math.sin(nowMs / (faction === 'demon' ? 70 : 90));
-  const colors: Record<Exclude<Faction, 'army' | 'void'>, [string, string]> = {
-    pharaoh: ['#0f766e', '#5eead4'], // scarab wings, iridescent
-    norse: ['#111827', '#374151'], // raven feathers
-    olympus: ['#78350f', '#d97706'], // harpy feathers
-    demon: ['#3b0d14', '#7f1d1d'], // bat wings
+  const t = motion(`jet-${faction}`, x, y, nowMs);
+  const a = beat(t, faction === 'demon' ? 4.2 : faction === 'pharaoh' ? 9 : 3.4);
+  const tones: Record<Exclude<Faction, 'army' | 'void'>, [string, string, string]> = {
+    pharaoh: ['#0b4f49', '#0f766e', '#5eead4'], // scarab wings, iridescent
+    norse: ['#0b0f17', '#1f2937', '#4b5563'], // raven feathers
+    olympus: ['#5b2a0b', '#92400e', '#e0a040'], // harpy feathers
+    demon: ['#2a0a0f', '#5b1018', '#9b2c2c'], // bat wings
   };
-  const [dark, light] = colors[faction];
+  const style: WingStyle = faction === 'demon' ? 'bat' : faction === 'pharaoh' ? 'scarab' : 'feather';
+  const span = faction === 'pharaoh' ? 26 : 34;
   const bx = x - f * 4;
-  const by = y - 30;
-  for (const side of [-1, 1]) {
-    const span = 22 + flap * 6 * side;
-    ctx.fillStyle = INK;
-    ctx.beginPath();
-    ctx.moveTo(bx, by);
-    ctx.lineTo(bx - f * span, by - 14 - flap * 8);
-    ctx.lineTo(bx - f * (span + 4), by + 4);
-    ctx.lineTo(bx - f * 6, by + 10);
-    ctx.fill();
-    ctx.fillStyle = side < 0 ? dark : light;
-    ctx.beginPath();
-    ctx.moveTo(bx, by + 1);
-    ctx.lineTo(bx - f * (span - 2), by - 12 - flap * 8);
-    ctx.lineTo(bx - f * span, by + 3);
-    ctx.lineTo(bx - f * 6, by + 8);
-    ctx.fill();
-  }
+  const by = y - 32;
+  // far wing a little behind and out of phase, then the near wing
+  wing(ctx, bx + f * 2, by - 1, f, a * 0.85 + 0.1, span * 0.9, style, tones[faction], true);
+  wing(ctx, bx, by, f, a, span, style, tones[faction], false);
 }
 
 /** Themed small flyers ('drone' troopers) for every faction except the army. */
@@ -421,85 +696,210 @@ export function drawCritter(
   flash: boolean,
   nowMs: number,
 ): void {
-  const flap = Math.floor(nowMs / 80) % 2;
+  // the demon wisp is fire (pure light); the other critters are lit like bodies
+  if (faction === 'demon' || faction === 'army') paintCritter(ctx, faction, x, y, f, flash, nowMs);
+  else
+    litEnemy(ctx, { x: x - 34, y: y - 44, w: 68, h: 52 }, (g) =>
+      paintCritter(g, faction, x, y, f, flash, nowMs),
+    );
+}
+
+function paintCritter(
+  ctx: Ctx,
+  faction: Faction,
+  x: number,
+  y: number,
+  f: number,
+  flash: boolean,
+  nowMs: number,
+): void {
+  const t = motion(`critter-${faction}`, x, y, nowMs);
   const hit = (c: string): string => (flash ? '#ffffff' : c);
+  const bank = bankOf(t, f);
+  const cy = y - 10;
   switch (faction) {
     case 'pharaoh': {
-      // a flying scarab
+      // a flying scarab: domed shell, gold midline, a blur of wings, legs tucked
+      const a = beat(t, 11);
+      ctx.save();
+      ctx.translate(x, cy);
+      ctx.rotate(bank * f);
+      wing(ctx, -f * 2, -4, f, a * 0.7 + 0.4, 18, 'scarab', ['#0b4f49', '#0f766e', '#5eead4'], true);
       ctx.fillStyle = INK;
-      ctx.fillRect(x - 9, y - 15, 18, 13);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 11, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = hit('#0b4f49');
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 10, 7, 0, 0, Math.PI * 2);
+      ctx.fill();
       ctx.fillStyle = hit('#0f766e');
-      ctx.fillRect(x - 8, y - 14, 16, 11);
+      ctx.beginPath();
+      ctx.ellipse(f * 1, -1.5, 8, 5, 0, 0, Math.PI * 2);
+      ctx.fill();
       ctx.fillStyle = '#5eead4';
-      ctx.fillRect(x - 6, y - 13, 5, 2);
+      ctx.fillRect(f * 2 - 3, -5, 5, 1.5);
       ctx.fillStyle = '#d4a017';
-      ctx.fillRect(x - 1, y - 14, 2, 11);
-      ctx.fillStyle = 'rgba(204,251,241,0.7)';
-      ctx.fillRect(x - 15, y - (flap ? 20 : 14), 8, 4);
-      ctx.fillRect(x + 7, y - (flap ? 20 : 14), 8, 4);
+      ctx.fillRect(-0.5, -7, 1.5, 13);
+      ctx.fillStyle = INK;
+      for (const lx of [-5, 0, 5]) ctx.fillRect(lx, 6, 1.2, 3);
       ctx.fillStyle = '#a3e635';
-      ctx.fillRect(x + f * 7 - 1, y - 11, 3, 3);
+      ctx.fillRect(f * 9 - 1, -3, 3, 3);
+      wing(ctx, 0, -5, f, a, 20, 'scarab', ['#0b4f49', '#0f766e', '#5eead4'], false);
+      ctx.restore();
       return;
     }
     case 'norse': {
-      // a raven
+      // a raven: wedge tail, hooked beak, real wing beats, banking into its turns
+      const a = beat(t, 3.6);
+      ctx.save();
+      ctx.translate(x, cy - a * 1.5); // the body rises on the downstroke
+      ctx.rotate(bank * f);
+      wing(ctx, -f * 1, -3, f, a * 0.85 + 0.1, 22, 'feather', ['#0b0f17', '#1f2937', '#4b5563'], true);
+      // tail
       ctx.fillStyle = INK;
-      ctx.fillRect(x - 8, y - 14, 16, 9);
+      ctx.beginPath();
+      ctx.moveTo(-f * 6, -2);
+      ctx.lineTo(-f * 17, -5);
+      ctx.lineTo(-f * 17, 3);
+      ctx.lineTo(-f * 6, 3);
+      ctx.fill();
+      // body
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 10, 5.5, 0, 0, Math.PI * 2);
+      ctx.fill();
       ctx.fillStyle = hit('#1f2937');
-      ctx.fillRect(x - 7, y - 13, 14, 7);
-      ctx.fillRect(x + f * 7 - 2, y - 15, 5, 5);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 9, 4.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#374151';
+      ctx.fillRect(-5, -4, 9, 1.5);
+      // head and beak
+      ctx.fillStyle = INK;
+      ctx.beginPath();
+      ctx.arc(f * 9, -3, 4.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = hit('#1f2937');
+      ctx.beginPath();
+      ctx.arc(f * 9, -3, 3.5, 0, Math.PI * 2);
+      ctx.fill();
       ctx.fillStyle = '#facc15';
-      ctx.fillRect(x + f * 11 - 1, y - 13, 4, 2);
+      ctx.beginPath();
+      ctx.moveTo(f * 12, -4);
+      ctx.lineTo(f * 17, -2);
+      ctx.lineTo(f * 12, -1);
+      ctx.fill();
       ctx.fillStyle = '#7dd3fc';
-      ctx.fillRect(x + f * 8, y - 14, 1, 1);
-      ctx.fillStyle = hit('#374151');
-      ctx.fillRect(x - 14, y - (flap ? 22 : 12), 12, 4);
-      ctx.fillRect(x + 2, y - (flap ? 22 : 12), 12, 4);
+      ctx.fillRect(f * 10, -4.5, 1.5, 1.5);
+      wing(ctx, 0, -3, f, a, 24, 'feather', ['#0b0f17', '#1f2937', '#4b5563'], false);
+      ctx.restore();
       return;
     }
     case 'olympus': {
-      // a bronze owl automaton
+      // a bronze owl automaton: round body, big glass eyes, riveted wings that beat stiffly
+      const a = beat(t, 3);
+      ctx.save();
+      ctx.translate(x, cy - 4 - a);
+      ctx.rotate(bank * f * 0.6);
+      wing(ctx, -f * 2, -4, f, a * 0.8, 18, 'bronze', ['#5b3a12', '#8a5a1c', '#e0b44a'], true);
       ctx.fillStyle = INK;
-      ctx.fillRect(x - 8, y - 20, 16, 18);
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 9, 11, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = hit('#8a5a1c');
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 8, 10, 0, 0, Math.PI * 2);
+      ctx.fill();
       ctx.fillStyle = hit('#b7791f');
-      ctx.fillRect(x - 7, y - 19, 14, 16);
+      ctx.beginPath();
+      ctx.ellipse(f * 1.5, -1, 6, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
       ctx.fillStyle = '#e0b44a';
-      ctx.fillRect(x - 7, y - 19, 14, 3);
-      ctx.fillStyle = '#93c5fd';
-      ctx.fillRect(x - 5, y - 15, 4, 4);
-      ctx.fillRect(x + 1, y - 15, 4, 4);
+      ctx.fillRect(-4, -9, 8, 2);
+      // ear tufts and eyes
+      ctx.fillStyle = INK;
+      ctx.fillRect(-7, -12, 3, 4);
+      ctx.fillRect(4, -12, 3, 4);
+      for (const ex of [-3, 3]) {
+        ctx.fillStyle = INK;
+        ctx.beginPath();
+        ctx.arc(ex + f, -4, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#93c5fd';
+        ctx.beginPath();
+        ctx.arc(ex + f, -4, 2.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(ex + f - 1, -5.5, 1, 1);
+      }
       ctx.fillStyle = '#7c4a12';
-      ctx.fillRect(x - 13, y - (flap ? 18 : 10), 6, 8);
-      ctx.fillRect(x + 7, y - (flap ? 18 : 10), 6, 8);
+      for (let i = 0; i < 3; i++) ctx.fillRect(-3 + i * 2.5, 3 + (i % 2), 1.5, 1.5);
+      wing(ctx, 0, -4, f, a, 20, 'bronze', ['#5b3a12', '#8a5a1c', '#e0b44a'], false);
+      ctx.restore();
       return;
     }
     case 'void': {
-      // a little probe saucer with a scanning eye
+      // a probe saucer that tilts into its drift, a glass canopy and a scanning eye
+      const tilt = Math.max(-0.35, Math.min(0.35, t.vx / 500));
+      ctx.save();
+      ctx.translate(x, cy);
+      ctx.rotate(tilt);
+      ctx.fillStyle = 'rgba(165,243,252,0.55)';
+      ctx.beginPath();
+      ctx.ellipse(0, -5, 6, 5, 0, Math.PI, 0);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(-3, -8, 2, 1.5);
       ctx.fillStyle = INK;
-      ctx.fillRect(x - 13, y - 12, 26, 7);
-      ctx.fillStyle = hit('#94a3b8');
-      ctx.fillRect(x - 12, y - 11, 24, 5);
-      ctx.fillStyle = 'rgba(165,243,252,0.6)';
-      ctx.fillRect(x - 6, y - 18, 12, 7);
-      glow(ctx, x + f * 2, y - 4, 7, 'rgba(74,222,128,0.8)');
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 14, 4.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = hit('#64748b');
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 13, 3.5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#cbd5e1';
+      ctx.fillRect(-11, -2, 22, 1.4);
+      for (let i = 0; i < 5; i++) {
+        const on = (Math.floor(nowMs / 100) + i) % 5 === 0;
+        ctx.fillStyle = on ? '#f0abfc' : '#67e8f9';
+        ctx.fillRect(-9 + i * 4.5, 1, 1.6, 1.6);
+      }
+      ctx.restore();
+      const sweep = Math.sin(nowMs / 260) * 3;
+      glow(ctx, x + f * 2 + sweep, y - 4, 7, 'rgba(74,222,128,0.8)');
       return;
     }
     default: {
-      // demon fire wisp
-      const g = ctx.createRadialGradient(x, y - 8, 2, x, y - 8, 18);
-      g.addColorStop(0, flash ? '#ffffff' : '#fde68a');
-      g.addColorStop(0.5, '#dc2626');
-      g.addColorStop(1, 'rgba(0,0,0,0)');
+      // demon fire wisp: a burning core with a flame tail streaming away from where it flies
+      const sp = Math.hypot(t.vx, t.vy);
+      const ux = sp > 5 ? -t.vx / sp : -f * 0.3;
+      const uy = sp > 5 ? -t.vy / sp : 0.8;
+      const len = 10 + Math.min(18, sp * 0.06);
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.arc(x, y - 8, 18, 0, Math.PI * 2);
-      ctx.fill();
+      for (let i = 4; i >= 0; i--) {
+        const u = i / 4;
+        const fl = Math.sin(nowMs / 60 + i * 1.3) * 2.5 * u;
+        const px = x + ux * len * u - uy * fl;
+        const py = y - 8 + uy * len * u + ux * fl - u * 4;
+        const r = 9 - u * 5;
+        const g = ctx.createRadialGradient(px, py, 0, px, py, r * 2);
+        g.addColorStop(0, i === 0 ? (flash ? '#ffffff' : '#fde68a') : '#fb923c');
+        g.addColorStop(0.5, 'rgba(220,38,38,0.8)');
+        g.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(px, py, r * 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
       ctx.restore();
       ctx.fillStyle = INK;
       ctx.fillRect(Math.round(x + f * 3) - 4, Math.round(y - 11), 3, 3);
       ctx.fillRect(Math.round(x + f * 3) + 2, Math.round(y - 11), 3, 3);
+      ctx.fillStyle = '#fff7d6';
+      ctx.fillRect(Math.round(x + f * 3) - 3, Math.round(y - 11), 1, 1);
+      ctx.fillRect(Math.round(x + f * 3) + 3, Math.round(y - 11), 1, 1);
     }
   }
 }
@@ -513,6 +913,10 @@ export function drawTotem(
   angle: number,
   flash: boolean,
 ): void {
+  litEnemy(ctx, { x: x - 26, y: y - 50, w: 52, h: 52 }, (g) => paintTotem(g, faction, x, y, angle, flash));
+}
+
+function paintTotem(ctx: Ctx, faction: Faction, x: number, y: number, angle: number, flash: boolean): void {
   const hit = (c: string): string => (flash ? '#ffffff' : c);
   const body: Record<Exclude<Faction, 'army'>, [string, string, string]> = {
     pharaoh: ['#c9a46a', '#9a7444', '#a3e635'],
