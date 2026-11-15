@@ -5,6 +5,7 @@ import {
   WEAPON_KINDS,
   defaultMissionSettings,
   isBoss,
+  isFixedBoss,
   rankOf,
   secondsToTicks,
   type AttackId,
@@ -25,6 +26,7 @@ import { heroOf, heroPerk } from './heroes';
 import {
   BOSS_RULES,
   fieldAt,
+  finalArena,
   levelHeight,
   levelWidth,
   type ArenaDef,
@@ -41,8 +43,11 @@ import { getMission } from './missions';
 import {
   NEUTRAL_INPUT,
   aimOf,
+  footingBelow,
   groundBelow,
   moveBody,
+  platUnder,
+  type Plat,
   newMover,
   sanitizeInput,
   solidAtPoint,
@@ -69,6 +74,96 @@ export type MissionPhase = 'countdown' | 'playing' | 'ended';
 export type MissionResult = 'won' | 'failed';
 export type FailReason = 'lives' | 'time' | 'abandoned';
 export type StyleTag = 'parry' | 'melee' | 'slide' | 'air' | 'multi' | 'shield';
+
+/**
+ * Surprises: no two runs of a saga stage are the same. When a run starts, three spots along the stage are drawn
+ * from the run's seed, and something different breaks out at each as the squad passes: an ambush from both sides,
+ * an elite hunter, a rain of fire, raiders out of the sky, tremors, or (once a run) a blessing that heals the squad
+ * and fills their supers. Where, and which, changes every run; each stage draws from its own list.
+ */
+export type SurpriseKind =
+  'ambush' | 'elite' | 'skyfall' | 'raid' | 'tremor' | 'blessing' | 'stampede' | 'duel';
+export const SURPRISE_POOLS: Record<string, readonly SurpriseKind[]> = {
+  'astra-1': ['ambush', 'elite', 'skyfall'],
+  'astra-2': ['raid', 'elite', 'ambush'],
+  'astra-3': ['skyfall', 'raid', 'elite'],
+  'astra-4': ['ambush', 'elite', 'tremor'],
+  'astra-5': ['ambush', 'elite', 'raid'],
+  'astra-6': ['skyfall', 'tremor', 'elite'],
+  'astra-7': ['stampede', 'raid', 'ambush', 'elite'],
+  'astra-8': ['tremor', 'ambush', 'elite'],
+  'astra-9': ['duel', 'tremor', 'ambush'],
+  'astra-10': ['skyfall', 'raid', 'elite'],
+};
+/**
+ * Stage goals: every saga stage asks the squad for something of its own besides reaching the boss, so no two
+ * stages are played the same way. `rescue` free the captives (touch each before the squad leaves it behind),
+ * `targets` shoot down the things that feed the enemy, `hold` hold a spot against waves until the bar fills, `race`
+ * reach the boss's ground before time runs out. The spots change every run. Done: the squad is healed, their supers
+ * filled and the score rises; missed: the stage goes on (a goal is a challenge, never a wall).
+ */
+export type GoalKind = 'rescue' | 'targets' | 'hold' | 'race';
+export interface GoalDef {
+  kind: GoalKind;
+  /** How many captives or targets (1 for hold and race). */
+  n: number;
+  /** Hold: seconds to hold; race: seconds per 1000 px of stage. */
+  secs?: number;
+}
+export const SAGA_GOALS: Record<string, GoalDef> = {
+  'astra-1': { kind: 'rescue', n: 4 },
+  'astra-2': { kind: 'race', n: 1, secs: 14 },
+  'astra-3': { kind: 'targets', n: 3 },
+  'astra-4': { kind: 'rescue', n: 5 },
+  'astra-5': { kind: 'targets', n: 3 },
+  'astra-6': { kind: 'hold', n: 1, secs: 18 },
+  'astra-7': { kind: 'hold', n: 1, secs: 24 },
+  'astra-8': { kind: 'targets', n: 4 },
+  'astra-9': { kind: 'race', n: 1, secs: 17 },
+  'astra-10': { kind: 'rescue', n: 4 },
+};
+/** A hold's spot: how far ahead of it the way stays shut, and how near a soldier must be to hold it. */
+export const GOAL_HOLD_WALL = 300;
+export const GOAL_HOLD_REACH = 300;
+/** Goal state in a snapshot: kind, done, out of, seconds left (race, hold), status (0 on, 1 done, 2 missed), the hold
+ * spot and its bar 0..1, and the captives or targets still standing (x, y, hp 0..100 each). */
+export interface GoalSnapshot {
+  k: GoalKind;
+  d: number;
+  n: number;
+  t?: number;
+  s: 0 | 1 | 2;
+  z?: [number, number, number];
+  it: number[];
+}
+
+/** Rakshasas that can take part in an ambush or come as an elite (not the fixed, scripted or huge ones). */
+const AMBUSHERS: ReadonlySet<TrooperKind> = new Set<TrooperKind>([
+  'soldier',
+  'shield',
+  'grenadier',
+  'jetpack',
+  'imp',
+  'bat',
+  'treant',
+  'crab',
+  'harpy',
+  'lancer',
+  'serpent',
+  'mirror',
+  'dancer',
+  'pret',
+  'golem',
+  'archer',
+  'rathi',
+  'netter',
+  'chakri',
+  'pehlwan',
+  'gadadhar',
+  'slinger',
+  'mashaal',
+]);
+const AIRBORNE: ReadonlySet<TrooperKind> = new Set<TrooperKind>(['jetpack', 'bat', 'harpy', 'pret', 'drone']);
 type DamageSource = 'gun' | 'melee' | 'slide' | 'ult' | 'blast' | 'astra';
 
 export interface PlayerStats {
@@ -130,6 +225,8 @@ export interface Player extends Mover {
   power: PowerKind | null;
   powerN: number;
   prevAstra: boolean;
+  /** Caught in a net (Chakra Durg) until this tick: slowed. */
+  netUntil: number;
 }
 
 /** Ground set on fire by the agni astra: hurts enemies standing in it. */
@@ -220,6 +317,9 @@ export interface Enemy {
   elite: boolean;
   /** Leap target x (walker leap). */
   leapX: number;
+  /** Movement anchor for scripted moves (a bat's dive starts here). */
+  mx: number;
+  my: number;
 }
 
 /** A wave enemy on its way in (portal or rising from the ground): it appears at `at`. */
@@ -235,7 +335,7 @@ interface PendingSpawn {
 
 /**
  * A boss's own astras. One cast at a time: `kind` is what it is calling right now (null between casts), `start` the
- * tick the call began; a narayanastra storm follows its wind-up (`storm`).
+ * tick the call began; a samarpanastra storm follows its wind-up (`storm`).
  */
 export interface RuleState {
   rules: BossRule[];
@@ -246,7 +346,7 @@ export interface RuleState {
   nextOrb: number;
   nextNar: number;
   nextShirsha: number;
-  /** Narayanastra calls so far, and whether the last storm passed with nobody fighting it. */
+  /** Samarpanastra calls so far, and whether the last storm passed with nobody fighting it. */
   narCalls: number;
   narPerfect: boolean;
   stunUntil: number;
@@ -254,7 +354,7 @@ export interface RuleState {
   spentUntil: number;
 }
 
-/** A spirit ally (pashupata): follows its summoner and fires sparks at the nearest foe. */
+/** A spirit ally (vidyut): follows its summoner and fires sparks at the nearest foe. */
 export interface Spirit {
   x: number;
   y: number;
@@ -290,11 +390,13 @@ export interface Bullet {
   size: number;
   /** Homing turn rate (rad/s; 0 = flies straight). Player shots seek foes, enemy shots seek soldiers. */
   turn: number;
-  /** Sudarshana: foes it may still hit before it flies home; `ret` once it is on its way back. */
+  /** Chakram: foes it may still hit before it flies home; `ret` once it is on its way back. */
   hitsLeft: number;
   ret: boolean;
-  /** The boss that fired it (a vaishnava orb turned back flies to this enemy id). -1: none. */
+  /** The boss that fired it (a tej orb turned back flies to this enemy id). -1: none. */
   src: number;
+  /** Where it was fired from (height): the banyan's heart only feels shots fired from up in its boughs. */
+  oy?: number;
 }
 
 export type SimEvent =
@@ -305,6 +407,10 @@ export type SimEvent =
   | { e: 'ko'; id: string }
   | { e: 'respawn'; id: string }
   | { e: 'hazard'; kind: HazardDef['kind']; x: number; y: number }
+  /** A surprise of this run (see Sim.planSurprises): where it broke out and what it is. */
+  | { e: 'surprise'; kind: SurpriseKind; x: number; y: number }
+  /** The stage goal: a captive freed or a target down (`item`), the goal done, or missed. */
+  | { e: 'goal'; k: 'item' | 'done' | 'fail'; d: number; n: number; x: number; y: number }
   | { e: 'pickup'; id: number; kind: PickupKind; by: string; healed: string[] }
   | { e: 'gate'; id: number }
   | { e: 'checkpoint'; id: number }
@@ -314,6 +420,8 @@ export type SimEvent =
   | { e: 'life'; lives: number }
   | { e: 'bossWake'; kind: BossKind; arena: number }
   | { e: 'bossPhase'; kind: BossKind; phase: number }
+  /** The wall of fire has started to chase the squad (Agnivan). */
+  | { e: 'chase' }
   | { e: 'bossDown'; kind: BossKind; x: number; y: number }
   | {
       e: 'ult';
@@ -328,19 +436,19 @@ export type SimEvent =
     }
   | { e: 'boom'; x: number; y: number; r: number }
   /**
-   * A power was used (x, y: the user's feet; f: facing). `v`: pashupata's form (0 trident, 1 spirit, 2 fire rain),
-   * vaishnava 1 = a boss's orb turned back.
+   * A power was used (x, y: the user's feet; f: facing). `v`: vidyut's form (0 trident, 1 spirit, 2 fire rain),
+   * tej 1 = a boss's orb turned back.
    */
   | { e: 'astra'; id: string; kind: PowerKind; x: number; y: number; f: 1 | -1; v?: number }
   /**
-   * A boss astra: phase 0 = the call (wind-up), 1 = released, 2 = countered by the squad's brahmastra,
-   * 3 = rebound on the boss (narayanastra), 4 = over.
+   * A boss astra: phase 0 = the call (wind-up), 1 = released, 2 = countered by the squad's paramastra,
+   * 3 = rebound on the boss (samarpanastra), 4 = over.
    */
   | { e: 'bossAstra'; kind: BossRule; phase: 0 | 1 | 2 | 3 | 4; x: number; y: number }
-  /** A hit that did nothing: the boss is untouchable right now (narayanastra storm). */
+  /** A hit that did nothing: the boss is untouchable right now (samarpanastra storm). */
   | { e: 'immune'; id: number; x: number; y: number }
-  /** The team brahmastra: phase 0 = wind-up (sky darkens), 1 = the strike. */
-  | { e: 'brahma'; id: string; x: number; y: number; phase: 0 | 1 }
+  /** The team paramastra: phase 0 = wind-up (sky darkens), 1 = the strike. */
+  | { e: 'param'; id: string; x: number; y: number; phase: 0 | 1 }
   | { e: 'style'; id: string; t: StyleTag; x: number; y: number }
   /** An enemy is about to come through a portal (`how` 0) or rise out of the ground (1) here. */
   | { e: 'portal'; x: number; y: number; how: 0 | 1 }
@@ -400,13 +508,15 @@ export interface PlayerSnapshot {
   /** Held power (index into POWER_KINDS, -1 none) and charges. */
   pw: number;
   pn: number;
-  /** Narayanastra: how hard this soldier is resisting (arrows per volley at them; 0 = surrendered/spared). */
+  /** Samarpanastra: how hard this soldier is resisting (arrows per volley at them; 0 = surrendered/spared). */
   rs: number;
+  /** 1 while caught in a net (Chakra Durg). */
+  nt?: number;
 }
 
 /**
  * Lasting power effects on screen: burning ground (k 0: x..x+w at y), black holes (k 1: centre x,y) and
- * pashupata spirits (k 2: centre x,y) and vayu whirlwinds (k 3, or k 4 once alight: foot x,y; w = its reach).
+ * vidyut spirits (k 2: centre x,y) and vayu whirlwinds (k 3, or k 4 once alight: foot x,y; w = its reach).
  */
 export interface FxSnapshot {
   k: 0 | 1 | 2 | 3 | 4;
@@ -436,13 +546,13 @@ export interface EnemySnapshot {
   tt: number;
   p: number;
   ph: number;
-  /** Boss astra being called (index into BOSS_RULES, -1 none), ticks since the call, 1 = narayana storm on. */
+  /** Boss astra being called (index into BOSS_RULES, -1 none), ticks since the call, 1 = samarpan storm on. */
   ra: number;
   rt: number;
   rs: 0 | 1;
   /** Bit 1: set alight by the agni astra. Bit 2: carried by a whirlwind. */
   fl: number;
-  /** Stunned (spent after a storm, or its brahmashirsha countered) / untouchable (storm). */
+  /** Stunned (spent after a storm, or its pralay countered) / untouchable (storm). */
   sn: 0 | 1;
   im: 0 | 1;
   /** Elite trooper. */
@@ -478,6 +588,22 @@ export interface Snapshot {
   score: number;
   /** Bodies may not move right of this x (the final boss's front while it stands). */
   lx: number;
+  /** The front of the wall of fire chasing the squad (Agnivan); absent when there is none yet. */
+  cx?: number;
+  /** Moving surfaces (Sagar Setu), three numbers each in level order: x shift, y, solid (1/0). */
+  pl?: number[];
+  /** The sea's surface y (Sagar Setu's tide). */
+  wy?: number;
+  /** 1 while MAYASTRA shows every illusion as it is (Maya Nagri). */
+  ma?: number;
+  /** The surface of the lava rising from below (Bhasm Parvat). */
+  lv?: number;
+  /** The bhanwarvyuh's closing wall: nobody may go back left of it (Chakra Durg). */
+  vw?: number;
+  /** Meghbaan's mark (Suvarna): x and ground y where his arrows are about to come down. */
+  ij?: [number, number];
+  /** Vayu Shikhar's wind: ±1 blowing that way, ±2 about to (a warning), 0 still. */
+  gu?: number;
   /** The arena currently locked down, if any. */
   /** `t`: seconds left in a hold-out arena (absent in a normal one). */
   arena: { id: number; w: number; n: number; left: number; t?: number } | null;
@@ -486,8 +612,10 @@ export interface Snapshot {
   players: PlayerSnapshot[];
   enemies: EnemySnapshot[];
   bullets: BulletSnapshot[];
-  /** Team brahmastra meter 0..100 (-1: not in this mission). */
+  /** Team paramastra meter 0..100 (-1: not in this mission). */
   bm: number;
+  /** The stage goal (saga stages). */
+  gl?: GoalSnapshot;
   fx: FxSnapshot[];
 }
 
@@ -528,6 +656,37 @@ export const ATTACK_WINDUP: Record<number, number> = {
   [ATTACK.leap]: 0.6,
   [ATTACK.blink]: 0.45,
   [ATTACK.summon]: 0.6,
+  [ATTACK.roots]: 0.7,
+  [ATTACK.fruit]: 0.6,
+  [ATTACK.breath]: 0.8,
+  [ATTACK.grab]: 1.3,
+  [ATTACK.surge]: 0.7,
+  [ATTACK.spit]: 0.6,
+  [ATTACK.storm]: 0.9,
+  [ATTACK.boulders]: 0.7,
+  [ATTACK.javelins]: 0.6,
+  [ATTACK.call]: 0.6,
+  [ATTACK.venom]: 0.6,
+  [ATTACK.lunge]: 0.9,
+  [ATTACK.poison]: 0.7,
+  [ATTACK.beam]: 0.8,
+  [ATTACK.shards]: 0.6,
+  [ATTACK.show]: 0.8,
+  [ATTACK.rush]: 0.6,
+  [ATTACK.ash]: 0.7,
+  [ATTACK.dance]: 1.2,
+  [ATTACK.fan]: 0.6,
+  [ATTACK.agnibaan]: 0.8,
+  [ATTACK.cleave]: 0.6,
+  [ATTACK.mace]: 0.8,
+  [ATTACK.spears]: 0.6,
+  [ATTACK.rathis]: 0.7,
+  [ATTACK.hurl]: 0.7,
+  [ATTACK.pounce]: 0.6,
+  [ATTACK.bull]: 0.8,
+  [ATTACK.tenfire]: 0.8,
+  [ATTACK.moonblade]: 0.7,
+  [ATTACK.meteors]: 0.7,
 };
 /** How long a beam burns once it fires. */
 export const BEAM_SEC = 0.5;
@@ -566,19 +725,68 @@ export class Sim {
   private arenaBossMax: number[];
   /** Tick at which a taken altar comes back (-1: not waiting). */
   private altarBack: number[];
-  /** Team brahmastra meter (-1 when the mission has none). */
-  brahma: number;
-  private brahmaStrike: { at: number; id: string; x: number; y: number } | null = null;
+  /** Team paramastra meter (-1 when the mission has none). */
+  param: number;
+  private paramStrike: { at: number; id: string; x: number; y: number } | null = null;
   burns: Burn[] = [];
   holes: Hole[] = [];
   twisters: Twister[] = [];
   /** The stage's hazard holds off until this tick (set when an arena falls). */
   private calmUntil = 0;
+  /** This run's surprises (planSurprises) and the one now running (rain of fire, tremors). */
+  private surprises: { x: number; kind: SurpriseKind; done: boolean }[] = [];
+  private surpriseRun: { kind: SurpriseKind; until: number; next: number } | null = null;
+  /** Enemies the run's surprises and holds brought in (they leave when the final boss wakes). */
+  private readonly strays = new Set<number>();
+  /** This run's stage goal (planGoal). */
+  private goal: {
+    def: GoalDef;
+    spots: number[];
+    items: { x: number; y: number; hp: number; max: number; state: 0 | 1 | 2 }[];
+    done: number;
+    status: 0 | 1 | 2;
+    until: number;
+    zone: { x: number; y: number; held: number; nextWave: number } | null;
+  } | null = null;
   spirits: Spirit[] = [];
-  /** Narayanastra: ticks each soldier has spent fighting during the current storm. */
+  /** Samarpanastra: ticks each soldier has spent fighting during the current storm. */
   readonly resist = new Map<string, number>();
   /** The final boss (the mission is won when it falls). */
   boss: Enemy | null = null;
+  /** The wall of fire chasing the squad (Agnivan): its front x, whether it has started, and when it starts. */
+  chaseX = -1e9;
+  /** Sagar Setu's floating stones and boat (world.plats), and their state: sunk depth, ticks stood on, sailed. */
+  plats: Plat[] = [];
+  private platSink: number[] = [];
+  /** Vayu Shikhar's wind: its direction while it blows (0 = still), when it ends, the next one, a warning. */
+  gustDir = 0;
+  private gustEnd = 0;
+  private nextGust = 0;
+  private gustWarnDir = 0;
+  /** A boss's storm overrides the stage's gusts: direction, push and when it ends. */
+  private storm: { dir: number; push: number; until: number } | null = null;
+  private tideHoldUntil = 0;
+  /** MAYASTRA shows every illusion as it is until this tick (Maya Nagri). */
+  mayaUntil = 0;
+  /** Which of Vishdhar's heads each soldier stands on (a new landing is a stomp). */
+  private headUnder = new Map<string, number>();
+  /** Bhasm Parvat's lava: its surface y, and whether it has started to rise. */
+  lavaY = 1e9;
+  /** The bhanwarvyuh's closing wall (Chakra Durg): only ever moves right. */
+  vyuhX = 0;
+  /** Meghbaan's next volley (Suvarna): where (`meghX`, `meghY`) and when it lands (`meghAt`); `meghNext`: next mark. */
+  meghX = 0;
+  meghY = 0;
+  meghAt = 0;
+  private meghNext = 0;
+  lavaOn = false;
+  private lavaStart = 0;
+  private lastStomp = new Map<string, number>();
+  private platStand: number[] = [];
+  private platDx: number[] = [];
+  private boatGo: boolean[] = [];
+  chaseOn = false;
+  private chaseStart = 0;
   private events: SimEvent[] = [];
   private nextBulletId = 1;
   private nextEnemyId = 10_000;
@@ -605,14 +813,24 @@ export class Sim {
     this.arenaEnd = this.level.arenas.map(() => -1);
     this.arenaBossMax = this.level.arenas.map(() => 0);
     this.altarBack = this.level.pickups.map(() => -1);
-    this.brahma = this.level.brahma ? 0 : -1;
+    this.param = this.level.param ? 0 : -1;
     this.countdownEnd = this.ticks(GAME_CONFIG.mission.countdownSec);
+    this.chaseStart = this.countdownEnd + this.ticks(GAME_CONFIG.chase.delaySec);
+    this.lavaStart = this.countdownEnd + this.ticks(GAME_CONFIG.lava.delaySec);
     this.maxRewind = this.ticks(GAME_CONFIG.limits.maxRewindSec);
     this.world = {
       level: this.level,
       isGateOpen: (id) => this.gateOpen[id] === true,
       limitX: levelWidth(this.level),
     };
+    this.plats = this.level.plats.map((d) => ({ x0: d.x0, x1: d.x1, y: d.y, on: true }));
+    this.platSink = this.plats.map(() => 0);
+    this.platStand = this.plats.map(() => 0);
+    this.platDx = this.plats.map(() => 0);
+    this.boatGo = this.plats.map(() => false);
+    if (this.plats.length) this.world.plats = this.plats;
+    this.surprises = this.planSurprises(opts.seed ?? 1);
+    this.goal = this.planGoal(opts.seed ?? 1);
     for (const s of this.level.enemies) this.spawnEnemy(s.id, s.kind, s.x, s.y);
     for (const [i, b] of this.level.bosses.entries()) {
       const e = this.spawnEnemy(9_000 + i, b.kind, b.x, b.y);
@@ -636,7 +854,7 @@ export class Sim {
           stunUntil: 0,
           spentUntil: 0,
         };
-      if (b.kind === 'boss') this.boss = e;
+      if (isFixedBoss(b.kind)) this.boss = e;
     }
     this.updateLimit();
   }
@@ -661,6 +879,7 @@ export class Sim {
       power: null,
       powerN: 0,
       prevAstra: false,
+      netUntil: 0,
       hp: P.maxHp,
       state: 'alive',
       respawnAt: 0,
@@ -786,6 +1005,8 @@ export class Sim {
       style: null,
       elite: false,
       leapX: x,
+      mx: x,
+      my: y,
     };
     e.body.facing = -1;
     this.enemies.set(id, e);
@@ -804,8 +1025,12 @@ export class Sim {
 
   private updateLimit(): void {
     const b = this.boss;
-    this.world.limitX =
-      b && b.hp > 0 && this.enemies.has(b.id) ? b.body.x - b.body.w / 2 : levelWidth(this.level);
+    // (Jodasur split in two is not standing there: his halves must be free to be thrown apart either way.)
+    const standing = b && b.hp > 0 && this.enemies.has(b.id) && !(b.kind === 'jodasur' && b.burst === 1);
+    this.world.limitX = b && standing ? b.body.x - b.body.w / 2 : levelWidth(this.level);
+    // a hold: the way on stays shut until the spot is held
+    const z = this.goal?.zone;
+    if (z) this.world.limitX = Math.min(this.world.limitX, z.x + GOAL_HOLD_WALL);
   }
 
   private nearestAlive(x: number, y: number, maxDist: number): Player | null {
@@ -875,6 +1100,7 @@ export class Sim {
       hitsLeft: 0,
       ret: false,
       src: -1,
+      oy: y,
     };
     this.bullets.push(b);
     return b;
@@ -904,17 +1130,35 @@ export class Sim {
     if (isBoss(e.kind)) {
       const bc = E[e.kind];
       e.hp = e.maxHp = (bc.baseHp + bc.hpPerPlayer * this.squadSize()) * this.mods.bossHp * e.hpMul;
+      e.mx = 0; // (the saga bosses' timers: open jaws, reeling, a dull mirror)
+      if (e.kind === 'suryakavach') e.my = 0; // (his next eclipse: set on his first step)
+      if (e.kind === 'saptashir') {
+        e.my = E.saptashir.heads;
+        e.leapX = 0;
+        e.atkParam = this.tick;
+      }
       e.nextAtk = this.tick + this.ticks(1.4);
       if (e.rule) {
         const BA = GAME_CONFIG.bossAstra;
         e.rule.nextNaga = this.tick + this.ruleTicks(BA.naga.everySec * 0.6);
-        e.rule.nextOrb = this.tick + this.ruleTicks(BA.vaishnava.everySec * 0.5);
-        e.rule.nextNar = this.tick + this.ruleTicks(BA.narayana.firstAtSec);
+        e.rule.nextOrb = this.tick + this.ruleTicks(BA.tej.everySec * 0.5);
+        e.rule.nextNar = this.tick + this.ruleTicks(BA.samarpan.firstAtSec);
         e.rule.nextShirsha = this.tick;
       }
       if (e.arena >= 0) this.arenaBossMax[e.arena] = (this.arenaBossMax[e.arena] ?? 0) + e.maxHp;
       this.emit({ e: 'bossWake', kind: e.kind, arena: e.arena });
+      // the stragglers of this run's surprises and holds slip away: the boss fight is the boss's own
+      for (const id of this.strays) {
+        const q = this.enemies.get(id);
+        if (q) {
+          this.emit({ e: 'portal', x: r1(q.body.x), y: r1(q.body.y), how: 1 });
+          this.enemies.delete(id);
+        }
+      }
+      this.strays.clear();
     } else if (!e.fromBoss) {
+      if (e.kind === 'mayavi') e.mx = 0; // (unseen until it first shoots)
+      if (e.kind === 'nidrasur') e.my = 0; // (no noise heard yet)
       e.hp = e.maxHp = E[e.kind as TrooperKind].hp * this.enemyScale();
     }
   }
@@ -962,6 +1206,129 @@ export class Sim {
           break;
         case 'boss':
           this.stepFortress(e);
+          break;
+        case 'imp':
+          this.stepImp(e);
+          break;
+        case 'bat':
+          this.stepBat(e);
+          break;
+        case 'treant':
+          this.stepTreant(e);
+          break;
+        case 'vriksha':
+          this.stepVriksha(e);
+          break;
+        case 'makar':
+          this.stepMakar(e);
+          break;
+        case 'crab':
+          this.stepCrab(e);
+          break;
+        case 'conch':
+          this.stepConch(e);
+          break;
+        case 'chhaya':
+          this.stepChhaya(e);
+          break;
+        case 'harpy':
+          this.stepHarpy(e);
+          break;
+        case 'roller':
+          this.stepRoller(e);
+          break;
+        case 'lancer':
+          this.stepLancer(e);
+          break;
+        case 'aandhi':
+          this.stepAandhi(e);
+          break;
+        case 'serpent':
+          this.stepSerpent(e);
+          break;
+        case 'spitter':
+          this.stepSpitter(e);
+          break;
+        case 'egg':
+          this.stepEgg(e);
+          break;
+        case 'vishdhar':
+          this.stepVishdhar(e);
+          break;
+        case 'mirror':
+          this.stepMirror(e);
+          break;
+        case 'dancer':
+          this.stepDancer(e);
+          break;
+        case 'painting':
+          this.stepPainting(e);
+          break;
+        case 'darpan':
+          this.stepDarpan(e);
+          break;
+        case 'pret':
+          this.stepPret(e);
+          break;
+        case 'golem':
+          this.stepGolem(e);
+          break;
+        case 'lantern':
+          this.stepLantern(e);
+          break;
+        case 'raakhasur':
+          this.stepRaakhasur(e);
+          break;
+        case 'archer':
+          this.stepArcher(e);
+          break;
+        case 'elephant':
+          this.stepElephant(e);
+          break;
+        case 'drummer':
+          this.stepDrummer(e);
+          break;
+        case 'maniyodha':
+          this.stepManiyodha(e);
+          break;
+        case 'chakri':
+          this.stepChakri(e);
+          break;
+        case 'rathi':
+          this.stepRathi(e);
+          break;
+        case 'netter':
+          this.stepNetter(e);
+          break;
+        case 'suryakavach':
+          this.stepSuryakavach(e);
+          break;
+        case 'pehlwan':
+          this.stepPehlwan(e);
+          break;
+        case 'gadadhar':
+          this.stepGadadhar(e);
+          break;
+        case 'slinger':
+          this.stepSlinger(e);
+          break;
+        case 'ardh':
+          this.stepArdh(e);
+          break;
+        case 'jodasur':
+          this.stepJodasur(e);
+          break;
+        case 'mashaal':
+          this.stepMashaal(e);
+          break;
+        case 'mayavi':
+          this.stepMayavi(e);
+          break;
+        case 'nidrasur':
+          this.stepNidrasur(e);
+          break;
+        case 'saptashir':
+          this.stepSaptashir(e);
           break;
       }
       // Fell into a pit: gone.
@@ -1014,6 +1381,2305 @@ export class Sim {
     }
     b.vy = Math.min(P.maxFallSpeed, b.vy + P.gravity * this.dt);
     moveBody(this.world, b, this.dt);
+  }
+
+  // ------------------------------------------------------------ Agnivan (saga stage 1)
+
+  /**
+   * The wall of fire behind the squad: it creeps forward at the stage's pace and never lags more than `maxLag`
+   * behind the rearmost soldier, so standing still is never safe for long. It waits outside a rest stop until the
+   * squad has gone through, and at the boss it becomes the grove's back wall. It burns soldiers it touches,
+   * throws anyone caught deep inside it forward, and swallows any foe it reaches.
+   */
+  private stepChase(): void {
+    if (!this.level.chase || this.phase !== 'playing') return;
+    const C = GAME_CONFIG.chase;
+    const alive = [...this.players.values()].filter((p) => p.state === 'alive');
+    if (!alive.length) return;
+    const rear = Math.min(...alive.map((p) => p.x));
+    if (!this.chaseOn) {
+      if (this.tick < this.chaseStart) return;
+      this.chaseOn = true;
+      this.chaseX = rear - C.maxLag;
+      this.emit({ e: 'chase' });
+    }
+    let hold = Infinity;
+    for (const r of this.level.rests)
+      if (this.chaseX < r.x1 && rear < r.x1 + 2 * T) hold = Math.min(hold, r.x0 - 3 * T);
+    const fin = finalArena(this.level);
+    if (fin) hold = Math.min(hold, this.arenaState[fin.id] ? fin.left + T : fin.left - 3 * T);
+    const speed = C.speed[this.settings.difficulty] * this.mods.enemyFire;
+    this.chaseX = Math.min(hold, Math.max(this.chaseX + speed * this.dt, rear - C.maxLag));
+    const front = this.chaseX;
+    for (const p of alive) {
+      if (p.x - p.w / 2 > front) continue;
+      this.hurtPlayer(p, C.dps * 0.35);
+      if (p.x < front - 30 && p.state === 'alive') {
+        const spot = this.groundAhead(front + 5 * T);
+        p.x = spot.x;
+        p.y = spot.y;
+        p.vx = p.vy = 0;
+        p.lastSafeX = p.x;
+        p.lastSafeY = p.y;
+      }
+    }
+    for (const e of [...this.enemies.values()]) {
+      if (isBoss(e.kind) || e.body.x > front - 10) continue;
+      this.enemies.delete(e.id);
+      if (e.awake) this.emit({ e: 'boom', x: r1(e.body.x), y: r1(e.body.y - e.body.h / 2), r: 30 });
+    }
+  }
+
+  /** The first solid ground at or after x (feet position), for putting a soldier back on their feet. */
+  private groundAhead(x: number): { x: number; y: number } {
+    for (let c = Math.floor(x / T); c < this.level.cols; c++)
+      for (let r = 1; r < this.level.rows; r++) {
+        const t = tileAt(this.level, c, r);
+        if ((t === Tile.Solid || t === Tile.OneWay) && tileAt(this.level, c, r - 1) === Tile.Empty)
+          return { x: c * T + T / 2, y: r * T };
+      }
+    return { ...this.level.start };
+  }
+
+  /** Fire imp: runs at the nearest soldier and, close enough, leaps; it bursts where it lands or on touch. */
+  private stepImp(e: Enemy): void {
+    const c = E.imp;
+    const b = e.body;
+    const target = this.nearestAlive(b.x, b.y - b.h / 2, c.sight);
+    if (b.onGround && e.burst === 1 && this.tick > e.atkStart + 2) {
+      this.impBurst(e);
+      return;
+    }
+    if (b.onGround) {
+      b.vx = 0;
+      if (target) {
+        const dx = target.x - b.x;
+        b.facing = dx >= 0 ? 1 : -1;
+        if (Math.abs(dx) < c.leapRange && Math.abs(target.y - b.y) < 120 && this.tick >= e.nextFire) {
+          b.vx = b.facing * c.leapVx;
+          b.vy = c.leapVy;
+          b.onGround = false;
+          e.burst = 1;
+          e.atkStart = this.tick;
+        } else if (groundBelow(this.world, b.x + b.facing * (b.w / 2 + 4), b.y)) b.vx = b.facing * c.speed;
+      }
+    }
+    b.vy = Math.min(P.maxFallSpeed, b.vy + P.gravity * this.dt);
+    moveBody(this.world, b, this.dt);
+    if (
+      target &&
+      Math.abs(target.x - b.x) < (target.w + b.w) / 2 &&
+      Math.abs(target.y - P.height / 2 - (b.y - b.h / 2)) < (P.height + b.h) / 2
+    )
+      this.impBurst(e);
+  }
+
+  private impBurst(e: Enemy): void {
+    const b = e.body;
+    const blast = this.shoot(b.x, b.y - 10, 0, E.imp.dmg, { speed: 0, blast: E.imp.blast, life: 0.1 });
+    blast.expires = this.tick;
+    this.explode(blast);
+    this.enemies.delete(e.id);
+  }
+
+  /** Burning bat: hangs above and to one side of a soldier, then dives across dropping embers. */
+  private stepBat(e: Enemy): void {
+    const c = E.bat;
+    const b = e.body;
+    const target = this.nearestAlive(b.x, b.y, c.sight);
+    if (e.burst === 1) {
+      const k = (this.tick - e.atkStart) / this.ticks(c.diveSec);
+      if (k >= 1) {
+        e.burst = 0;
+        e.nextFire = this.tick + this.ticks(c.diveEvery) + this.rng.int(this.ticks(0.8));
+        return;
+      }
+      b.x = e.mx + (e.leapX - e.mx) * k;
+      b.y = e.my + Math.sin(k * Math.PI) * (c.hover - 30);
+      if ((this.tick - e.atkStart) % Math.max(1, this.ticks(c.emberEvery)) === 0)
+        this.shoot(b.x, b.y, Math.PI / 2, c.dmg, { speed: 150, size: 4, life: 1.6 });
+      return;
+    }
+    if (!target) return;
+    const side = e.id % 2 ? 150 : -150;
+    const hx = target.x + side;
+    const hy = target.y - c.hover + Math.sin(this.tick / 9 + e.id) * 12;
+    const step = c.speed * this.dt;
+    b.x += Math.max(-step, Math.min(step, hx - b.x));
+    b.y += Math.max(-step, Math.min(step, hy - b.y));
+    b.facing = target.x >= b.x ? 1 : -1;
+    if (this.tick >= e.nextFire && Math.abs(hx - b.x) < 60) {
+      e.burst = 1;
+      e.atkStart = this.tick;
+      e.mx = b.x;
+      e.my = b.y;
+      e.leapX = target.x - side;
+    }
+  }
+
+  /** Tree demon: plods to lobbing range, turns slowly (get behind it: its back has no bark), throws burning logs. */
+  private stepTreant(e: Enemy): void {
+    const c = E.treant;
+    const b = e.body;
+    const target = this.nearestAlive(b.x, b.y - b.h / 2, c.sight);
+    b.vx = 0;
+    if (target) {
+      const dx = target.x - b.x;
+      const face: 1 | -1 = dx >= 0 ? 1 : -1;
+      if (face !== b.facing && this.tick >= e.burst) {
+        e.burst = this.tick + this.ticks(1.3);
+        e.cycle = face;
+      }
+      if (e.cycle !== 0 && this.tick >= e.burst - 1) {
+        b.facing = e.cycle as 1 | -1;
+        e.cycle = 0;
+      }
+      const dist = Math.abs(dx);
+      let dir = 0;
+      if (dist > c.keepAway + 50) dir = Math.sign(dx);
+      else if (dist < c.keepAway - 80) dir = -Math.sign(dx);
+      if (dir !== 0 && dir === b.facing && groundBelow(this.world, b.x + dir * (b.w / 2 + 4), b.y))
+        b.vx = dir * c.speed;
+      if (this.tick >= e.nextFire && Math.abs(target.y - b.y) < 200 && Math.sign(dx) === b.facing) {
+        this.lob(
+          b.x + b.facing * 10,
+          b.y - 44,
+          target.x + target.vx * 0.4,
+          target.y - 4,
+          1.1,
+          c.dmg,
+          'grenade',
+          c.blast,
+        );
+        e.nextFire = this.tick + this.fireEvery(c.fireEvery);
+      }
+    }
+    b.vy = Math.min(P.maxFallSpeed, b.vy + P.gravity * this.dt);
+    moveBody(this.world, b, this.dt);
+  }
+
+  /**
+   * Jwala Vriksh-asur. Rooted to the spot; goes round its attacks with a pause between each. Phase 2 (bark
+   * hardened: see the bullet code) adds a second root wave, more fruit, and imps crawling out of its roots.
+   */
+  private stepVriksha(e: Enemy): void {
+    const c = E.vriksha;
+    const b = e.body;
+    b.facing = -1;
+    this.bossPhase(e, c.phase2);
+    const ph = e.phase;
+    const fin = this.level.arenas[e.arena];
+    const left = fin ? fin.left + T : b.x - 900;
+    const front = b.x - b.w / 2;
+    if (e.atk === ATTACK.none) {
+      if (this.tick < e.nextAtk) return;
+      const order =
+        ph === 1
+          ? [ATTACK.roots, ATTACK.fruit, ATTACK.breath, ATTACK.fruit]
+          : [ATTACK.roots, ATTACK.breath, ATTACK.fruit, ATTACK.roots, ATTACK.fruit];
+      e.atk = order[e.cycle % order.length] as AttackId;
+      e.cycle++;
+      e.atkStart = this.tick;
+      if (ph === 2 && e.cycle % 3 === 0) {
+        let imps = 0;
+        for (const q of this.enemies.values()) if (q.kind === 'imp' && q.fromBoss) imps++;
+        for (let i = imps; i < 3; i++) this.spawnAwake('imp', front - 30 - i * 40, b.y, e.arena, true);
+      }
+      return;
+    }
+    const t = this.tick - e.atkStart;
+    const wind = this.ticks(ATTACK_WINDUP[e.atk] ?? 0.6);
+    const rest = (c.rest[ph - 1] ?? 1) as number;
+    switch (e.atk) {
+      case ATTACK.roots: {
+        const waves = ph === 2 ? 2 : 1;
+        const gap = this.ticks(0.75);
+        if (t >= wind && (t - wind) % gap === 0 && (t - wind) / gap < waves) {
+          const w = this.shoot(front - 6, b.y - 12, Math.PI, c.rootDmg, {
+            kind: 'wave',
+            speed: 250,
+            size: 13,
+            life: 4.5,
+          });
+          w.vy = 0;
+          this.emit({ e: 'boom', x: r1(front), y: r1(b.y), r: 40 });
+        }
+        if (t >= wind + gap * waves) this.endAttack(e, rest);
+        break;
+      }
+      case ATTACK.fruit: {
+        if (t === wind) {
+          const n = ph === 2 ? 7 : 5;
+          const xs: number[] = [];
+          for (const p of this.players.values()) if (p.state === 'alive') xs.push(p.x + p.vx * 0.6);
+          while (xs.length < n) xs.push(left + 40 + this.rng.range(0, Math.max(60, front - left - 120)));
+          xs.slice(0, n).forEach((x, i) => {
+            const tx = Math.max(left + 20, Math.min(front - 30, x));
+            this.lob(b.x - 30, b.y - b.h + 20, tx, b.y - 4, 1.2 + i * 0.12, c.fruitDmg, 'bomb', c.fruitBlast);
+          });
+        }
+        if (t >= wind + this.ticks(1.4)) this.endAttack(e, rest);
+        break;
+      }
+      case ATTACK.breath: {
+        const len = this.ticks(1.3);
+        if (t >= wind && t < wind + len && (t - wind) % 3 === 0) {
+          const k = (t - wind) / len;
+          const a = Math.PI + 0.3 - k * 0.8;
+          this.shoot(front + 10, b.y - 120, a, c.breathDmg, { speed: 300, size: 6, life: 2.2 });
+        }
+        if (t >= wind + len) this.endAttack(e, rest);
+        break;
+      }
+      default:
+        this.endAttack(e, rest);
+    }
+  }
+
+  // ------------------------------------------------------------ Sagar Setu (saga stage 2)
+
+  /** Is this soldier aboard a boat that is still under way? (Computer players stay on deck and fight.) */
+  aboard(p: Player): boolean {
+    const pl = platUnder(this.world, p);
+    if (!pl) return false;
+    const i = this.plats.indexOf(pl);
+    const d = this.level.plats[i];
+    return !!d && (d.kind === 'boat' || d.kind === 'chariot' || d.kind === 'vimana') && pl.x0 < d.to;
+  }
+
+  /** The sea's surface right now (null without a tide). */
+  waterY(): number | null {
+    const t = this.level.tide;
+    if (!t) return null;
+    if (this.tick < this.tideHoldUntil) return t.base + t.amp;
+    return t.base + t.amp * Math.sin((2 * Math.PI * this.tick) / this.ticks(t.periodSec));
+  }
+
+  /**
+   * Floating stones and boats. A stone stood on starts to sink after a moment and stops holding anyone once it is
+   * deep enough (or under the tide); left alone it floats back. A boat sails off once a soldier is aboard and
+   * carries everyone on it to its landing.
+   */
+  private stepPlats(): void {
+    if (!this.plats.length) return;
+    const S = GAME_CONFIG.sea;
+    const wy = this.waterY();
+    const bodies: Mover[] = [];
+    for (const p of this.players.values()) if (p.state === 'alive') bodies.push(p);
+    for (const e of this.enemies.values()) if (e.kind === 'crab' || e.kind === 'conch') bodies.push(e.body);
+    this.level.plats.forEach((d, i) => {
+      const pl = this.plats[i] as Plat;
+      const riders = bodies.filter((b) => b.onGround && platUnder(this.world, b) === pl);
+      const players = riders.filter((b) => [...this.players.values()].includes(b as Player));
+      const oldY = pl.y;
+      const oldDx = this.platDx[i] as number;
+      if (d.kind === 'fake' || d.kind === 'hidden') {
+        // the hall of illusions: a hidden floor always holds; a false one gives way under a soldier and comes back later.
+        // While MAYASTRA shows things as they are, the false ones hold too.
+        if (d.kind === 'fake') {
+          const shown = this.tick < this.mayaUntil;
+          if (pl.on) {
+            this.platStand[i] = players.length && !shown ? (this.platStand[i] as number) + 1 : 0;
+            if ((this.platStand[i] as number) > this.ticks(GAME_CONFIG.maya.fallSec)) {
+              pl.on = false;
+              this.platSink[i] = this.ticks(GAME_CONFIG.maya.backSec);
+            }
+          } else if (shown || (this.platSink[i] = (this.platSink[i] as number) - 1) <= 0) pl.on = true;
+        }
+      } else if (d.kind === 'head') {
+        // Vishdhar's heads bob up and down out of the lake (faster once he is angry); a landing hurts him
+        const k = this.vishdharOf();
+        const fast = k && k.phase >= 2 ? 1.6 : 1;
+        pl.y = d.y + Math.sin((this.tick / this.tickRate) * 1.6 * fast + i * 2.1) * T * 1.4;
+        for (const p of players) {
+          const id = (p as Player).id;
+          // a landing on a head counts once: the dance goes from head to head
+          if (this.headUnder.get(id) !== i && this.lastStomp.get(id) !== i && k) {
+            this.stompHead(k, p as Player, i);
+            this.lastStomp.set(id, i);
+          }
+        }
+        for (const p of this.players.values())
+          if (!players.includes(p) && this.headUnder.get(p.id) === i) this.headUnder.delete(p.id);
+        for (const p of players) this.headUnder.set((p as Player).id, i);
+      } else if (d.kind === 'stone') {
+        if (players.length) this.platStand[i] = (this.platStand[i] as number) + 1;
+        else this.platStand[i] = 0;
+        let sink = this.platSink[i] as number;
+        if ((this.platStand[i] as number) > this.ticks(S.sinkDelaySec)) sink += S.sinkSpeed * this.dt;
+        else if (!players.length) sink = Math.max(0, sink - S.riseSpeed * this.dt);
+        sink = Math.min(sink, S.goneBelow + 20);
+        this.platSink[i] = sink;
+        pl.y = d.y + sink;
+        pl.on = sink < S.goneBelow && (wy === null || pl.y < wy + 10);
+      } else {
+        // Boards and sails; once at the far bank and left empty for a while it sails back for anyone behind.
+        if (players.length) this.boatGo[i] = true;
+        const there = d.x0 + oldDx >= d.to;
+        this.platStand[i] = there && !players.length ? (this.platStand[i] as number) + 1 : 0;
+        if ((this.platStand[i] as number) > this.ticks(2)) this.boatGo[i] = false;
+        const goal = this.boatGo[i] ? d.to - d.x0 : 0;
+        if (oldDx !== goal) {
+          const step = S.boatSpeed * this.dt;
+          const dx = Math.max(-step, Math.min(step, goal - oldDx));
+          this.platDx[i] = oldDx + dx;
+          pl.x0 = d.x0 + oldDx + dx;
+          pl.x1 = d.x1 + oldDx + dx;
+        }
+        pl.y = d.y + (wy === null ? 0 : Math.sin(this.tick / 9) * 2);
+      }
+      const ddx = (this.platDx[i] as number) - oldDx;
+      const sailing =
+        (d.kind === 'boat' || d.kind === 'chariot' || d.kind === 'vimana') && pl.x0 > d.x0 && pl.x0 < d.to;
+      for (const b of riders) {
+        if (!pl.on) continue;
+        b.y = pl.y;
+        b.x += ddx;
+        // a boat under way has a rail: nobody walks off it into the sea (jumping is another matter)
+        if (sailing) b.x = Math.max(pl.x0 + b.w / 2 + 2, Math.min(pl.x1 - b.w / 2 - 2, b.x));
+      }
+      if (oldY !== pl.y || ddx) for (const b of riders) if (!pl.on) b.onGround = false;
+    });
+  }
+
+  /** Makara rider: waits under the sea and leaps across a soldier who comes near, spitting once at the top. */
+  private stepMakar(e: Enemy): void {
+    const c = E.makar;
+    const b = e.body;
+    const wy = this.waterY() ?? e.homeY;
+    if (e.burst === 1) {
+      const k = (this.tick - e.atkStart) / this.ticks(c.leapSec);
+      if (k >= 1) {
+        e.burst = 0;
+        e.nextFire = this.tick + this.ticks(c.leapEvery) + this.rng.int(this.ticks(1));
+        b.x = e.leapX;
+        b.y = wy + 70;
+        return;
+      }
+      b.x = e.mx + (e.leapX - e.mx) * k;
+      b.y = wy + 20 - Math.sin(k * Math.PI) * (c.leapHeight + 20);
+      if (this.tick - e.atkStart === Math.round(this.ticks(c.leapSec) / 2)) {
+        const target = this.nearestAlive(b.x, b.y, 600);
+        if (target)
+          this.shoot(b.x, b.y - 10, Math.atan2(target.y - 20 - b.y, target.x - b.x), c.dmg, {
+            speed: 260,
+            size: 4,
+          });
+      }
+      return;
+    }
+    b.y = wy + 70;
+    const target = this.nearestAlive(b.x, wy, c.sight + 200);
+    if (!target || this.tick < e.nextFire || Math.abs(target.x - b.x) > c.sight) return;
+    const dir = target.x >= b.x ? 1 : -1;
+    b.facing = dir;
+    e.burst = 1;
+    e.atkStart = this.tick;
+    e.mx = b.x - dir * 60;
+    e.leapX = target.x + dir * 120;
+  }
+
+  /** Crab asura: shell to the front (see the shield code), turns slowly, closes in and lunges with its claws. */
+  private stepCrab(e: Enemy): void {
+    const c = E.crab;
+    const b = e.body;
+    const target = this.nearestAlive(b.x, b.y - b.h / 2, c.sight);
+    if (this.tick < e.leapX) {
+      // mid-lunge
+      if (!footingBelow(this.world, b.x + b.facing * (b.w / 2 + 4), b.y)) b.vx = 0;
+    } else {
+      b.vx = 0;
+      if (target) {
+        const dx = target.x - b.x;
+        const face: 1 | -1 = dx >= 0 ? 1 : -1;
+        if (face !== b.facing && this.tick >= e.burst) {
+          e.burst = this.tick + this.ticks(1.1);
+          e.cycle = face;
+        }
+        if (e.cycle !== 0 && this.tick >= e.burst - 1) {
+          b.facing = e.cycle as 1 | -1;
+          e.cycle = 0;
+        }
+        const dist = Math.abs(dx);
+        if (dist < 90 && this.tick >= e.nextFire && Math.sign(dx) === b.facing) {
+          b.vx = b.facing * c.lungeSpeed;
+          e.leapX = this.tick + this.ticks(0.35);
+          e.nextFire = this.tick + this.ticks(c.lungeEvery);
+        } else if (
+          dist > 50 &&
+          Math.sign(dx) === b.facing &&
+          footingBelow(this.world, b.x + b.facing * (b.w / 2 + 4), b.y)
+        )
+          b.vx = b.facing * c.speed;
+      }
+    }
+    b.vy = Math.min(P.maxFallSpeed, b.vy + P.gravity * this.dt);
+    moveBody(this.world, b, this.dt);
+  }
+
+  /** Conch blower: a surge of water along the ground (jump it), then a spray at whoever it faces. */
+  private stepConch(e: Enemy): void {
+    const c = E.conch;
+    const b = e.body;
+    const target = this.nearestAlive(b.x, b.y - b.h / 2, c.sight);
+    b.vx = 0;
+    if (target) {
+      const dx = target.x - b.x;
+      b.facing = dx >= 0 ? 1 : -1;
+      if (this.tick >= e.nextFire) {
+        const w = this.shoot(b.x + b.facing * 14, b.y - 10, b.facing > 0 ? 0 : Math.PI, c.surgeDmg, {
+          kind: 'wave',
+          speed: 230,
+          size: 10,
+          life: 2.6,
+        });
+        w.vy = 0;
+        e.nextFire = this.tick + this.fireEvery(c.fireEvery);
+        e.atkStart = this.tick;
+      }
+      if (this.tick === e.atkStart + this.ticks(0.45)) {
+        const a = Math.atan2(target.y - 20 - (b.y - 26), dx);
+        for (const off of [-0.18, 0, 0.18])
+          this.shoot(b.x + b.facing * 12, b.y - 26, a + off, c.sprayDmg, { speed: 250 });
+      }
+    }
+    b.vy = Math.min(P.maxFallSpeed, b.vy + P.gravity * this.dt);
+    moveBody(this.world, b, this.dt);
+  }
+
+  /** Chhaya: grabs at shadows (her jaws hang open after), surges, spits. */
+  private stepChhaya(e: Enemy): void {
+    const c = E.chhaya;
+    const b = e.body;
+    b.facing = -1;
+    this.bossPhase(e, c.phase2);
+    const ph = e.phase;
+    const fin = this.level.arenas[e.arena];
+    const left = fin ? fin.left + T : b.x - 900;
+    const front = b.x - b.w / 2;
+    const rest = (c.rest[ph - 1] ?? 1) as number;
+    if (e.atk === ATTACK.none) {
+      if (this.tick < e.nextAtk) return;
+      const order =
+        ph === 1
+          ? [ATTACK.grab, ATTACK.spit, ATTACK.surge, ATTACK.grab, ATTACK.spit]
+          : [ATTACK.grab, ATTACK.surge, ATTACK.grab, ATTACK.spit];
+      e.atk = order[e.cycle % order.length] as AttackId;
+      e.cycle++;
+      e.atkStart = this.tick;
+      const target = this.nearestAlive(front, b.y - 100, 2000);
+      e.atkParam = target ? target.x : front - 200;
+      return;
+    }
+    const t = this.tick - e.atkStart;
+    const wind = this.ticks(ATTACK_WINDUP[e.atk] ?? 0.6);
+    switch (e.atk) {
+      case ATTACK.grab: {
+        // the mark follows a soldier's shadow, then holds still for a moment before the hand comes up
+        if (t < wind - this.ticks(0.4)) {
+          let best: Player | null = null;
+          for (const p of this.players.values())
+            if (p.state === 'alive' && (!best || Math.abs(p.x - e.atkParam) < Math.abs(best.x - e.atkParam)))
+              best = p;
+          if (best) e.atkParam += Math.max(-6, Math.min(6, best.x - e.atkParam));
+        }
+        e.atkParam = Math.max(left, Math.min(front - 20, e.atkParam));
+        if (t === wind) {
+          this.emit({ e: 'boom', x: r1(e.atkParam), y: r1(b.y), r: c.grabReach });
+          for (const p of this.players.values())
+            if (p.state === 'alive' && Math.abs(p.x - e.atkParam) < c.grabReach && p.y > b.y - 170)
+              this.hurtPlayer(p, c.grabDmg);
+          e.mx = this.tick + this.ticks(c.openSec);
+        }
+        if (t >= wind + this.ticks(0.5)) this.endAttack(e, rest);
+        break;
+      }
+      case ATTACK.surge: {
+        if (t === wind) {
+          const w = this.shoot(front - 6, b.y - 14, Math.PI, c.surgeDmg, {
+            kind: 'wave',
+            speed: 290,
+            size: 16,
+            life: 4,
+          });
+          w.vy = 0;
+        }
+        if (t >= wind + this.ticks(0.6)) this.endAttack(e, rest);
+        break;
+      }
+      case ATTACK.spit: {
+        if (t === wind) {
+          let i = 0;
+          for (const p of this.players.values()) {
+            if (p.state !== 'alive') continue;
+            this.lob(
+              front + 20,
+              b.y - 220,
+              p.x + p.vx * 0.5,
+              b.y - 4,
+              1.1 + i * 0.15,
+              c.spitDmg,
+              'bomb',
+              c.spitBlast,
+            );
+            if (++i >= 3) break;
+          }
+          while (i < 3) {
+            const x = left + this.rng.range(40, Math.max(80, front - left - 60));
+            this.lob(front + 20, b.y - 220, x, b.y - 4, 1.1 + i * 0.15, c.spitDmg, 'bomb', c.spitBlast);
+            i++;
+          }
+        }
+        if (t >= wind + this.ticks(1)) this.endAttack(e, rest);
+        break;
+      }
+      default:
+        this.endAttack(e, rest);
+    }
+  }
+
+  // ------------------------------------------------------------ Vayu Shikhar (saga stage 3)
+
+  /** The stage's gusts (and a boss's storm, which overrides them). */
+  private stepGusts(): void {
+    if (this.storm) {
+      if (this.tick >= this.storm.until) this.storm = null;
+      else {
+        this.gustDir = this.storm.dir;
+        this.gustWarnDir = 0;
+        return;
+      }
+    }
+    if (!this.level.gusts || this.phase !== 'playing') {
+      this.gustDir = 0;
+      return;
+    }
+    const G = GAME_CONFIG.gusts;
+    if (!this.nextGust) this.nextGust = this.tick + this.ticks(G.everySec);
+    if (this.gustDir && this.tick >= this.gustEnd) this.gustDir = 0;
+    const warn = this.ticks(G.warnSec);
+    if (!this.gustDir && this.tick >= this.nextGust - warn && !this.gustWarnDir)
+      this.gustWarnDir = this.rng.range(0, 1) < 0.5 ? -1 : 1;
+    if (!this.gustDir && this.tick >= this.nextGust) {
+      this.gustDir = this.gustWarnDir || 1;
+      this.gustWarnDir = 0;
+      this.gustEnd = this.tick + this.ticks(G.sec);
+      this.nextGust = this.gustEnd + this.ticks(G.everySec + this.rng.range(-G.jitterSec, G.jitterSec));
+    }
+  }
+
+  /** The wind shoves a soldier (less if they crouch into it); it does not stop at a ledge. */
+  private gustPush(p: Player): void {
+    if (!this.gustDir || p.state !== 'alive' || (!this.storm && this.resting(p))) return;
+    const push =
+      (this.storm ? this.storm.push : GAME_CONFIG.gusts.push) * (p.crouch ? GAME_CONFIG.gusts.crouch : 1);
+    const vx = p.vx;
+    const vy = p.vy;
+    const ground = p.onGround;
+    p.vx = this.gustDir * push;
+    p.vy = 0;
+    moveBody(this.world, p, this.dt);
+    p.vx = vx;
+    p.vy = vy;
+    if (ground && !p.onGround) p.vy = Math.max(p.vy, 0);
+  }
+
+  /** Wind demon: hangs high on one side, swoops straight through a soldier, sheds feathers while it waits. */
+  private stepHarpy(e: Enemy): void {
+    const c = E.harpy;
+    const b = e.body;
+    if (e.burst === 1) {
+      const k = (this.tick - e.atkStart) / this.ticks(c.swoopSec);
+      if (k >= 1) {
+        e.burst = 0;
+        e.nextFire = this.tick + this.ticks(c.swoopEvery) + this.rng.int(this.ticks(1));
+        return;
+      }
+      b.x = e.mx + (e.leapX - e.mx) * k;
+      b.y = e.my + (e.leapX - e.mx === 0 ? 0 : (e.atkParam - e.my) * Math.sin(k * Math.PI));
+      return;
+    }
+    const target = this.nearestAlive(b.x, b.y, c.sight);
+    if (!target) return;
+    const side = e.id % 2 ? 200 : -200;
+    const hx = target.x + side;
+    const hy = target.y - c.hover;
+    const step = c.speed * this.dt;
+    b.x += Math.max(-step, Math.min(step, hx - b.x));
+    b.y += Math.max(-step, Math.min(step, hy - b.y));
+    b.facing = target.x >= b.x ? 1 : -1;
+    if (this.tick >= e.atkStart + this.ticks(c.featherEvery) && this.tick % 7 === 0) {
+      e.atkStart = this.tick;
+      const a = Math.atan2(target.y - 20 - b.y, target.x - b.x);
+      for (const off of [-0.15, 0, 0.15]) this.shoot(b.x, b.y, a + off, c.dmg, { speed: 260, size: 3 });
+    }
+    if (this.tick >= e.nextFire && Math.abs(hx - b.x) < 50) {
+      e.burst = 1;
+      e.atkStart = this.tick;
+      e.mx = b.x;
+      e.my = b.y;
+      e.leapX = target.x - side;
+      e.atkParam = target.y - 20;
+    }
+  }
+
+  /** Boulder roller: on its ledge, heaves boulders down at the nearest soldier. */
+  private stepRoller(e: Enemy): void {
+    const c = E.roller;
+    const b = e.body;
+    const target = this.nearestAlive(b.x, b.y - b.h / 2, c.sight);
+    b.vx = 0;
+    if (target) {
+      b.facing = target.x >= b.x ? 1 : -1;
+      if (this.tick >= e.nextFire) {
+        this.lob(
+          b.x + b.facing * 12,
+          b.y - 40,
+          target.x + target.vx * 0.5,
+          target.y - 4,
+          1.2,
+          c.dmg,
+          'shell',
+          c.blast,
+        );
+        e.nextFire = this.tick + this.fireEvery(c.fireEvery);
+        e.atkStart = this.tick;
+      }
+    }
+    b.vy = Math.min(P.maxFallSpeed, b.vy + P.gravity * this.dt);
+    moveBody(this.world, b, this.dt);
+  }
+
+  /** Cloud lancer: drifts above the squad on its cloud; raises a javelin of lightning (it glows), then hurls it. */
+  private stepLancer(e: Enemy): void {
+    const c = E.lancer;
+    const b = e.body;
+    const target = this.nearestAlive(b.x, b.y, c.sight);
+    if (!target) return;
+    const hx = target.x + (e.id % 2 ? 140 : -140);
+    const hy = target.y - c.hover + Math.sin(this.tick / 20 + e.id) * 10;
+    const step = c.speed * this.dt;
+    b.x += Math.max(-step, Math.min(step, hx - b.x));
+    b.y += Math.max(-step, Math.min(step, hy - b.y));
+    b.facing = target.x >= b.x ? 1 : -1;
+    if (e.burst === 0 && this.tick >= e.nextFire) {
+      e.burst = 1;
+      e.atkStart = this.tick;
+      e.atkParam = 1; // (the snapshot shows the javelin raised)
+    }
+    if (e.burst === 1 && this.tick - e.atkStart >= this.ticks(c.aimSec)) {
+      e.burst = 0;
+      e.atkParam = 0;
+      const a = Math.atan2(target.y - 18 - (b.y - 20), target.x - b.x);
+      this.shoot(b.x, b.y - 20, a, c.dmg, { speed: c.speedShot, size: 5 });
+      e.nextFire = this.tick + this.fireEvery(c.fireEvery);
+    }
+  }
+
+  /** Aandhi on the summit: storms (he is open while he holds one), boulders, javelins, a call to the wind demons. */
+  private stepAandhi(e: Enemy): void {
+    const c = E.aandhi;
+    const b = e.body;
+    b.facing = -1;
+    this.bossPhase(e, c.phase2);
+    const ph = e.phase;
+    const fin = this.level.arenas[e.arena];
+    const left = fin ? fin.left : b.x - 900;
+    const front = b.x - b.w / 2;
+    const rest = (c.rest[ph - 1] ?? 1) as number;
+    if (e.atk === ATTACK.none) {
+      if (this.tick < e.nextAtk) return;
+      const order =
+        ph === 1
+          ? [ATTACK.javelins, ATTACK.storm, ATTACK.boulders, ATTACK.javelins, ATTACK.storm]
+          : [ATTACK.storm, ATTACK.call, ATTACK.boulders, ATTACK.storm, ATTACK.javelins];
+      e.atk = order[e.cycle % order.length] as AttackId;
+      e.cycle++;
+      e.atkStart = this.tick;
+      return;
+    }
+    const t = this.tick - e.atkStart;
+    const wind = this.ticks(ATTACK_WINDUP[e.atk] ?? 0.6);
+    switch (e.atk) {
+      case ATTACK.storm: {
+        if (t === wind)
+          this.storm = { dir: -1, push: c.stormPush, until: this.tick + this.ticks(c.stormSec) };
+        if (t >= wind && !this.storm) this.endAttack(e, rest);
+        break;
+      }
+      case ATTACK.boulders: {
+        if (t === wind) {
+          let i = 0;
+          for (const p of this.players.values()) {
+            if (p.state !== 'alive' || i >= 3) continue;
+            this.lob(
+              front,
+              b.y - 110,
+              p.x + p.vx * 0.5,
+              b.y - 4,
+              1.1 + i * 0.15,
+              c.boulderDmg,
+              'shell',
+              c.boulderBlast,
+            );
+            i++;
+          }
+          for (; i < 3; i++) {
+            const x = left + this.rng.range(40, Math.max(80, front - left - 60));
+            this.lob(front, b.y - 110, x, b.y - 4, 1.1 + i * 0.15, c.boulderDmg, 'shell', c.boulderBlast);
+          }
+        }
+        if (t >= wind + this.ticks(0.9)) this.endAttack(e, rest);
+        break;
+      }
+      case ATTACK.javelins: {
+        const gap = this.ticks(0.3);
+        if (t >= wind && (t - wind) % gap === 0 && (t - wind) / gap < 3) {
+          const target = this.nearestAlive(front, b.y - 60, 1400);
+          if (target) {
+            const a = Math.atan2(target.y - 18 - (b.y - 100), target.x - front);
+            this.shoot(front, b.y - 100, a, c.javelinDmg, { speed: 480, size: 5 });
+          }
+        }
+        if (t >= wind + gap * 3) this.endAttack(e, rest);
+        break;
+      }
+      case ATTACK.call: {
+        if (t === wind) {
+          let n = 0;
+          for (const q of this.enemies.values()) if (q.kind === 'harpy' && q.fromBoss) n++;
+          for (let i = n; i < 2; i++)
+            this.spawnAwake('harpy', front - 200 - i * 120, b.y - 220, e.arena, true);
+        }
+        if (t >= wind + this.ticks(0.5)) this.endAttack(e, rest);
+        break;
+      }
+      default:
+        this.endAttack(e, rest);
+    }
+  }
+
+  // ------------------------------------------------------------ Naag Lok (saga stage 4)
+
+  /** The head of Vishdhar's a soldier should land on next (not the one they last danced on). Computer players use it. */
+  nextHead(p: Player): Plat | null {
+    let best: Plat | null = null;
+    let bd = Infinity;
+    this.level.plats.forEach((d, i) => {
+      if (d.kind !== 'head' || this.lastStomp.get(p.id) === i) return;
+      const pl = this.plats[i] as Plat;
+      const dist = Math.abs((pl.x0 + pl.x1) / 2 - p.x);
+      if (dist < bd) {
+        bd = dist;
+        best = pl;
+      }
+    });
+    return best;
+  }
+
+  private vishdharOf(): Enemy | null {
+    for (const e of this.enemies.values()) if (e.kind === 'vishdhar' && e.awake && e.hp > 0) return e;
+    return null;
+  }
+
+  /** A soldier landed on one of Vishdhar's heads: it costs him, and the head dips. */
+  private stompHead(k: Enemy, p: Player, head: number): void {
+    this.damageEnemy(k, k.maxHp * E.vishdhar.stomp, p.id, p.x, p.y, 'melee');
+    this.emit({ e: 'boom', x: r1(p.x), y: r1(p.y), r: 30 });
+    p.vy = -380; // the head throws the dancer up again
+    p.onGround = false;
+    void head;
+  }
+
+  /** Naga warrior: slithers low toward the nearest soldier and strikes from close. */
+  private stepSerpent(e: Enemy): void {
+    const c = E.serpent;
+    const b = e.body;
+    const target = this.nearestAlive(b.x, b.y - b.h / 2, c.sight);
+    b.vx = 0;
+    if (target) {
+      const dx = target.x - b.x;
+      b.facing = dx >= 0 ? 1 : -1;
+      if (Math.abs(dx) < c.strikeRange && this.tick >= e.nextFire) {
+        e.nextFire = this.tick + this.ticks(c.strikeEvery);
+        e.atkStart = this.tick;
+        if (Math.abs(target.y - b.y) < 40) this.hurtPlayer(target, c.dmg);
+      } else if (Math.abs(dx) > 30 && footingBelow(this.world, b.x + b.facing * (b.w / 2 + 4), b.y))
+        b.vx = b.facing * c.speed;
+    }
+    b.vy = Math.min(P.maxFallSpeed, b.vy + P.gravity * this.dt);
+    moveBody(this.world, b, this.dt);
+  }
+
+  /** Wall cobra: coiled on its ledge, spits venom in arcs at the nearest soldier. */
+  private stepSpitter(e: Enemy): void {
+    const c = E.spitter;
+    const b = e.body;
+    const target = this.nearestAlive(b.x, b.y - b.h / 2, c.sight);
+    if (target) {
+      b.facing = target.x >= b.x ? 1 : -1;
+      if (this.tick >= e.nextFire) {
+        this.lob(
+          b.x + b.facing * 10,
+          b.y - 26,
+          target.x + target.vx * 0.4,
+          target.y - 4,
+          0.9,
+          c.dmg,
+          'bomb',
+          c.blast,
+        );
+        e.nextFire = this.tick + this.fireEvery(c.fireEvery);
+      }
+    }
+    b.vy = Math.min(P.maxFallSpeed, b.vy + P.gravity * this.dt);
+    moveBody(this.world, b, this.dt);
+  }
+
+  /** Serpent egg: once a soldier comes near it starts to crack, and hatches two naga warriors unless broken. */
+  private stepEgg(e: Enemy): void {
+    const c = E.egg;
+    const b = e.body;
+    if (!e.atkStart) {
+      if (this.nearestAlive(b.x, b.y - b.h / 2, c.sight)) e.atkStart = this.tick;
+      return;
+    }
+    e.atkParam = Math.round(((this.tick - e.atkStart) / this.ticks(c.hatchSec)) * 100);
+    if (this.tick - e.atkStart >= this.ticks(c.hatchSec)) {
+      this.enemies.delete(e.id);
+      this.emit({ e: 'boom', x: r1(b.x), y: r1(b.y - 10), r: 24 });
+      for (const dx of [-14, 14]) this.spawnAwake('serpent', b.x + dx, b.y, e.arena, e.fromBoss);
+    }
+  }
+
+  /** Vishdhar: venom from his hoods, a head lunging low across the lake, a rain of poison. */
+  private stepVishdhar(e: Enemy): void {
+    const c = E.vishdhar;
+    const b = e.body;
+    b.facing = -1;
+    this.bossPhase(e, c.phase2);
+    const ph = e.phase;
+    const fin = this.level.arenas[e.arena];
+    const left = fin ? fin.left : b.x - 900;
+    const front = b.x - b.w / 2;
+    const rest = (c.rest[ph - 1] ?? 1) as number;
+    if (e.atk === ATTACK.none) {
+      if (this.tick < e.nextAtk) return;
+      const order =
+        ph === 1
+          ? [ATTACK.venom, ATTACK.lunge, ATTACK.poison, ATTACK.venom]
+          : [ATTACK.lunge, ATTACK.venom, ATTACK.poison, ATTACK.lunge, ATTACK.venom];
+      e.atk = order[e.cycle % order.length] as AttackId;
+      e.cycle++;
+      e.atkStart = this.tick;
+      return;
+    }
+    const t = this.tick - e.atkStart;
+    const wind = this.ticks(ATTACK_WINDUP[e.atk] ?? 0.6);
+    switch (e.atk) {
+      case ATTACK.venom: {
+        // each head spits at the nearest soldier, one after another
+        const heads = this.level.plats
+          .map((d, i) => ({ d, p: this.plats[i] as Plat }))
+          .filter((h) => h.d.kind === 'head');
+        const gap = this.ticks(0.25);
+        const k = (t - wind) / gap;
+        if (t >= wind && (t - wind) % gap === 0 && k < heads.length * (ph === 2 ? 2 : 1)) {
+          const h = heads[k % heads.length];
+          if (h) {
+            const hx = (h.p.x0 + h.p.x1) / 2;
+            const target = this.nearestAlive(hx, h.p.y, 1200);
+            if (target)
+              this.shoot(
+                hx,
+                h.p.y - 30,
+                Math.atan2(target.y - 18 - (h.p.y - 30), target.x - hx),
+                c.venomDmg,
+                {
+                  speed: 300,
+                  size: 4,
+                },
+              );
+          }
+        }
+        if (t >= wind + gap * heads.length * (ph === 2 ? 2 : 1)) this.endAttack(e, rest);
+        break;
+      }
+      case ATTACK.lunge: {
+        // a fourth head shoots out of the lake and sweeps low across it: jump onto a head or the bank
+        if (t === wind) {
+          const w = this.shoot(front, b.y - 30, Math.PI, c.lungeDmg, {
+            kind: 'wave',
+            speed: 420,
+            size: 18,
+            life: 2.6,
+          });
+          w.vy = 0;
+        }
+        if (t >= wind + this.ticks(0.8)) this.endAttack(e, rest);
+        break;
+      }
+      case ATTACK.poison: {
+        if (t === wind) {
+          const n = ph === 2 ? 6 : 4;
+          for (let i = 0; i < n; i++) {
+            const x = left + 60 + ((front - left - 120) * (i + this.rng.range(0, 0.8))) / n;
+            this.lob(front, b.y - 140, x, b.y - 60, 1.1 + i * 0.1, c.poisonDmg, 'bomb', c.poisonBlast);
+          }
+        }
+        if (t >= wind + this.ticks(1)) this.endAttack(e, rest);
+        break;
+      }
+      default:
+        this.endAttack(e, rest);
+    }
+  }
+
+  // ------------------------------------------------------------ Maya Nagri (saga stage 5)
+
+  /** Mirror shade: keeps to where the nearest soldier's reflection would be across its mirror, and shoots back. */
+  private stepMirror(e: Enemy): void {
+    const c = E.mirror;
+    const b = e.body;
+    const target = this.nearestAlive(b.x, b.y - b.h / 2, c.sight);
+    b.vx = 0;
+    if (target) {
+      const want = Math.max(e.homeX - c.span, Math.min(e.homeX + c.span, 2 * e.homeX - target.x));
+      const dx = want - b.x;
+      if (Math.abs(dx) > 6 && footingBelow(this.world, b.x + Math.sign(dx) * (b.w / 2 + 4), b.y))
+        b.vx = Math.sign(dx) * c.speed;
+      b.facing = target.x >= b.x ? 1 : -1;
+      if (this.tick >= e.nextFire) {
+        this.shoot(
+          b.x + b.facing * 14,
+          b.y - 22,
+          Math.atan2(target.y - 18 - (b.y - 22), target.x - b.x),
+          c.dmg,
+        );
+        e.nextFire = this.tick + this.fireEvery(c.fireEvery);
+      }
+    }
+    b.vy = Math.min(P.maxFallSpeed, b.vy + P.gravity * this.dt);
+    moveBody(this.world, b, this.dt);
+  }
+
+  /** Dancer: vanishes, reappears just behind a soldier, strikes after a beat, and vanishes again. */
+  private stepDancer(e: Enemy): void {
+    const c = E.dancer;
+    const b = e.body;
+    const target = this.nearestAlive(b.x, b.y - b.h / 2, c.sight);
+    if (!target) return;
+    if (e.burst === 1 && this.tick - e.atkStart >= this.ticks(c.strikeSec)) {
+      e.burst = 0;
+      if (Math.abs(target.x - b.x) < 46 && Math.abs(target.y - b.y) < 40) this.hurtPlayer(target, c.dmg);
+      // gone again, somewhere off to one side
+      const away = b.x + (this.rng.range(0, 1) < 0.5 ? -1 : 1) * this.rng.range(140, 220);
+      if (footingBelow(this.world, away, b.y)) b.x = away;
+      this.emit({ e: 'boom', x: r1(b.x), y: r1(b.y - 17), r: 18 });
+      e.nextFire = this.tick + this.ticks(c.blinkEvery);
+    }
+    if (e.burst === 0 && this.tick >= e.nextFire) {
+      const bx = target.x - target.facing * 40;
+      if (footingBelow(this.world, bx, target.y)) {
+        b.x = bx;
+        b.y = target.y;
+        b.facing = target.facing;
+        e.burst = 1;
+        e.atkStart = this.tick;
+        this.emit({ e: 'boom', x: r1(b.x), y: r1(b.y - 17), r: 18 });
+      } else e.nextFire = this.tick + this.ticks(0.5);
+    }
+    b.vy = Math.min(P.maxFallSpeed, b.vy + P.gravity * this.dt);
+    b.vx = 0;
+    moveBody(this.world, b, this.dt);
+  }
+
+  /** Painted guard: a picture on the wall until a soldier comes close; then it steps out and lunges with its spear. */
+  private stepPainting(e: Enemy): void {
+    const c = E.painting;
+    const b = e.body;
+    const target = this.nearestAlive(b.x, b.y - b.h / 2, 600);
+    if (e.burst === 0) {
+      if (target && Math.abs(target.x - b.x) < c.wake && Math.abs(target.y - b.y) < 80) {
+        e.burst = 1;
+        e.nextFire = this.tick + this.ticks(0.6);
+        this.emit({ e: 'boom', x: r1(b.x), y: r1(b.y - 20), r: 22 });
+      }
+      return;
+    }
+    b.vx = 0;
+    if (target) {
+      const dx = target.x - b.x;
+      b.facing = dx >= 0 ? 1 : -1;
+      if (this.tick < e.leapX) b.vx = b.facing * c.lungeSpeed;
+      else if (Math.abs(dx) < 110 && this.tick >= e.nextFire) {
+        e.leapX = this.tick + this.ticks(0.3);
+        e.nextFire = this.tick + this.ticks(c.lungeEvery);
+      } else if (Math.abs(dx) > 40 && footingBelow(this.world, b.x + b.facing * (b.w / 2 + 4), b.y))
+        b.vx = b.facing * c.speed;
+    }
+    b.vy = Math.min(P.maxFallSpeed, b.vy + P.gravity * this.dt);
+    moveBody(this.world, b, this.dt);
+  }
+
+  /** Darpan-asur: a sweeping beam, a rain of shards, a show of reflections (two shades) after which it is dull. */
+  private stepDarpan(e: Enemy): void {
+    const c = E.darpan;
+    const b = e.body;
+    b.facing = -1;
+    this.bossPhase(e, c.phase2);
+    const ph = e.phase;
+    const fin = this.level.arenas[e.arena];
+    const left = fin ? fin.left : b.x - 900;
+    const front = b.x - b.w / 2;
+    const rest = (c.rest[ph - 1] ?? 1) as number;
+    if (e.atk === ATTACK.none) {
+      if (this.tick < e.nextAtk) return;
+      const order =
+        ph === 1
+          ? [ATTACK.beam, ATTACK.shards, ATTACK.show, ATTACK.beam]
+          : [ATTACK.show, ATTACK.beam, ATTACK.shards, ATTACK.beam, ATTACK.show];
+      e.atk = order[e.cycle % order.length] as AttackId;
+      e.cycle++;
+      e.atkStart = this.tick;
+      return;
+    }
+    const t = this.tick - e.atkStart;
+    const wind = this.ticks(ATTACK_WINDUP[e.atk] ?? 0.6);
+    switch (e.atk) {
+      case ATTACK.beam: {
+        // a line of light sweeping from high to low across the hall
+        const len = this.ticks(1.2);
+        if (t >= wind && t < wind + len && (t - wind) % 2 === 0) {
+          const k = (t - wind) / len;
+          const a = Math.PI + 0.45 - k * 0.75;
+          this.shoot(front, b.y - 150, a, c.beamDmg, { speed: 620, size: 5, life: 1.4 });
+        }
+        if (t >= wind + len) this.endAttack(e, rest);
+        break;
+      }
+      case ATTACK.shards: {
+        if (t === wind) {
+          const n = ph === 2 ? 7 : 5;
+          for (let i = 0; i < n; i++) {
+            const x = left + 40 + ((front - left - 80) * (i + this.rng.range(0, 0.9))) / n;
+            this.lob(front, b.y - 210, x, b.y - 4, 1.0 + i * 0.1, c.shardDmg, 'bomb', c.shardBlast);
+          }
+        }
+        if (t >= wind + this.ticks(1)) this.endAttack(e, rest);
+        break;
+      }
+      case ATTACK.show: {
+        if (t === wind) {
+          let n = 0;
+          for (const q of this.enemies.values()) if (q.kind === 'mirror' && q.fromBoss) n++;
+          for (let i = n; i < 2; i++) {
+            const m = this.spawnAwake('mirror', front - 160 - i * 200, b.y, e.arena, true);
+            m.homeX = front - 260;
+          }
+          e.mx = this.tick + this.ticks(c.dullSec);
+        }
+        if (t >= wind + this.ticks(0.5)) this.endAttack(e, rest);
+        break;
+      }
+      default:
+        this.endAttack(e, rest);
+    }
+  }
+
+  // ------------------------------------------------------------ Bhasm Parvat (saga stage 6)
+
+  /**
+   * The lava rising from below: it creeps up, never more than `maxLag` under the lowest soldier, waits under a rest
+   * stop and under the boss's floor, burns whoever it touches and throws anyone caught in it up onto ground.
+   */
+  private stepLava(): void {
+    if (!this.level.lava || this.phase !== 'playing') return;
+    const C = GAME_CONFIG.lava;
+    const alive = [...this.players.values()].filter((p) => p.state === 'alive');
+    if (!alive.length) return;
+    const low = Math.max(...alive.map((p) => p.y));
+    if (!this.lavaOn) {
+      if (this.tick < this.lavaStart) return;
+      this.lavaOn = true;
+      this.lavaY = low + C.maxLag;
+    }
+    let floor = -Infinity; // the lava may not rise above this
+    const rear = Math.min(...alive.map((p) => p.x));
+    for (const r of this.level.rests)
+      if (rear < r.x1 + 2 * T) {
+        const g = this.groundAhead((r.x0 + r.x1) / 2);
+        floor = Math.max(floor, g.y + 2 * T);
+      }
+    const fin = finalArena(this.level);
+    if (fin && this.arenaState[fin.id]) floor = Math.max(floor, fin.floor + T);
+    const speed = C.speed[this.settings.difficulty];
+    this.lavaY = Math.max(floor, Math.min(this.lavaY - speed * this.dt, low + C.maxLag));
+    for (const p of alive) {
+      if (p.y < this.lavaY - 2) continue;
+      this.hurtPlayer(p, C.dps * 0.35);
+      if (p.y > this.lavaY + 30 && p.state === 'alive') {
+        const spot = this.groundAbove(p.x, this.lavaY);
+        p.x = spot.x;
+        p.y = spot.y;
+        p.vx = p.vy = 0;
+        p.lastSafeX = p.x;
+        p.lastSafeY = p.y;
+      }
+    }
+    for (const e of [...this.enemies.values()])
+      if (!isBoss(e.kind) && e.body.y > this.lavaY + 10 && e.kind !== 'pret') this.enemies.delete(e.id);
+  }
+
+  /** The nearest ground above `top` around column x (searching outward), for lifting a soldier out of the lava. */
+  private groundAbove(x: number, top: number): { x: number; y: number } {
+    const c0 = Math.floor(x / T);
+    for (let d = 0; d < 40; d++)
+      for (const c of [c0 + d, c0 - d]) {
+        for (let r = Math.floor(top / T) - 1; r >= 1; r--) {
+          const t = tileAt(this.level, c, r);
+          if ((t === Tile.Solid || t === Tile.OneWay) && tileAt(this.level, c, r - 1) === Tile.Empty)
+            return { x: c * T + T / 2, y: r * T };
+        }
+      }
+    return this.groundAhead(x);
+  }
+
+  /** Ghost: drifts straight through rock toward the nearest soldier. */
+  private stepPret(e: Enemy): void {
+    const c = E.pret;
+    const b = e.body;
+    const target = this.nearestAlive(b.x, b.y - b.h / 2, c.sight);
+    if (!target) return;
+    const dx = target.x - b.x;
+    const dy = target.y - 10 - b.y;
+    const d = Math.hypot(dx, dy) || 1;
+    b.x += (dx / d) * c.speed * this.dt;
+    b.y += (dy / d) * c.speed * this.dt + Math.sin(this.tick / 12 + e.id) * 0.4;
+    b.facing = dx >= 0 ? 1 : -1;
+  }
+
+  /** Ash golem: plods in and punches; brought down by plain weapons, it rises again (see damageEnemy). */
+  private stepGolem(e: Enemy): void {
+    const c = E.golem;
+    const b = e.body;
+    b.vx = 0;
+    if (e.burst === 1) {
+      if (this.tick - e.atkStart >= this.ticks(c.riseSec)) {
+        e.burst = 0;
+        e.hp = e.maxHp;
+        this.emit({ e: 'boom', x: r1(b.x), y: r1(b.y - 20), r: 30 });
+      }
+    } else {
+      const target = this.nearestAlive(b.x, b.y - b.h / 2, c.sight);
+      if (target) {
+        const dx = target.x - b.x;
+        b.facing = dx >= 0 ? 1 : -1;
+        if (Math.abs(dx) < 46 && this.tick >= e.nextFire) {
+          e.nextFire = this.tick + this.ticks(c.punchEvery);
+          if (Math.abs(target.y - b.y) < 50) this.hurtPlayer(target, c.dmg);
+        } else if (Math.abs(dx) > 30 && footingBelow(this.world, b.x + b.facing * (b.w / 2 + 4), b.y))
+          b.vx = b.facing * c.speed;
+      }
+    }
+    b.vy = Math.min(P.maxFallSpeed, b.vy + P.gravity * this.dt);
+    moveBody(this.world, b, this.dt);
+  }
+
+  /** Skull-lamp carrier: keeps its distance and calls up a ghost now and then (no more than three about). */
+  private stepLantern(e: Enemy): void {
+    const c = E.lantern;
+    const b = e.body;
+    const target = this.nearestAlive(b.x, b.y - b.h / 2, c.sight);
+    b.vx = 0;
+    if (target) {
+      const dx = target.x - b.x;
+      b.facing = dx >= 0 ? 1 : -1;
+      if (Math.abs(dx) > 260 && footingBelow(this.world, b.x + b.facing * (b.w / 2 + 4), b.y))
+        b.vx = b.facing * c.speed;
+      if (this.tick >= e.nextFire) {
+        e.nextFire = this.tick + this.ticks(c.callEvery);
+        let n = 0;
+        for (const q of this.enemies.values()) if (q.kind === 'pret') n++;
+        if (n < 3) this.spawnAwake('pret', b.x, b.y - 40, e.arena, e.fromBoss);
+      }
+    }
+    b.vy = Math.min(P.maxFallSpeed, b.vy + P.gravity * this.dt);
+    moveBody(this.world, b, this.dt);
+  }
+
+  /** Nartaki's dance: the pose Raakhasur is showing right now (0 up, 1 down, 2 left, 3 right), or null. */
+  dancePose(e: Enemy): number | null {
+    if (e.kind !== 'raakhasur' || e.atk !== ATTACK.dance) return null;
+    const c = E.raakhasur;
+    const t = this.tick - e.atkStart - this.ticks(ATTACK_WINDUP[ATTACK.dance] ?? 1);
+    if (t < 0) return null;
+    const k = Math.floor(t / this.ticks(c.beatSec));
+    if (k >= c.steps) return null;
+    return Math.floor(e.atkParam / 4 ** k) % 4;
+  }
+
+  /** Raakhasur: rushes to touch a head, sends ash along the ground, rains ash, and (now and then) Nartaki's dance. */
+  private stepRaakhasur(e: Enemy): void {
+    const c = E.raakhasur;
+    const b = e.body;
+    this.bossPhase(e, c.phase2);
+    const ph = e.phase;
+    const fin = this.level.arenas[e.arena];
+    const left = fin ? fin.left : b.x - 900;
+    const right = fin ? fin.right : b.x + 300;
+    const rest = (c.rest[ph - 1] ?? 1) as number;
+    const target = this.nearestAlive(b.x, b.y - 50, 2000);
+    b.vx = 0;
+    if (e.atk === ATTACK.none) {
+      if (target && this.tick >= e.mx) {
+        b.facing = target.x >= b.x ? 1 : -1;
+        if (Math.abs(target.x - b.x) > 140) b.vx = b.facing * c.speed;
+      }
+      if (this.tick >= e.nextAtk && this.tick >= e.mx) {
+        const order =
+          ph === 1
+            ? [ATTACK.rush, ATTACK.ash, ATTACK.dance, ATTACK.rush, ATTACK.rain]
+            : [ATTACK.rush, ATTACK.dance, ATTACK.ash, ATTACK.rain, ATTACK.rush, ATTACK.dance];
+        e.atk = order[e.cycle % order.length] as AttackId;
+        e.cycle++;
+        e.atkStart = this.tick;
+        e.burst = 0;
+        if (e.atk === ATTACK.dance) {
+          let seq = 0;
+          for (let k = 0; k < c.steps; k++) seq += this.rng.int(4) * 4 ** k;
+          e.atkParam = seq;
+          e.my = 0;
+        }
+      }
+    } else {
+      const t = this.tick - e.atkStart;
+      const wind = this.ticks(ATTACK_WINDUP[e.atk] ?? 0.6);
+      switch (e.atk) {
+        case ATTACK.rush: {
+          if (t === wind && target) e.leapX = target.x;
+          if (t >= wind) {
+            const dir = Math.sign(e.leapX - b.x) || b.facing;
+            b.facing = dir as 1 | -1;
+            b.vx = dir * c.rushSpeed;
+            // his hand on a head
+            for (const p of this.players.values())
+              if (
+                p.state === 'alive' &&
+                Math.abs(p.x - b.x) < 36 &&
+                Math.abs(p.y - b.y) < 60 &&
+                e.burst === 0
+              ) {
+                this.hurtPlayer(p, c.touchDmg);
+                this.emit({ e: 'boom', x: r1(p.x), y: r1(p.y - 34), r: 30 });
+                e.burst = 1;
+              }
+            if (Math.abs(e.leapX - b.x) < 12 || t > wind + this.ticks(1.4) || e.burst === 1)
+              this.endAttack(e, rest);
+          }
+          break;
+        }
+        case ATTACK.ash: {
+          if (t === wind)
+            for (const dir of [-1, 1]) {
+              const w = this.shoot(b.x + dir * 20, b.y - 12, dir > 0 ? 0 : Math.PI, c.ashDmg, {
+                kind: 'wave',
+                speed: 280,
+                size: 13,
+                life: 3,
+              });
+              w.vy = 0;
+            }
+          if (t >= wind + this.ticks(0.6)) this.endAttack(e, rest);
+          break;
+        }
+        case ATTACK.rain: {
+          if (t === wind)
+            for (let i = 0; i < (ph === 2 ? 6 : 4); i++) {
+              const x = left + 40 + this.rng.range(0, Math.max(60, right - left - 80));
+              this.lob(b.x, b.y - 120, x, b.y - 4, 1.0 + i * 0.12, c.rainDmg, 'bomb', c.rainBlast);
+            }
+          if (t >= wind + this.ticks(1)) this.endAttack(e, rest);
+          break;
+        }
+        case ATTACK.dance: {
+          // each beat, any soldier holding the pose he shows counts it; all steps held: he copies the last pose,
+          // his hand on his own head, and burns
+          const beat = this.ticks(c.beatSec);
+          if (t >= wind) {
+            const k = Math.floor((t - wind) / beat);
+            const pose = Math.floor(e.atkParam / 4 ** k) % 4;
+            if (k < c.steps && (t - wind) % beat === beat - 1) {
+              const held = [...this.players.values()].some((p) => {
+                if (p.state !== 'alive') return false;
+                const i = p.input;
+                return pose === 0 ? i.my < 0 : pose === 1 ? i.my > 0 : pose === 2 ? i.mx < 0 : i.mx > 0;
+              });
+              if (held) e.my++;
+            }
+            if (k >= c.steps) {
+              if (e.my >= c.steps) {
+                this.damageEnemy(e, e.maxHp * c.selfBurn, '', b.x, b.y - 100, 'astra');
+                this.emit({ e: 'boom', x: r1(b.x), y: r1(b.y - 100), r: 80 });
+                e.mx = this.tick + this.ticks(2.5); // reeling: wide open
+              } else {
+                for (const dir of [-1, 1]) {
+                  const w = this.shoot(b.x + dir * 20, b.y - 12, dir > 0 ? 0 : Math.PI, c.ashDmg, {
+                    kind: 'wave',
+                    speed: 320,
+                    size: 13,
+                    life: 3,
+                  });
+                  w.vy = 0;
+                }
+              }
+              this.endAttack(e, rest);
+            }
+          }
+          break;
+        }
+        default:
+          this.endAttack(e, rest);
+      }
+    }
+    b.vy = Math.min(P.maxFallSpeed, b.vy + P.gravity * this.dt);
+    b.x = Math.max(left + b.w / 2, Math.min(right - b.w / 2, b.x));
+    moveBody(this.world, b, this.dt);
+  }
+
+  // ------------------------------------------------------------ Samarpan Maidan (saga stage 7)
+
+  /** Archer: keeps its ground and lofts a volley of arrows in an arc at a soldier, landing around them. */
+  private stepArcher(e: Enemy): void {
+    const c = E.archer;
+    const b = e.body;
+    b.vx = 0;
+    const target = this.nearestAlive(b.x, b.y - b.h / 2, c.sight);
+    if (target) {
+      b.facing = target.x >= b.x ? 1 : -1;
+      if (this.tick >= e.nextFire) {
+        e.nextFire = this.tick + this.fireEvery(c.volleyEvery);
+        e.atkStart = this.tick; // drawn: the bow drawn back
+        const lead = target.vx * 0.5;
+        for (let i = 0; i < c.arrows; i++) {
+          const tx = target.x + lead + (i - (c.arrows - 1) / 2) * 46;
+          this.lob(b.x + b.facing * 10, b.y - 30, tx, target.y - 6, 1.05 + i * 0.06, c.dmg, 'arrow', 0);
+        }
+      }
+    }
+    b.vy = Math.min(P.maxFallSpeed, b.vy + P.gravity * this.dt);
+    moveBody(this.world, b, this.dt);
+  }
+
+  /**
+   * War elephant: plods toward the squad; a soldier ahead on its level makes it trumpet (`burst` 1) and charge
+   * (`burst` 2) until well past them, against a wall or at a ledge, then it stands blowing (`burst` 0, `nextFire`).
+   */
+  private stepElephant(e: Enemy): void {
+    const c = E.elephant;
+    const b = e.body;
+    b.vx = 0;
+    const target = this.nearestAlive(b.x, b.y - b.h / 2, c.sight);
+    const t = this.tick - e.atkStart;
+    if (e.burst === 1) {
+      if (t >= this.ticks(c.windSec)) {
+        e.burst = 2;
+        e.atkStart = this.tick;
+      }
+    } else if (e.burst === 2) {
+      const ahead = b.x + b.facing * (b.w / 2 + 6);
+      const blocked =
+        solidAtPoint(this.world, ahead, b.y - 10) ||
+        !footingBelow(this.world, ahead, b.y) ||
+        t > this.ticks(c.chargeSec);
+      if (blocked || (b.facing > 0 ? b.x > e.leapX : b.x < e.leapX)) {
+        e.burst = 0;
+        e.nextFire = this.tick + this.ticks(c.restSec);
+      } else {
+        b.vx = b.facing * c.chargeSpeed;
+        for (const p of this.players.values())
+          if (
+            p.state === 'alive' &&
+            Math.abs(p.x - b.x) < b.w / 2 + 8 &&
+            p.y > b.y - b.h &&
+            p.y - P.height < b.y
+          ) {
+            if (this.tick >= p.invulnUntil && !this.dodging(p)) {
+              this.hurtPlayer(p, c.trample);
+              p.vx = b.facing * 420;
+              p.vy = -380;
+            }
+          }
+      }
+    } else if (target) {
+      const dx = target.x - b.x;
+      b.facing = dx >= 0 ? 1 : -1;
+      const level = Math.abs(target.y - b.y) < 40;
+      if (this.tick >= e.nextFire && level && Math.abs(dx) < c.sight) {
+        e.burst = 1;
+        e.atkStart = this.tick;
+        e.leapX = target.x + b.facing * 220;
+      } else if (Math.abs(dx) > 120 && footingBelow(this.world, b.x + b.facing * (b.w / 2 + 4), b.y))
+        b.vx = b.facing * c.speed;
+    }
+    b.vy = Math.min(P.maxFallSpeed, b.vy + P.gravity * this.dt);
+    moveBody(this.world, b, this.dt);
+  }
+
+  /** War drummer: beats its drum; each beat hurries every foe within reach into its next shot. */
+  private stepDrummer(e: Enemy): void {
+    const c = E.drummer;
+    const b = e.body;
+    b.vx = 0;
+    const target = this.nearestAlive(b.x, b.y - b.h / 2, c.sight);
+    if (target) {
+      b.facing = target.x >= b.x ? 1 : -1;
+      if (this.tick >= e.nextFire) {
+        e.nextFire = this.tick + this.ticks(c.beatEvery);
+        e.atkStart = this.tick;
+        for (const q of this.enemies.values()) {
+          if (q === e || isBoss(q.kind) || !q.awake) continue;
+          if (Math.abs(q.body.x - b.x) > c.reach || Math.abs(q.body.y - b.y) > c.reach) continue;
+          q.nextFire = Math.min(q.nextFire, this.tick + this.ticks(0.25));
+        }
+      }
+    }
+    b.vy = Math.min(P.maxFallSpeed, b.vy + P.gravity * this.dt);
+    moveBody(this.world, b, this.dt);
+  }
+
+  /**
+   * Maniyodha: keeps a bowshot away; a fan of arrows, an agnibaan arrow that bursts into fire running along the
+   * ground both ways, and a leaping sword cut at a soldier who comes too close. SAMARPANASTRA is the arena's rule
+   * (stepBossRule): while he calls it, nothing else.
+   */
+  private stepManiyodha(e: Enemy): void {
+    const c = E.maniyodha;
+    const b = e.body;
+    this.bossPhase(e, c.phase2);
+    const ph = e.phase;
+    const fin = this.level.arenas[e.arena];
+    const left = fin ? fin.left : b.x - 900;
+    const right = fin ? fin.right : b.x + 300;
+    const rest = (c.rest[ph - 1] ?? 1) as number;
+    const target = this.nearestAlive(b.x, b.y - 50, 2000);
+    b.vx = 0;
+    if (e.atk === ATTACK.none) {
+      if (target) {
+        const dx = target.x - b.x;
+        b.facing = dx >= 0 ? 1 : -1;
+        if (Math.abs(dx) > 420) b.vx = b.facing * c.speed;
+        else if (Math.abs(dx) < 200) b.vx = -b.facing * c.speed * 0.8;
+      }
+      if (this.tick >= e.nextAtk && target) {
+        const near = Math.abs(target.x - b.x) < 220;
+        const order =
+          ph === 1
+            ? [ATTACK.fan, ATTACK.agnibaan, ATTACK.fan]
+            : [ATTACK.fan, ATTACK.agnibaan, ATTACK.fan, ATTACK.agnibaan];
+        const atk = near ? ATTACK.cleave : (order[e.cycle % order.length] as AttackId);
+        if (!near) e.cycle++;
+        this.startAttack(e, atk);
+        if (atk === ATTACK.cleave) {
+          e.leapX = Math.max(left + 30, Math.min(right - 30, target.x));
+          e.mx = b.x;
+        }
+      }
+    } else {
+      const t = this.tick - e.atkStart;
+      const wind = this.ticks(ATTACK_WINDUP[e.atk] ?? 0.6);
+      switch (e.atk) {
+        case ATTACK.fan: {
+          const n = ph === 2 ? 2 : 1;
+          const gap = this.ticks(0.35);
+          if (t >= wind && (t - wind) % gap === 0 && (t - wind) / gap < n && target) {
+            const a0 = Math.atan2(target.y - 30 - (b.y - 60), target.x - b.x);
+            for (let i = -2; i <= 2; i++)
+              this.shoot(b.x + b.facing * 16, b.y - 60, a0 + i * 0.12, c.arrowDmg, {
+                kind: 'arrow',
+                speed: 420,
+                size: 3,
+                life: 2,
+              });
+          }
+          if (t >= wind + gap * n) this.endAttack(e, rest);
+          break;
+        }
+        case ATTACK.agnibaan: {
+          if (t === wind && target)
+            this.lob(b.x, b.y - 70, target.x, target.y - 4, 0.9, c.fireDmg, 'meteor', c.fireBlast);
+          // where it lands, fire runs along the ground both ways
+          if (t === wind + this.ticks(0.9) && target)
+            for (const dir of [-1, 1]) {
+              const w = this.shoot(target.x, target.y - 12, dir > 0 ? 0 : Math.PI, c.fireDmg * 0.7, {
+                kind: 'flame',
+                speed: 230,
+                size: 12,
+                life: 1.6,
+              });
+              w.vy = 0;
+            }
+          if (t >= wind + this.ticks(1.1)) this.endAttack(e, rest);
+          break;
+        }
+        case ATTACK.cleave: {
+          // a leap and a downward cut where the soldier stood
+          const air = this.ticks(0.55);
+          if (t >= wind && t < wind + air) {
+            const k = (t - wind) / air;
+            b.x = e.mx + (e.leapX - e.mx) * k;
+            b.y = e.homeY - Math.sin(k * Math.PI) * 120;
+          }
+          if (t === wind + air) {
+            b.x = e.leapX;
+            b.y = e.homeY;
+            this.emit({ e: 'boom', x: r1(b.x), y: r1(b.y - 10), r: 50 });
+            for (const p of this.players.values())
+              if (p.state === 'alive' && Math.abs(p.x - b.x) < 70 && Math.abs(p.y - b.y) < 60)
+                this.hurtPlayer(p, c.cleaveDmg);
+          }
+          if (t >= wind + air + this.ticks(0.4)) this.endAttack(e, rest);
+          break;
+        }
+        default:
+          this.endAttack(e, rest);
+      }
+    }
+    if (e.atk !== ATTACK.cleave) b.vy = Math.min(P.maxFallSpeed, b.vy + P.gravity * this.dt);
+    else b.vy = 0;
+    b.x = Math.max(left + b.w / 2, Math.min(right - b.w / 2, b.x));
+    if (e.atk !== ATTACK.cleave) moveBody(this.world, b, this.dt);
+  }
+
+  // ------------------------------------------------------------ Chakra Durg (saga stage 8)
+
+  /** The bhanwarvyuh closes behind the squad: its wall follows the rearmost soldier and never opens again. */
+  private stepVyuh(): void {
+    if (!this.level.vyuh || this.phase !== 'playing') return;
+    const alive = [...this.players.values()].filter((p) => p.state === 'alive');
+    if (!alive.length) return;
+    const rear = Math.min(...alive.map((p) => p.x));
+    this.vyuhX = Math.max(this.vyuhX, rear - GAME_CONFIG.vyuh.lag);
+    for (const p of alive)
+      if (p.x < this.vyuhX + p.w / 2) {
+        p.x = this.vyuhX + p.w / 2;
+        if (p.vx < 0) p.vx = 0;
+      }
+  }
+
+  /** Discus thrower: its disc flies out at a soldier and turns back to its hand (hitting on the way back too). */
+  private stepChakri(e: Enemy): void {
+    const c = E.chakri;
+    const b = e.body;
+    b.vx = 0;
+    const target = this.nearestAlive(b.x, b.y - b.h / 2, c.sight);
+    // its disc in flight: turn it home once it has flown out
+    const disc = e.atkParam ? this.bullets.find((q) => q.id === e.atkParam) : undefined;
+    if (disc) {
+      if (this.tick - e.atkStart >= this.ticks(c.outSec)) {
+        const a = Math.atan2(b.y - 26 - disc.y, b.x - disc.x);
+        const sp = Math.hypot(disc.vx, disc.vy);
+        disc.vx = Math.cos(a) * sp;
+        disc.vy = Math.sin(a) * sp;
+        if (Math.hypot(b.x - disc.x, b.y - 26 - disc.y) < 18) {
+          disc.expires = this.tick;
+          e.atkParam = 0;
+        }
+      }
+    } else e.atkParam = 0;
+    if (target) {
+      b.facing = target.x >= b.x ? 1 : -1;
+      if (!e.atkParam && this.tick >= e.nextFire) {
+        e.nextFire = this.tick + this.fireEvery(c.throwEvery);
+        e.atkStart = this.tick;
+        const a = Math.atan2(target.y - 22 - (b.y - 26), target.x - b.x);
+        const d = this.shoot(b.x + b.facing * 10, b.y - 26, a, c.dmg, {
+          kind: 'chakra',
+          speed: 330,
+          size: 8,
+          life: 3,
+        });
+        d.pierce = true;
+        e.atkParam = d.id;
+      }
+    }
+    b.vy = Math.min(P.maxFallSpeed, b.vy + P.gravity * this.dt);
+    moveBody(this.world, b, this.dt);
+  }
+
+  /** Maharathi: closes in, crouches (`burst` 1) and lunges through a soldier (`burst` 2). */
+  private stepRathi(e: Enemy): void {
+    const c = E.rathi;
+    const b = e.body;
+    b.vx = 0;
+    const target = this.nearestAlive(b.x, b.y - b.h / 2, c.sight);
+    const t = this.tick - e.atkStart;
+    if (e.burst === 1) {
+      if (t >= this.ticks(c.windSec)) {
+        e.burst = 2;
+        e.atkStart = this.tick;
+        e.my = 0; // nobody hit yet
+      }
+    } else if (e.burst === 2) {
+      const ahead = b.x + b.facing * (b.w / 2 + 4);
+      if (
+        t >= this.ticks(c.lungeSec) ||
+        solidAtPoint(this.world, ahead, b.y - 10) ||
+        !footingBelow(this.world, ahead, b.y)
+      ) {
+        e.burst = 0;
+        e.nextFire = this.tick + this.ticks(c.coolSec);
+      } else {
+        b.vx = b.facing * c.lungeSpeed;
+        for (const p of this.players.values())
+          if (p.state === 'alive' && !e.my && Math.abs(p.x - b.x) < 26 && Math.abs(p.y - b.y) < 44) {
+            this.hurtPlayer(p, c.dmg);
+            e.my = 1;
+          }
+      }
+    } else if (target) {
+      const dx = target.x - b.x;
+      b.facing = dx >= 0 ? 1 : -1;
+      if (this.tick >= e.nextFire && Math.abs(dx) < c.reach && Math.abs(target.y - b.y) < 40) {
+        e.burst = 1;
+        e.atkStart = this.tick;
+      } else if (Math.abs(dx) > 90 && footingBelow(this.world, b.x + b.facing * (b.w / 2 + 4), b.y))
+        b.vx = b.facing * c.speed;
+    }
+    b.vy = Math.min(P.maxFallSpeed, b.vy + P.gravity * this.dt);
+    moveBody(this.world, b, this.dt);
+  }
+
+  /** Net thrower: lobs a weighted net at a soldier; it slows whoever it lands on. */
+  private stepNetter(e: Enemy): void {
+    const c = E.netter;
+    const b = e.body;
+    b.vx = 0;
+    const target = this.nearestAlive(b.x, b.y - b.h / 2, c.sight);
+    if (target) {
+      b.facing = target.x >= b.x ? 1 : -1;
+      if (this.tick >= e.nextFire) {
+        e.nextFire = this.tick + this.fireEvery(c.throwEvery);
+        e.atkStart = this.tick;
+        this.lob(b.x, b.y - 30, target.x + target.vx * 0.5, target.y - 16, 0.95, c.dmg, 'net', 0);
+        const n = this.bullets[this.bullets.length - 1];
+        if (n) n.size = 14;
+      }
+    }
+    b.vy = Math.min(P.maxFallSpeed, b.vy + P.gravity * this.dt);
+    moveBody(this.world, b, this.dt);
+  }
+
+  /** A great discus covers the sun: Suryakavach's guard is down until `mx`, and the sun comes back after. */
+  private eclipse(e: Enemy): void {
+    const c = E.suryakavach;
+    if (this.tick < e.mx) return;
+    e.mx = this.tick + this.ticks(c.eclipseSec);
+    e.my = e.mx + this.ticks(c.sunSec);
+    this.emit({ e: 'boom', x: r1(e.body.x), y: r1(e.body.y - 120), r: 60 });
+  }
+
+  /**
+   * Suryakavach at the gate of the bhanwarvyuh: while the sun shines he cannot be hurt (his boon) and calls the
+   * maharathis; a mace blow sends a shock along the ground both ways, spears come down in an arc. Every `sunSec` the
+   * sun is covered for `eclipseSec` (`mx`: the eclipse lasts until then; `my`: the next one), and he is open.
+   */
+  private stepSuryakavach(e: Enemy): void {
+    const c = E.suryakavach;
+    const b = e.body;
+    this.bossPhase(e, c.phase2);
+    const ph = e.phase;
+    const fin = this.level.arenas[e.arena];
+    const left = fin ? fin.left : b.x - 900;
+    const front = b.x - b.w / 2;
+    const rest = (c.rest[ph - 1] ?? 1) as number;
+    if (e.my <= 0) e.my = this.tick + this.ticks(c.sunSec * 0.8);
+    if (this.tick >= e.my) this.eclipse(e);
+    const sun = this.tick >= e.mx;
+    b.facing = -1;
+    b.vx = 0;
+    const target = this.nearestAlive(b.x, b.y - 50, 2000);
+    if (e.atk === ATTACK.none) {
+      if (this.tick >= e.nextAtk && target) {
+        const order = sun
+          ? [ATTACK.mace, ATTACK.rathis, ATTACK.spears]
+          : ph === 1
+            ? [ATTACK.mace, ATTACK.spears]
+            : [ATTACK.spears, ATTACK.mace, ATTACK.spears];
+        this.startAttack(e, order[e.cycle % order.length] as AttackId);
+        e.cycle++;
+      }
+    } else {
+      const t = this.tick - e.atkStart;
+      const wind = this.ticks(ATTACK_WINDUP[e.atk] ?? 0.6);
+      switch (e.atk) {
+        case ATTACK.mace: {
+          if (t === wind) {
+            this.emit({ e: 'boom', x: r1(front - 10), y: r1(b.y - 6), r: 50 });
+            const w = this.shoot(front - 10, b.y - 12, Math.PI, c.maceDmg, {
+              kind: 'wave',
+              speed: ph === 2 ? 330 : 280,
+              size: 13,
+              life: 3.5,
+            });
+            w.vy = 0;
+          }
+          if (t >= wind + this.ticks(0.5)) this.endAttack(e, rest);
+          break;
+        }
+        case ATTACK.spears: {
+          if (t === wind && target) {
+            const n = ph === 2 ? 5 : 3;
+            for (let i = 0; i < n; i++) {
+              const x = Math.max(left + 30, target.x + (i - (n - 1) / 2) * 70);
+              this.lob(front, b.y - 90, x, b.y - 4, 0.9 + i * 0.08, c.spearDmg, 'arrow', c.spearBlast);
+            }
+          }
+          if (t >= wind + this.ticks(0.9)) this.endAttack(e, rest);
+          break;
+        }
+        case ATTACK.rathis: {
+          if (t === wind) {
+            let n = 0;
+            for (const q of this.enemies.values()) if (q.kind === 'rathi' && q.fromBoss) n++;
+            for (let i = n; i < 2; i++) this.spawnAwake('rathi', front - 120 - i * 160, b.y, e.arena, true);
+          }
+          if (t >= wind + this.ticks(0.4)) this.endAttack(e, rest);
+          break;
+        }
+        default:
+          this.endAttack(e, rest);
+      }
+    }
+    // rooted at the gate (and bodies are kept left of his front: he does not move himself)
+    b.vy = 0;
+  }
+
+  // ------------------------------------------------------------ Dwand Bhoomi (saga stage 9)
+
+  /** The wall at the back of a final arena (where the room really ends: past `right`, against the boss's wall). */
+  private arenaWall(a: ArenaDef): number {
+    for (let c = Math.floor(a.right / T); c < this.level.cols; c++)
+      if (tileAt(this.level, c, Math.floor(a.floor / T) - 1) !== Tile.Empty) return c * T;
+    return a.right;
+  }
+
+  /** The soldier a wrestler holds (seat + 1 in `atkParam`), if any. */
+  private heldBy(e: Enemy): Player | undefined {
+    if (!e.atkParam) return undefined;
+    for (const p of this.players.values()) if (p.slot + 1 === e.atkParam) return p;
+    return undefined;
+  }
+
+  /**
+   * Wrestler: closes in and grabs (`burst` 1): the soldier is held in its arms, squeezed, and after `holdSec` thrown
+   * back over its head; enough damage while it holds (`my` counts it) and it lets go.
+   */
+  private stepPehlwan(e: Enemy): void {
+    const c = E.pehlwan;
+    const b = e.body;
+    b.vx = 0;
+    if (e.burst === 1) {
+      const p = this.heldBy(e);
+      const t = this.tick - e.atkStart;
+      if (!p || p.state !== 'alive' || e.hp <= e.my - c.breakDmg) {
+        e.burst = 0;
+        e.atkParam = 0;
+        e.nextFire = this.tick + this.ticks(c.coolSec);
+      } else if (t >= this.ticks(c.holdSec)) {
+        p.vx = -b.facing * 380;
+        p.vy = -460;
+        p.onGround = false;
+        e.burst = 0;
+        e.atkParam = 0;
+        e.nextFire = this.tick + this.ticks(c.coolSec);
+      } else {
+        p.x = b.x + b.facing * 16;
+        p.y = b.y - 6;
+        p.vx = p.vy = 0;
+        if (t % this.ticks(0.25) === 0) {
+          p.invulnUntil = Math.min(p.invulnUntil, this.tick);
+          this.hurtPlayer(p, c.squeeze);
+        }
+      }
+    } else {
+      const target = this.nearestAlive(b.x, b.y - b.h / 2, c.sight);
+      if (target) {
+        const dx = target.x - b.x;
+        b.facing = dx >= 0 ? 1 : -1;
+        const held = [...this.enemies.values()].some(
+          (q) => q.kind === 'pehlwan' && q.burst === 1 && q.atkParam === target.slot + 1,
+        );
+        if (
+          this.tick >= e.nextFire &&
+          Math.abs(dx) < 30 &&
+          Math.abs(target.y - b.y) < 30 &&
+          !held &&
+          !this.dodging(target) &&
+          this.tick >= target.invulnUntil
+        ) {
+          e.burst = 1;
+          e.atkStart = this.tick;
+          e.atkParam = target.slot + 1;
+          e.my = e.hp;
+        } else if (Math.abs(dx) > 20 && footingBelow(this.world, b.x + b.facing * (b.w / 2 + 4), b.y))
+          b.vx = b.facing * c.speed;
+      }
+    }
+    b.vy = Math.min(P.maxFallSpeed, b.vy + P.gravity * this.dt);
+    moveBody(this.world, b, this.dt);
+  }
+
+  /** Mace spinner: walks in, spins toward a soldier (`burst` 1: shots glance off), then stands dizzy (`burst` 2). */
+  private stepGadadhar(e: Enemy): void {
+    const c = E.gadadhar;
+    const b = e.body;
+    b.vx = 0;
+    const t = this.tick - e.atkStart;
+    const target = this.nearestAlive(b.x, b.y - b.h / 2, c.sight);
+    if (e.burst === 1) {
+      if (t >= this.ticks(c.spinSec)) {
+        e.burst = 2;
+        e.atkStart = this.tick;
+      } else if (target) {
+        b.facing = target.x >= b.x ? 1 : -1;
+        if (footingBelow(this.world, b.x + b.facing * (b.w / 2 + 4), b.y)) b.vx = b.facing * c.spinSpeed;
+      }
+    } else if (e.burst === 2) {
+      if (t >= this.ticks(c.dizzySec)) {
+        e.burst = 0;
+        e.nextFire = this.tick + this.ticks(1.2);
+      }
+    } else if (target) {
+      const dx = target.x - b.x;
+      b.facing = dx >= 0 ? 1 : -1;
+      if (this.tick >= e.nextFire && Math.abs(dx) < c.reach && Math.abs(target.y - b.y) < 50) {
+        e.burst = 1;
+        e.atkStart = this.tick;
+      } else if (Math.abs(dx) > 60 && footingBelow(this.world, b.x + b.facing * (b.w / 2 + 4), b.y))
+        b.vx = b.facing * c.speed;
+    }
+    b.vy = Math.min(P.maxFallSpeed, b.vy + P.gravity * this.dt);
+    moveBody(this.world, b, this.dt);
+  }
+
+  /** Slinger: whirls its sling and lets fly a stone that lands with a small blast. */
+  private stepSlinger(e: Enemy): void {
+    const c = E.slinger;
+    const b = e.body;
+    b.vx = 0;
+    const target = this.nearestAlive(b.x, b.y - b.h / 2, c.sight);
+    if (target) {
+      b.facing = target.x >= b.x ? 1 : -1;
+      if (this.tick >= e.nextFire) {
+        e.nextFire = this.tick + this.fireEvery(c.throwEvery);
+        e.atkStart = this.tick;
+        this.lob(b.x, b.y - 34, target.x + target.vx * 0.4, target.y - 4, 0.85, c.dmg, 'bomb', c.blast);
+      }
+    }
+    b.vy = Math.min(P.maxFallSpeed, b.vy + P.gravity * this.dt);
+    moveBody(this.world, b, this.dt);
+  }
+
+  /** One half of Jodasur (`atkParam`: -1 left half, 1 right half) crawls toward the other. */
+  private stepArdh(e: Enemy): void {
+    const c = E.ardh;
+    const b = e.body;
+    b.vx = 0;
+    let other: Enemy | undefined;
+    for (const q of this.enemies.values()) if (q.kind === 'ardh' && q !== e) other = q;
+    if (other) {
+      const dx = other.body.x - b.x;
+      b.facing = dx >= 0 ? 1 : -1;
+      // the longer they are kept apart, the wearier their crawl (a stand-off always ends)
+      const weary = Math.min(0.75, (this.tick - e.atkStart) / this.ticks(40));
+      if (Math.abs(dx) > 4 && this.tick >= e.nextFire) b.vx = b.facing * c.speed * (1 - weary);
+    }
+    b.vy = Math.min(P.maxFallSpeed, b.vy + P.gravity * this.dt);
+    moveBody(this.world, b, this.dt);
+  }
+
+  /** Jodasur falls and splits in two: the halves appear either side of where he stood. */
+  private splitJodasur(e: Enemy): void {
+    const b = e.body;
+    const fin = this.level.arenas[e.arena];
+    e.hp = 0.001;
+    e.burst = 1;
+    e.atk = ATTACK.none;
+    const mid = fin ? Math.max(fin.left + 120, Math.min(this.arenaWall(fin) - 120, b.x)) : b.x;
+    b.x = mid;
+    for (const side of [-1, 1]) {
+      const h = this.spawnAwake('ardh', mid + side * 90, b.y, e.arena, true);
+      h.atkParam = side;
+      h.atkStart = this.tick;
+      h.body.facing = -side as 1 | -1;
+    }
+    this.emit({ e: 'boom', x: r1(mid), y: r1(b.y - 60), r: 70 });
+  }
+
+  /**
+   * Jodasur: hurls boulders, pounces (a shock along the ground where he lands), charges like a bull. Brought down,
+   * he splits (`burst` 1) and the halves crawl together: if they meet he stands again with `rejoin` of his health;
+   * if they are pushed `apart` from each other they burn, and he is done.
+   */
+  private stepJodasur(e: Enemy): void {
+    const c = E.jodasur;
+    const b = e.body;
+    const fin = this.level.arenas[e.arena];
+    const left = fin ? fin.left : b.x - 900;
+    const right = fin ? this.arenaWall(fin) : b.x + 300;
+    if (e.burst === 1) {
+      const halves = [...this.enemies.values()].filter((q) => q.kind === 'ardh');
+      const [h1, h2] = halves;
+      if (!h1 || !h2) {
+        e.burst = 0;
+        e.hp = e.maxHp * c.rejoin;
+        return;
+      }
+      const d = Math.abs(h1.body.x - h2.body.x);
+      if (d < 26) {
+        // joined again
+        for (const h of halves) this.enemies.delete(h.id);
+        b.x = (h1.body.x + h2.body.x) / 2;
+        e.burst = 0;
+        e.hp = e.maxHp * c.rejoin;
+        e.nextAtk = this.tick + this.ticks(1);
+        this.emit({ e: 'boom', x: r1(b.x), y: r1(b.y - 60), r: 60 });
+      } else if (d >= c.apart) {
+        // thrown apart: they burn, and he is finished
+        for (const h of halves) {
+          this.emit({ e: 'boom', x: r1(h.body.x), y: r1(h.body.y - 30), r: 60 });
+          this.enemies.delete(h.id);
+        }
+        e.burst = 2;
+        e.hp = 0.001;
+        this.damageEnemy(e, 1, '', b.x, b.y - 50, 'astra');
+      }
+      return;
+    }
+    this.bossPhase(e, c.phase2);
+    const ph = e.phase;
+    const rest = (c.rest[Math.min(2, ph) - 1] ?? 1) as number;
+    const target = this.nearestAlive(b.x, b.y - 50, 2000);
+    b.vx = 0;
+    if (e.atk === ATTACK.none) {
+      if (target) {
+        const dx = target.x - b.x;
+        b.facing = dx >= 0 ? 1 : -1;
+        if (Math.abs(dx) > 260) b.vx = b.facing * c.speed;
+      }
+      if (this.tick >= e.nextAtk && target) {
+        const order =
+          ph === 1
+            ? [ATTACK.hurl, ATTACK.pounce, ATTACK.bull]
+            : [ATTACK.pounce, ATTACK.bull, ATTACK.hurl, ATTACK.pounce];
+        this.startAttack(e, order[e.cycle % order.length] as AttackId);
+        e.cycle++;
+        e.mx = b.x;
+        e.leapX = Math.max(left + 40, Math.min(right - 40, target.x));
+      }
+    } else {
+      const t = this.tick - e.atkStart;
+      const wind = this.ticks(ATTACK_WINDUP[e.atk] ?? 0.6);
+      switch (e.atk) {
+        case ATTACK.hurl: {
+          if (t === wind && target) {
+            const n = ph === 2 ? 3 : 2;
+            for (let i = 0; i < n; i++)
+              this.lob(
+                b.x,
+                b.y - 100,
+                target.x + (i - (n - 1) / 2) * 80,
+                target.y - 4,
+                1 + i * 0.12,
+                c.hurlDmg,
+                'bomb',
+                c.hurlBlast,
+              );
+          }
+          if (t >= wind + this.ticks(1)) this.endAttack(e, rest);
+          break;
+        }
+        case ATTACK.pounce: {
+          const air = this.ticks(0.7);
+          if (t >= wind && t < wind + air) {
+            const k = (t - wind) / air;
+            b.x = e.mx + (e.leapX - e.mx) * k;
+            b.y = e.homeY - Math.sin(k * Math.PI) * 160;
+          }
+          if (t === wind + air) {
+            b.x = e.leapX;
+            b.y = e.homeY;
+            this.emit({ e: 'boom', x: r1(b.x), y: r1(b.y - 6), r: 60 });
+            for (const p of this.players.values())
+              if (p.state === 'alive' && Math.abs(p.x - b.x) < 80 && Math.abs(p.y - b.y) < 50)
+                this.hurtPlayer(p, c.pounceDmg);
+            for (const dir of [-1, 1]) {
+              const w = this.shoot(b.x + dir * 30, b.y - 12, dir > 0 ? 0 : Math.PI, c.pounceDmg * 0.6, {
+                kind: 'wave',
+                speed: 260,
+                size: 12,
+                life: 1.6,
+              });
+              w.vy = 0;
+            }
+          }
+          if (t >= wind + air + this.ticks(0.5)) this.endAttack(e, rest);
+          break;
+        }
+        case ATTACK.bull: {
+          if (t >= wind) {
+            const dir = Math.sign(e.leapX - e.mx) || b.facing;
+            b.facing = dir as 1 | -1;
+            b.vx = dir * c.bullSpeed;
+            for (const p of this.players.values())
+              if (
+                p.state === 'alive' &&
+                Math.abs(p.x - b.x) < b.w / 2 + 10 &&
+                Math.abs(p.y - b.y) < 60 &&
+                this.tick >= p.invulnUntil &&
+                !this.dodging(p)
+              ) {
+                this.hurtPlayer(p, c.bullDmg);
+                p.vx = dir * 420;
+                p.vy = -360;
+              }
+            const atWall = (dir > 0 && b.x >= right - b.w / 2 - 4) || (dir < 0 && b.x <= left + b.w / 2 + 4);
+            if (atWall || t > wind + this.ticks(1.6)) {
+              this.emit({ e: 'boom', x: r1(b.x + dir * 30), y: r1(b.y - 40), r: 40 });
+              this.endAttack(e, rest + 0.4);
+            }
+          }
+          break;
+        }
+        default:
+          this.endAttack(e, rest);
+      }
+    }
+    const flying =
+      e.atk === ATTACK.pounce && this.tick - e.atkStart >= this.ticks(ATTACK_WINDUP[ATTACK.pounce] ?? 0.6);
+    if (flying) b.vy = 0;
+    else {
+      b.vy = Math.min(P.maxFallSpeed, b.vy + P.gravity * this.dt);
+      b.x = Math.max(left + b.w / 2, Math.min(right - b.w / 2, b.x));
+      moveBody(this.world, b, this.dt);
+    }
+  }
+
+  // ------------------------------------------------------------ Suvarna (saga stage 10)
+
+  /**
+   * Meghbaan in the clouds: every few seconds a mark on the ground under a soldier (`ij` in the snapshot), and a
+   * moment later a rain of arrows round it. Never at a rest stop or in the final arena.
+   */
+  private stepMegh(): void {
+    if (!this.level.megh || this.phase !== 'playing') return;
+    const C = GAME_CONFIG.megh;
+    if (this.meghNext === 0) this.meghNext = this.tick + this.ticks(C.everySec);
+    if (this.meghAt && this.tick === this.meghAt) {
+      for (let i = 0; i < C.arrows; i++) {
+        const x = this.meghX + this.rng.range(-C.spread, C.spread);
+        const y = this.meghY - 420 - i * 40;
+        const a = Math.atan2(420, this.rng.range(-40, 40));
+        const b = this.shoot(x - Math.cos(a) * 0, y, a, C.dmg, {
+          kind: 'arrow',
+          speed: 520,
+          size: 3,
+          life: 2,
+        });
+        b.vx = (this.meghX + this.rng.range(-C.spread, C.spread) - x) * 0.4;
+      }
+      this.meghAt = 0;
+    }
+    if (this.tick < this.meghNext) return;
+    this.meghNext = this.tick + this.ticks(C.everySec + this.rng.range(-C.jitterSec, C.jitterSec));
+    if (this.activeArena() >= 0) return;
+    const alive = [...this.players.values()].filter((p) => p.state === 'alive' && p.onGround);
+    if (!alive.length) return;
+    const p = alive[this.rng.int(alive.length)] as Player;
+    if (this.level.rests.some((r) => p.x > r.x0 - 2 * T && p.x < r.x1 + 2 * T)) return;
+    this.meghX = p.x + p.vx * 0.6;
+    this.meghY = p.y;
+    this.meghAt = this.tick + this.ticks(C.warnSec);
+  }
+
+  /** Torch thrower: lobs a pot of burning oil that bursts where it lands. */
+  private stepMashaal(e: Enemy): void {
+    const c = E.mashaal;
+    const b = e.body;
+    b.vx = 0;
+    const target = this.nearestAlive(b.x, b.y - b.h / 2, c.sight);
+    if (target) {
+      b.facing = target.x >= b.x ? 1 : -1;
+      if (this.tick >= e.nextFire) {
+        e.nextFire = this.tick + this.fireEvery(c.throwEvery);
+        e.atkStart = this.tick;
+        this.lob(b.x, b.y - 34, target.x + target.vx * 0.5, target.y - 4, 0.95, c.dmg, 'meteor', c.blast);
+      }
+    }
+    b.vy = Math.min(P.maxFallSpeed, b.vy + P.gravity * this.dt);
+    moveBody(this.world, b, this.dt);
+  }
+
+  /**
+   * Meghbaan's warrior of illusion: drifts unseen high over a soldier; every `shootEvery` it shows itself
+   * (`mx`: shown until then) and looses three arrows down at them.
+   */
+  private stepMayavi(e: Enemy): void {
+    const c = E.mayavi;
+    const b = e.body;
+    const target = this.nearestAlive(b.x, b.y, c.sight);
+    if (!target) return;
+    const tx = target.x + Math.sin(this.tick / 40 + e.id) * 160;
+    const ty = Math.min(e.homeY, target.y - 150);
+    const dx = tx - b.x;
+    const dy = ty - b.y;
+    const d = Math.hypot(dx, dy) || 1;
+    const sp = Math.min(c.speed, d * 2);
+    b.x += (dx / d) * sp * this.dt;
+    b.y += (dy / d) * sp * this.dt;
+    b.facing = target.x >= b.x ? 1 : -1;
+    if (this.tick >= e.nextFire) {
+      e.nextFire = this.tick + this.fireEvery(c.shootEvery);
+      e.mx = this.tick + this.ticks(c.showSec);
+      const a = Math.atan2(target.y - 20 - b.y, target.x - b.x);
+      for (const k of [-0.15, 0, 0.15])
+        this.shoot(b.x, b.y, a + k, c.dmg, { kind: 'arrow', speed: 330, size: 3, life: 2.4 });
+    }
+  }
+
+  /**
+   * Nidrasur asleep: gunfire near him (`my` counts it, and it fades) wakes him (`burst` 1): he rolls at the
+   * nearest soldier for `rampageSec`, crushing whoever he rolls over, then falls asleep where he stops.
+   */
+  private stepNidrasur(e: Enemy): void {
+    const c = E.nidrasur;
+    const b = e.body;
+    b.vx = 0;
+    if (e.burst === 1) {
+      const target = this.nearestAlive(b.x, b.y - b.h / 2, c.sight);
+      if (target) b.facing = target.x >= b.x ? 1 : -1;
+      const ahead = b.x + b.facing * (b.w / 2 + 4);
+      if (footingBelow(this.world, ahead, b.y) && !solidAtPoint(this.world, ahead, b.y - 10))
+        b.vx = b.facing * c.rollSpeed;
+      for (const p of this.players.values())
+        if (
+          p.state === 'alive' &&
+          Math.abs(p.x - b.x) < b.w / 2 &&
+          p.y > b.y - b.h &&
+          this.tick >= p.invulnUntil &&
+          p.lastHurt < e.atkStart // (once each time he wakes)
+        ) {
+          this.hurtPlayer(p, c.dmg);
+          p.vx = b.facing * 380;
+          p.vy = -420;
+        }
+      if (this.tick - e.atkStart >= this.ticks(c.rampageSec)) {
+        e.burst = 0;
+        e.my = 0;
+      }
+    } else {
+      let noise = false;
+      for (const p of this.players.values())
+        if (p.state === 'alive' && p.input.fire && Math.abs(p.x - b.x) < c.hears + b.w / 2) noise = true;
+      e.my = noise ? e.my + 1 : Math.max(0, e.my - 0.25);
+      if (e.my >= c.wakeAt) {
+        e.burst = 1;
+        e.atkStart = this.tick;
+        this.emit({ e: 'boom', x: r1(b.x), y: r1(b.y - b.h), r: 50 });
+      }
+    }
+    b.vy = Math.min(P.maxFallSpeed, b.vy + P.gravity * this.dt);
+    moveBody(this.world, b, this.dt);
+  }
+
+  /**
+   * Saptashir, seven-headed, before his throne: fire from his seven mouths in a fan, Moonblade' cut sending a blade of
+   * light along the ground, burning stones from the sky. His heads (`my`, cut ones grow back every `regrowSec`,
+   * `atkParam`: when the last cut or regrowth was) take the blows; PRALAY is the arena's rule.
+   */
+  private stepSaptashir(e: Enemy): void {
+    const c = E.saptashir;
+    const b = e.body;
+    this.bossPhase(e, c.phase2);
+    const ph = e.phase;
+    const fin = this.level.arenas[e.arena];
+    const left = fin ? fin.left : b.x - 900;
+    const front = b.x - b.w / 2;
+    const rest = (c.rest[ph - 1] ?? 1) as number;
+    b.facing = -1;
+    b.vx = 0;
+    b.vy = 0;
+    if (e.my < c.heads && this.tick - e.atkParam >= this.ticks((c.regrowSec[ph - 1] ?? 1.2) as number)) {
+      e.my++;
+      e.atkParam = this.tick;
+      if (e.my === 1) e.leapX = 0;
+    }
+    const target = this.nearestAlive(b.x, b.y - 80, 2000);
+    if (e.atk === ATTACK.none) {
+      if (this.tick >= e.nextAtk && target) {
+        const order =
+          ph === 1
+            ? [ATTACK.tenfire, ATTACK.moonblade, ATTACK.meteors]
+            : [ATTACK.tenfire, ATTACK.meteors, ATTACK.moonblade, ATTACK.tenfire];
+        e.atk = order[e.cycle % order.length] as AttackId;
+        e.atkStart = this.tick;
+        e.cycle++;
+      }
+      return;
+    }
+    const t = this.tick - e.atkStart;
+    const wind = this.ticks(ATTACK_WINDUP[e.atk] ?? 0.6);
+    switch (e.atk) {
+      case ATTACK.tenfire: {
+        if (t === wind && target) {
+          // one tongue of fire from each head still on his shoulders
+          const n = Math.max(2, e.my);
+          for (let i = 0; i < n; i++) {
+            const hx = b.x - 54 + i * 18;
+            const a = Math.atan2(target.y - 20 - (b.y - 200), target.x - hx) + (i - (n - 1) / 2) * 0.07;
+            this.shoot(hx, b.y - 200, a, c.fireDmg, { kind: 'flame', speed: 300, size: 7, life: 2.6 });
+          }
+        }
+        if (t >= wind + this.ticks(0.5)) this.endAttack(e, rest);
+        break;
+      }
+      case ATTACK.moonblade: {
+        if (t === wind) {
+          const w = this.shoot(front - 10, b.y - 14, Math.PI, c.swordDmg, {
+            kind: 'wave',
+            speed: ph === 2 ? 360 : 300,
+            size: 14,
+            life: 3.5,
+          });
+          w.vy = 0;
+          if (ph === 2) {
+            const w2 = this.shoot(front - 10, b.y - 64, Math.PI, c.swordDmg, {
+              kind: 'wave',
+              speed: 300,
+              size: 12,
+              life: 3.5,
+            });
+            w2.vy = 0;
+          }
+        }
+        if (t >= wind + this.ticks(0.6)) this.endAttack(e, rest);
+        break;
+      }
+      case ATTACK.meteors: {
+        if (t === wind && target) {
+          const n = ph === 2 ? 6 : 4;
+          for (let i = 0; i < n; i++) {
+            const x = Math.max(left + 30, Math.min(front - 30, target.x + (i - (n - 1) / 2) * 90));
+            this.lob(b.x, b.y - 240, x, b.y - 4, 1.1 + i * 0.1, c.meteorDmg, 'meteor', c.meteorBlast);
+          }
+        }
+        if (t >= wind + this.ticks(1)) this.endAttack(e, rest);
+        break;
+      }
+      default:
+        this.endAttack(e, rest);
+    }
   }
 
   private stepTurret(e: Enemy): void {
@@ -1578,12 +4244,17 @@ export class Sim {
   castPoint(e: Enemy): { x: number; y: number } {
     const b = e.body;
     if (e.kind === 'boss') return { x: b.x - b.w / 2 - 10, y: b.y - 170 };
+    if (e.kind === 'vriksha') return { x: b.x - b.w / 2 + 20, y: b.y - 150 };
+    if (e.kind === 'chhaya') return { x: b.x - b.w / 2 + 30, y: b.y - 200 };
+    if (e.kind === 'aandhi') return { x: b.x - 10, y: b.y - 110 };
+    if (e.kind === 'vishdhar') return { x: b.x - b.w / 2 + 20, y: b.y - 180 };
+    if (e.kind === 'darpan') return { x: b.x - b.w / 2 + 10, y: b.y - 140 };
     if (e.kind === 'gunship') return { x: b.x + b.facing * 60, y: b.y + 10 };
     return { x: b.x + b.facing * 54, y: b.y - 88 };
   }
 
   /**
-   * A boss's own astras. Returns true while it is busy with one (calling it, its narayanastra storm, or stunned
+   * A boss's own astras. Returns true while it is busy with one (calling it, its samarpanastra storm, or stunned
    * afterwards), which pauses its normal attacks: every call has a clear wind-up and nothing else lands meanwhile.
    */
   private stepBossRule(e: Enemy): boolean {
@@ -1597,20 +4268,19 @@ export class Sim {
       const frac = e.hp / e.maxHp;
       let next: BossRule | null = null;
       if (
-        has('narayana') &&
-        ((r.narCalls === 0 && this.tick >= r.nextNar) || (r.narCalls === 1 && frac < BA.narayana.secondBelow))
+        has('samarpan') &&
+        ((r.narCalls === 0 && this.tick >= r.nextNar) || (r.narCalls === 1 && frac < BA.samarpan.secondBelow))
       )
-        next = 'narayana';
-      else if (has('brahmashirsha') && frac < BA.brahmashirsha.firstBelow && this.tick >= r.nextShirsha)
-        next = 'brahmashirsha';
-      else if (has('vaishnava') && this.tick >= r.nextOrb && !this.bullets.some((b) => b.kind === 'orb'))
-        next = 'vaishnava';
+        next = 'samarpan';
+      else if (has('pralay') && frac < BA.pralay.firstBelow && this.tick >= r.nextShirsha) next = 'pralay';
+      else if (has('tej') && this.tick >= r.nextOrb && !this.bullets.some((b) => b.kind === 'orb'))
+        next = 'tej';
       else if (has('naga') && this.tick >= r.nextNaga) next = 'naga';
       if (!next) return false;
       r.kind = next;
       r.start = this.tick;
       r.storm = false;
-      if (next === 'narayana') {
+      if (next === 'samarpan') {
         r.narCalls++;
         this.resist.clear();
       }
@@ -1645,8 +4315,8 @@ export class Sim {
         r.nextNaga = this.tick + this.ruleTicks(N.everySec);
         return false;
       }
-      case 'vaishnava': {
-        const V = BA.vaishnava;
+      case 'tej': {
+        const V = BA.tej;
         if (t < this.ticks(V.windupSec)) return true;
         release();
         const target = this.nearestAlive(c.x, c.y, 1600);
@@ -1664,15 +4334,15 @@ export class Sim {
         r.nextOrb = this.tick + this.ruleTicks(V.everySec);
         return false;
       }
-      case 'narayana': {
-        const N = BA.narayana;
+      case 'samarpan': {
+        const N = BA.samarpan;
         const wind = this.ticks(N.windupSec);
         if (t < wind) return true;
         if (t === wind) {
           if (r.narCalls >= 2 && r.narPerfect) {
             // Called a second time after a storm nobody fought: it rebounds on its caller.
             r.kind = null;
-            this.emit({ e: 'bossAstra', kind: 'narayana', phase: 3, x: r1(c.x), y: r1(c.y) });
+            this.emit({ e: 'bossAstra', kind: 'samarpan', phase: 3, x: r1(c.x), y: r1(c.y) });
             r.stunUntil = r.spentUntil = this.tick + this.ticks(N.spentSec);
             this.damageEnemy(e, e.maxHp * N.reboundShare, '', e.body.x, e.body.y - e.body.h / 2, 'astra');
             return true;
@@ -1708,13 +4378,13 @@ export class Sim {
         r.kind = null;
         r.storm = false;
         r.stunUntil = r.spentUntil = this.tick + this.ticks(N.spentSec);
-        this.emit({ e: 'bossAstra', kind: 'narayana', phase: 4, x: r1(c.x), y: r1(c.y) });
+        this.emit({ e: 'bossAstra', kind: 'samarpan', phase: 4, x: r1(c.x), y: r1(c.y) });
         return true;
       }
-      case 'brahmashirsha': {
-        const B = BA.brahmashirsha;
+      case 'pralay': {
+        const B = BA.pralay;
         if (t < this.ticks(B.windupSec)) return true;
-        // Nobody answered it with the brahmastra: it lands on everyone not dodging, and (it cannot be called
+        // Nobody answered it with the paramastra: it lands on everyone not dodging, and (it cannot be called
         // back) scorches its caller too.
         release();
         r.kind = null;
@@ -1727,9 +4397,9 @@ export class Sim {
     return false;
   }
 
-  /** Narayanastra: arrows per volley at this soldier (0 while they have not fought the storm at all). */
+  /** Samarpanastra: arrows per volley at this soldier (0 while they have not fought the storm at all). */
   arrowsFor(p: Player): number {
-    const N = GAME_CONFIG.bossAstra.narayana;
+    const N = GAME_CONFIG.bossAstra.samarpan;
     const r = this.resist.get(p.id) ?? 0;
     if (r === 0) return 0;
     return Math.min(N.maxArrows, N.base + Math.floor(r / this.ticks(N.resistStepSec)));
@@ -1743,14 +4413,14 @@ export class Sim {
     return null;
   }
 
-  /** A boss charging its brahmashirsha (the squad's brahmastra answers it). */
+  /** A boss charging its pralay (the squad's paramastra answers it). */
   private shirshaCharging(): Enemy[] {
     const out: Enemy[] = [];
-    for (const e of this.enemies.values()) if (e.rule?.kind === 'brahmashirsha') out.push(e);
+    for (const e of this.enemies.values()) if (e.rule?.kind === 'pralay') out.push(e);
     return out;
   }
 
-  /** Enemy shots any shield, gust, parry or black hole can stop: everything but a vaishnava orb and arrows. */
+  /** Enemy shots any shield, gust, parry or black hole can stop: everything but a tej orb and arrows. */
   private clearable(b: Bullet): boolean {
     return b.enemy && b.kind !== 'orb' && b.kind !== 'arrow';
   }
@@ -1788,7 +4458,7 @@ export class Sim {
 
   /** Where an enemy was `lag` ticks ago (falls back to now when that is not recorded). */
   enemyPastPosition(e: Enemy, lag: number): { x: number; y: number } {
-    if (lag <= 0 || e.kind === 'turret' || e.kind === 'boss') return { x: e.body.x, y: e.body.y };
+    if (lag <= 0 || e.kind === 'turret' || isFixedBoss(e.kind)) return { x: e.body.x, y: e.body.y };
     const t = this.tick - lag;
     if (t < 0) return { x: e.body.x, y: e.body.y };
     const slot = (t % HIST) * 2;
@@ -1811,11 +4481,19 @@ export class Sim {
       }
       return;
     }
+    this.stepPlats();
     this.stepPlayers();
     this.stepPending();
     this.stepArenas();
     this.stepRests();
     this.stepHazard();
+    this.stepSurprises();
+    this.stepGoal();
+    this.stepChase();
+    this.stepGusts();
+    this.stepLava();
+    this.stepVyuh();
+    this.stepMegh();
     this.stepEnemies();
     this.stepPowers();
     this.recordHistory();
@@ -1841,7 +4519,31 @@ export class Sim {
       }
       const wasSliding = p.slideTicks > 0;
       const wasDashing = p.dashTicks > 0;
+      const fromX = p.x;
       stepPlayerMovement(this.world, p, p.input, this.dt);
+      // wading in the sea: slower
+      const wy = this.waterY();
+      if (wy !== null && p.y > wy + 6) p.x = fromX + (p.x - fromX) * GAME_CONFIG.sea.waterSlow;
+      // caught in a net: slowed
+      if (this.tick < p.netUntil) p.x = fromX + (p.x - fromX) * E.netter.slow;
+      // the akhada's mud
+      if (this.level.fields.length && fieldAt(this.level, p.x, p.y - 4)?.kind === 'mud')
+        p.x = fromX + (p.x - fromX) * GAME_CONFIG.mud.slow;
+      // the turning rings of the bhanwarvyuh carry whoever stands in them
+      if (p.onGround && this.level.fields.length) {
+        const f = fieldAt(this.level, p.x, p.y - 4);
+        if (f?.kind === 'belt') {
+          const nx = p.x + f.power * this.dt;
+          const edge = nx + Math.sign(f.power) * (p.w / 2 + 1);
+          if (!solidAtPoint(this.world, edge, p.y - 6) && !solidAtPoint(this.world, edge, p.y - 30)) p.x = nx;
+        }
+      }
+      this.gustPush(p);
+      // standing in a pool of poison (Naag Lok)
+      if (this.level.fields.length && this.tick % 10 === 0) {
+        const f = fieldAt(this.level, p.x, p.y - 4);
+        if (f?.kind === 'poison') this.hurtPlayer(p, (f.power * 10) / this.tickRate);
+      }
       if (!wasDashing && p.dashTicks > 0)
         p.dodgeUntil = this.tick + p.dashTicks + this.ticks(P.dash.iframeSec + heroPerk(p.hero).dodgeSec);
       if (!wasSliding || p.slideTicks === 0) p.slideHits.clear();
@@ -1921,6 +4623,7 @@ export class Sim {
       const a = w.pellets === 1 ? base : base + (i / (w.pellets - 1) - 0.5) * w.spreadRad;
       const pierce = w.pierce || od;
       this.bullets.push({
+        oy: p.y,
         id: this.nextBulletId++,
         enemy: false,
         owner: p.id,
@@ -2127,13 +4830,13 @@ export class Sim {
     return isBoss(e.kind) ? dmg * U.bossFactor : dmg;
   }
 
-  // ------------------------------------------------------------ powers (astras) and the team brahmastra
+  // ------------------------------------------------------------ powers (astras) and the team paramastra
 
-  /** The ASTRA button: use the held power, or (with none) the team brahmastra once it is charged. */
+  /** The ASTRA button: use the held power, or (with none) the team paramastra once it is charged. */
   private useAstra(p: Player): void {
     const PW = GAME_CONFIG.powers;
-    // A boss is charging its brahmashirsha: the button answers it with the brahmastra first, if it is ready.
-    const answer = this.brahma >= PW.brahma.max && !this.brahmaStrike && this.shirshaCharging().length > 0;
+    // A boss is charging its pralay: the button answers it with the paramastra first, if it is ready.
+    const answer = this.param >= PW.param.max && !this.paramStrike && this.shirshaCharging().length > 0;
     if (p.power && p.powerN > 0 && !answer) {
       const kind = p.power;
       p.powerN--;
@@ -2141,8 +4844,8 @@ export class Sim {
       const f = p.facing;
       const fy = p.y;
       let v: number | undefined;
-      if (kind === 'pashupata') v = this.rng.int(3);
-      else if (kind === 'vaishnava') v = this.reflectableOrbs(p).length ? 1 : 0;
+      if (kind === 'vidyut') v = this.rng.int(3);
+      else if (kind === 'tej') v = this.reflectableOrbs(p).length ? 1 : 0;
       this.emit({ e: 'astra', id: p.id, kind, x: r1(p.x), y: r1(fy), f, ...(v === undefined ? {} : { v }) });
       switch (kind) {
         case 'agni': {
@@ -2184,9 +4887,9 @@ export class Sim {
           });
           break;
         }
-        case 'varuna': {
+        case 'jal': {
           // Rain over the way ahead: fire walls go out, burning ground cools, foes caught in it are hurt.
-          const v = PW.varuna;
+          const v = PW.jal;
           const lo = f > 0 ? p.x - v.back : p.x - v.range;
           const hi = f > 0 ? p.x + v.range : p.x + v.back;
           for (const g of this.level.gates)
@@ -2194,6 +4897,12 @@ export class Sim {
               this.gateOpen[g.id] = true;
               this.emit({ e: 'gate', id: g.id });
             }
+          // Jal is lord of the sea: the tide stands still at its lowest for a while, and Chhaya, caught in
+          // the rain, gasps with her jaws open.
+          if (this.level.tide) this.tideHoldUntil = this.tick + this.ticks(v.tideHoldSec);
+          for (const e of this.enemies.values())
+            if (e.kind === 'chhaya' && e.awake)
+              e.mx = Math.max(e.mx, this.tick + this.ticks(E.chhaya.openSec));
           for (const e of [...this.enemies.values()])
             if (e.awake && e.body.x >= lo && e.body.x <= hi)
               this.damageEnemy(
@@ -2207,6 +4916,18 @@ export class Sim {
           break;
         }
         case 'vayu': {
+          // Into Aandhi's storm: the wind astra turns it back on him.
+          if (this.storm) {
+            for (const e of this.enemies.values())
+              if (e.kind === 'aandhi' && e.awake) {
+                this.storm = null;
+                e.atk = ATTACK.none;
+                e.nextAtk = this.tick + this.ticks(2.2);
+                e.mx = this.tick + this.ticks(2.2);
+                this.damageEnemy(e, e.maxHp * E.aandhi.reversedShare, p.id, e.body.x, e.body.y - 60, 'astra');
+                this.emit({ e: 'boom', x: r1(e.body.x), y: r1(e.body.y - 60), r: 70 });
+              }
+          }
           // A whirlwind walks out ahead: it carries troopers off (riot shields torn away), scatters their
           // shots, and hurls what it holds when it blows out. The first gust also staggers what stands close.
           const w = PW.vayu;
@@ -2255,9 +4976,9 @@ export class Sim {
           }
           break;
         }
-        case 'garuda': {
+        case 'shyen': {
           // The eagle dives: serpents and shots vanish from the sky, flyers are crushed, the caller is shielded.
-          const g = PW.garuda;
+          const g = PW.shyen;
           const near = (x: number): boolean => Math.abs(x - p.x) <= g.range;
           this.bullets = this.bullets.filter((b) => !this.clearable(b) || !near(b.x));
           for (const e of [...this.enemies.values()]) {
@@ -2275,8 +4996,10 @@ export class Sim {
           p.invulnUntil = Math.max(p.invulnUntil, this.tick + this.ticks(g.shieldSec));
           break;
         }
-        case 'sudarshana': {
-          const S = PW.sudarshana;
+        case 'chakram': {
+          const S = PW.chakram;
+          // A great discus covers the sun: Suryakavach lowers his guard at once
+          for (const q of this.enemies.values()) if (q.kind === 'suryakavach' && q.awake) this.eclipse(q);
           const b = this.playerShot(
             p,
             'chakra',
@@ -2295,14 +5018,28 @@ export class Sim {
           b.hitsLeft = S.hits;
           break;
         }
-        case 'pashupata':
-          this.pashupata(p, v ?? 0);
+        case 'vidyut':
+          this.vidyut(p, v ?? 0);
           break;
-        case 'vaishnava': {
-          const V = PW.vaishnava;
+        case 'maya': {
+          // Mayakaar's art turned back on his hall: every illusion shows as it is, false floors hold, mirror shades
+          // vanish, and the great mirror's shine goes dull.
+          this.mayaUntil = this.tick + this.ticks(GAME_CONFIG.maya.revealSec);
+          for (const e of [...this.enemies.values()]) {
+            if (e.kind === 'mirror' && Math.abs(e.body.x - p.x) < 900) {
+              this.damageEnemy(e, e.hp + 1, p.id, e.body.x, e.body.y - 17, 'astra');
+            }
+            if (e.kind === 'darpan' && e.awake)
+              e.mx = Math.max(e.mx, this.tick + this.ticks(E.darpan.mayaSec));
+          }
+          this.emit({ e: 'boom', x: r1(p.x), y: r1(p.y - 30), r: 120 });
+          break;
+        }
+        case 'tej': {
+          const V = PW.tej;
           const orbs = this.reflectableOrbs(p);
           for (const b of orbs) {
-            // Only a vaishnava stops a vaishnava: the orb turns and flies back at the boss that called it.
+            // Only a tej stops a tej: the orb turns and flies back at the boss that called it.
             const boss = this.enemies.get(b.src);
             b.enemy = false;
             b.owner = p.id;
@@ -2313,7 +5050,8 @@ export class Sim {
             b.hit = null;
             b.dmg = boss ? boss.maxHp * V.reflectShare : V.boltDamage;
             b.expires = this.tick + this.ticks(4);
-            const tx = boss ? boss.body.x - (boss.kind === 'boss' ? boss.body.w / 2 : 0) : b.x - b.vx;
+            const fixed = boss && isFixedBoss(boss.kind);
+            const tx = boss ? boss.body.x - (fixed ? boss.body.w / 2 : 0) : b.x - b.vx;
             const ty = boss ? boss.body.y - boss.body.h / 2 : b.y;
             const a = Math.atan2(ty - b.y, tx - b.x);
             b.vx = Math.cos(a) * V.speed * 0.8;
@@ -2332,18 +5070,18 @@ export class Sim {
       }
       return;
     }
-    if (this.brahma >= PW.brahma.max && !this.brahmaStrike) {
-      this.brahma = 0;
-      this.brahmaStrike = { at: this.tick + this.ticks(PW.brahma.windupSec), id: p.id, x: p.x, y: p.y };
-      // Brahmastra meets brahmashirsha: both are spent, and the boss that called it reels.
-      const B = GAME_CONFIG.bossAstra.brahmashirsha;
+    if (this.param >= PW.param.max && !this.paramStrike) {
+      this.param = 0;
+      this.paramStrike = { at: this.tick + this.ticks(PW.param.windupSec), id: p.id, x: p.x, y: p.y };
+      // Paramastra meets pralay: both are spent, and the boss that called it reels.
+      const B = GAME_CONFIG.bossAstra.pralay;
       for (const e of this.shirshaCharging()) {
         const r = e.rule as RuleState;
         const c = this.castPoint(e);
         r.kind = null;
         r.nextShirsha = this.tick + this.ruleTicks(B.everySec);
         r.stunUntil = this.tick + this.ticks(B.stunSec);
-        this.emit({ e: 'bossAstra', kind: 'brahmashirsha', phase: 2, x: r1(c.x), y: r1(c.y) });
+        this.emit({ e: 'bossAstra', kind: 'pralay', phase: 2, x: r1(c.x), y: r1(c.y) });
         this.damageEnemy(e, e.maxHp * B.counterShare, p.id, e.body.x, e.body.y - e.body.h / 2, 'astra');
       }
       // The whole squad is shielded through the strike.
@@ -2351,16 +5089,16 @@ export class Sim {
         if (q.state === 'alive')
           q.invulnUntil = Math.max(
             q.invulnUntil,
-            this.tick + this.ticks(PW.brahma.windupSec + PW.brahma.shieldSec),
+            this.tick + this.ticks(PW.param.windupSec + PW.param.shieldSec),
           );
-      this.emit({ e: 'brahma', id: p.id, x: r1(p.x), y: r1(p.y), phase: 0 });
+      this.emit({ e: 'param', id: p.id, x: r1(p.x), y: r1(p.y), phase: 0 });
     }
   }
 
-  private chargeBrahma(n: number): void {
-    if (this.brahmaStrike) return;
-    const boost = this.shirshaCharging().length ? GAME_CONFIG.bossAstra.brahmashirsha.chargeBoost : 1;
-    this.brahma = Math.min(GAME_CONFIG.powers.brahma.max, this.brahma + n * boost);
+  private chargeParam(n: number): void {
+    if (this.paramStrike) return;
+    const boost = this.shirshaCharging().length ? GAME_CONFIG.bossAstra.pralay.chargeBoost : 1;
+    this.param = Math.min(GAME_CONFIG.powers.param.max, this.param + n * boost);
   }
 
   /** A player projectile (astras use this; plain gunfire builds its own in `fire`). */
@@ -2398,22 +5136,23 @@ export class Sim {
       hitsLeft: 0,
       ret: false,
       src: -1,
+      oy: y,
     };
     this.bullets.push(b);
     return b;
   }
 
-  /** A boss's vaishnava orbs close enough to this soldier to be turned back. */
+  /** A boss's tej orbs close enough to this soldier to be turned back. */
   private reflectableOrbs(p: Player): Bullet[] {
-    const R = GAME_CONFIG.powers.vaishnava.reflectRange;
+    const R = GAME_CONFIG.powers.tej.reflectRange;
     return this.bullets.filter(
       (b) => b.enemy && b.kind === 'orb' && Math.hypot(b.x - p.x, b.y - (p.y - 20)) <= R,
     );
   }
 
-  /** Pashupata takes a different form each call: 0 a trident strike, 1 a spirit ally, 2 a rain of fire. */
-  private pashupata(p: Player, form: number): void {
-    const PP = GAME_CONFIG.powers.pashupata;
+  /** Vidyut takes a different form each call: 0 a trident strike, 1 a spirit ally, 2 a rain of fire. */
+  private vidyut(p: Player, form: number): void {
+    const PP = GAME_CONFIG.powers.vidyut;
     if (form === 0) {
       const list = [...this.enemies.values()]
         .filter((e) => e.awake && Math.hypot(e.body.x - p.x, e.body.y - p.y) < PP.strike.range)
@@ -2465,6 +5204,12 @@ export class Sim {
 
   private aimPoint(e: Enemy): { x: number; y: number } {
     const b = e.body;
+    if (e.kind === 'vriksha')
+      return { x: b.x - b.w / 2 + 24, y: b.y - (e.phase >= 2 ? E.vriksha.heartRise + 50 : 110) };
+    if (e.kind === 'chhaya') return { x: b.x - b.w / 2 + 30, y: b.y - 190 };
+    if (e.kind === 'aandhi') return { x: b.x, y: b.y - 70 };
+    if (e.kind === 'vishdhar') return { x: b.x - b.w / 2 + 30, y: b.y - 90 };
+    if (e.kind === 'darpan') return { x: b.x - b.w / 2 + 10, y: b.y - 120 };
     return e.kind === 'boss' ? { x: b.x - b.w / 2 + 10, y: b.y - 120 } : { x: b.x, y: b.y - b.h / 2 };
   }
 
@@ -2559,7 +5304,7 @@ export class Sim {
     this.twisters = this.twisters.filter((t) => t.until > this.tick);
   }
 
-  /** Burning ground, black holes and the brahmastra strike, once per tick. */
+  /** Burning ground, black holes and the paramastra strike, once per tick. */
   private stepPowers(): void {
     const PW = GAME_CONFIG.powers;
     if (this.burns.length) {
@@ -2636,7 +5381,7 @@ export class Sim {
       this.holes = this.holes.filter((h) => h.until > this.tick);
     }
     if (this.spirits.length) {
-      const S = PW.pashupata.spirit;
+      const S = PW.vidyut.spirit;
       for (const sp of this.spirits) {
         const o = this.players.get(sp.owner);
         if (o) {
@@ -2658,14 +5403,20 @@ export class Sim {
       }
       this.spirits = this.spirits.filter((sp) => sp.until > this.tick && this.players.has(sp.owner));
     }
-    const st = this.brahmaStrike;
+    const st = this.paramStrike;
     if (st && this.tick >= st.at) {
-      this.brahmaStrike = null;
-      const B = PW.brahma;
-      this.emit({ e: 'brahma', id: st.id, x: r1(st.x), y: r1(st.y), phase: 1 });
+      this.paramStrike = null;
+      const B = PW.param;
+      this.emit({ e: 'param', id: st.id, x: r1(st.x), y: r1(st.y), phase: 1 });
       for (const e of [...this.enemies.values()]) {
         if (!e.awake || Math.abs(e.body.x - st.x) > B.range) continue;
         e.shield = 0;
+        // Saptashir: the paramastra strikes his heart (his one weakness): every head falls with it
+        if (e.kind === 'saptashir') {
+          e.my = 0;
+          e.leapX = 0;
+          e.atkParam = this.tick;
+        }
         const dmg = isBoss(e.kind) ? e.maxHp * B.bossShare : B.damage;
         this.damageEnemy(e, dmg, st.id, e.body.x, e.body.y - e.body.h / 2, 'astra');
       }
@@ -2759,7 +5510,11 @@ export class Sim {
           alive = false;
           if (b.blast > 0) this.explode(b);
         } else if (b.enemy) alive = this.bulletVsPlayers(b);
-        else alive = this.bulletVsEnemies(b) && (b.kind !== 'shot' || this.shootDown(b, targets, gone));
+        else
+          alive =
+            this.bulletVsGoal(b) &&
+            this.bulletVsEnemies(b) &&
+            (b.kind !== 'shot' || this.shootDown(b, targets, gone));
       }
       if (alive) keep.push(b);
     }
@@ -2775,7 +5530,7 @@ export class Sim {
     let tx: number;
     let ty: number;
     if (b.kind === 'chakra') {
-      const S = GAME_CONFIG.powers.sudarshana;
+      const S = GAME_CONFIG.powers.chakram;
       if (!b.ret && this.tick - b.born >= this.ticks(S.outSec)) b.ret = true;
       if (b.ret) {
         const o = this.players.get(b.owner);
@@ -2799,7 +5554,7 @@ export class Sim {
       const src = b.src >= 0 ? this.enemies.get(b.src) : undefined;
       const seek =
         b.kind === 'chakra'
-          ? GAME_CONFIG.powers.sudarshana.seek
+          ? GAME_CONFIG.powers.chakram.seek
           : b.kind === 'serpent'
             ? GAME_CONFIG.powers.naga.seek
             : 700;
@@ -2893,8 +5648,70 @@ export class Sim {
         this.emit({ e: 'ehit', id: e.id, x: r1(b.x), y: r1(b.y) });
         return false;
       }
+      // Darpan-asur, shining: the shot is turned straight back at the squad.
+      if (e.kind === 'darpan' && this.tick >= e.mx) {
+        b.enemy = true;
+        b.owner = '';
+        b.vx = -b.vx;
+        b.vy = -b.vy * 0.4;
+        b.dmg = E.darpan.reflectDmg;
+        b.pierce = false;
+        b.hit = null;
+        b.turn = 0;
+        b.x = e.body.x - e.body.w / 2 - 8;
+        this.emit({ e: 'ehit', id: e.id, x: r1(b.x), y: r1(b.y) });
+        return true;
+      }
+      // a painted guard still in its frame is only paint
+      if (e.kind === 'painting' && e.burst === 0) return true;
+      // Meghbaan's warriors are unseen and untouchable but for the moment they shoot
+      if (e.kind === 'mayavi' && this.tick >= e.mx) return true;
+      // Nidrasur: bullets bounce off his sleeping bulk (and the noise does what bullets cannot)
+      if (e.kind === 'nidrasur') return true;
+      // Jodasur split in two: nothing to hit where he stood (a shot flies on to his halves, which may be right there)
+      if (e.kind === 'jodasur' && e.burst === 1) continue;
+      // one of his halves: a shot cannot kill it, only push it the way the shot flies
+      if (e.kind === 'ardh') {
+        const fin = this.level.arenas[e.arena];
+        const nx = e.body.x + Math.sign(b.vx || 1) * E.ardh.push;
+        e.body.x = fin ? Math.max(fin.left + 20, Math.min(this.arenaWall(fin) - 20, nx)) : nx;
+        e.hitTick = this.tick;
+        e.nextFire = this.tick + this.ticks(E.ardh.stunSec); // knocked back: it stops crawling a moment
+        this.emit({ e: 'ehit', id: e.id, x: r1(b.x), y: r1(b.y) });
+        if (!b.pierce) return false;
+        b.hit?.add(e.id);
+        continue;
+      }
+      // a mace spinning: shots glance off
+      if (e.kind === 'gadadhar' && e.burst === 1) {
+        this.emit({ e: 'ehit', id: e.id, x: r1(b.x), y: r1(b.y) });
+        return false;
+      }
       let dmg = b.power && isBoss(e.kind) ? b.dmg / U.overdrive.damage : b.dmg;
-      // A plain vaishnava bolt is an astra, not a boss killer (a turned-back orb carries its own damage).
+      // Tree demons: thick bark in front, soft behind.
+      if (e.kind === 'treant' && !b.enemy) dmg *= b.vx * e.body.facing < 0 ? E.treant.front : E.treant.back;
+      // Crab asuras: the shell turns shots from the front (from above, or behind, they bite).
+      if (e.kind === 'crab' && !b.enemy && Math.abs(b.vx) > Math.abs(b.vy))
+        dmg *= b.vx * e.body.facing < 0 ? E.crab.front : E.crab.back;
+      // The banyan's heart, once its bark hardens, only feels shots fired from up in its boughs.
+      if (e.kind === 'vriksha' && e.phase >= 2 && (b.oy ?? b.y) > e.body.y - E.vriksha.heartRise)
+        dmg *= E.vriksha.barkDamage;
+      // Aandhi: his sage's guise turns half of every blow, except while he holds up a storm (or reels from his own).
+      if (e.kind === 'aandhi' && !this.storm && this.tick >= e.mx) dmg *= E.aandhi.guise;
+      // Suryakavach's boon: while the sun shines nothing touches him.
+      if (e.kind === 'suryakavach' && this.tick >= e.mx) {
+        if (this.tick % 4 === 0) this.emit({ e: 'immune', id: e.id, x: r1(b.x), y: r1(b.y) });
+        return false;
+      }
+      // a mace spinner dizzy from spinning: hits land double
+      if (e.kind === 'gadadhar' && e.burst === 2) dmg *= 2;
+      // Raakhasur's body is hardened, except while he reels from his own touch.
+      if (e.kind === 'raakhasur' && this.tick >= e.mx) dmg *= E.raakhasur.hard;
+      // Vishdhar: his scales turn most of a shot; dance on his heads instead.
+      if (e.kind === 'vishdhar') dmg *= E.vishdhar.shot;
+      // Chhaya: only while her jaws hang open after a grab do shots really hurt her.
+      if (e.kind === 'chhaya' && this.tick >= e.mx) dmg *= E.chhaya.shut;
+      // A plain tej bolt is an astra, not a boss killer (a turned-back orb carries its own damage).
       if (b.kind === 'orb' && b.src < 0) dmg = this.ultDamage(e, dmg);
       this.damageEnemy(e, dmg, b.owner, b.x, b.y, 'gun');
       if (b.kind === 'flame' && b.power && !b.enemy) this.ignite(e, b.owner);
@@ -2912,17 +5729,28 @@ export class Sim {
   private damageEnemy(e: Enemy, dmg: number, by: string, x: number, y: number, src: DamageSource): void {
     if (!this.enemies.has(e.id)) return;
     if (e.rule?.storm) {
-      // Narayanastra: nothing touches its caller while the storm rages.
+      // Samarpanastra: nothing touches its caller while the storm rages.
       if (this.tick % 4 === 0) this.emit({ e: 'immune', id: e.id, x: r1(x), y: r1(y) });
       return;
     }
-    if (e.rule && this.tick < e.rule.spentUntil) dmg *= GAME_CONFIG.bossAstra.narayana.spentDamage;
+    if (e.rule && this.tick < e.rule.spentUntil) dmg *= GAME_CONFIG.bossAstra.samarpan.spentDamage;
+    // Saptashir: his heads take the blows while any stands (the paramastra cuts them all first: see stepPowers)
+    if (e.kind === 'saptashir' && e.my > 0) {
+      const c = E.saptashir;
+      e.leapX += dmg;
+      while (e.leapX >= c.headHp && e.my > 0) {
+        e.leapX -= c.headHp;
+        e.my--;
+        e.atkParam = this.tick; // (regrowth starts over)
+        this.emit({ e: 'boom', x: r1(e.body.x - 54 + e.my * 18), y: r1(e.body.y - 205), r: 24 });
+      }
+      dmg *= c.guarded;
+    }
     e.hp -= dmg;
     // a slow burn or a whirlwind's wear does not flash the enemy white every tick: it would stay white
     if (src !== 'astra' || dmg >= 1) e.hitTick = this.tick;
     const p = this.players.get(by);
-    if (p && this.brahma >= 0 && src !== 'astra')
-      this.chargeBrahma(dmg * GAME_CONFIG.powers.brahma.perDamage);
+    if (p && this.param >= 0 && src !== 'astra') this.chargeParam(dmg * GAME_CONFIG.powers.param.perDamage);
     if (p) {
       if (isBoss(e.kind)) p.stats.bossDamage += dmg;
       if (src !== 'ult') this.gainUlt(p, dmg * U.perDamage);
@@ -2933,6 +5761,31 @@ export class Sim {
     }
     if (e.hp > 0) {
       this.emit({ e: 'ehit', id: e.id, x: r1(x), y: r1(y) });
+      return;
+    }
+    // Jodasur brought down: he splits in two (see stepJodasur)
+    if (e.kind === 'jodasur' && e.burst === 0) {
+      this.splitJodasur(e);
+      return;
+    }
+    if (e.kind === 'jodasur' && e.burst === 1) {
+      e.hp = 0.001;
+      return;
+    }
+    // his halves never fall to damage: they are pushed apart
+    if (e.kind === 'ardh') {
+      e.hp = 1;
+      return;
+    }
+    // An ash golem brought down by plain weapons is only a heap of ash: it rises again, unless fire or an astra
+    // finishes it.
+    if (e.kind === 'golem' && src !== 'astra' && src !== 'ult' && this.tick >= e.burnUntil) {
+      e.hp = 0.001;
+      if (e.burst !== 1) {
+        e.burst = 1;
+        e.atkStart = this.tick;
+        this.emit({ e: 'boom', x: r1(e.body.x), y: r1(e.body.y - 10), r: 26 });
+      }
       return;
     }
     this.enemies.delete(e.id);
@@ -2948,7 +5801,7 @@ export class Sim {
     }
     if (p) {
       this.addCombo(p, C.killBonus);
-      if (this.brahma >= 0 && src !== 'astra') this.chargeBrahma(GAME_CONFIG.powers.brahma.perKill);
+      if (this.param >= 0 && src !== 'astra') this.chargeParam(GAME_CONFIG.powers.param.perKill);
       pts = Math.round(pts * this.comboMultiplier(p));
       p.stats.kills++;
       p.stats.score += pts;
@@ -2996,6 +5849,7 @@ export class Sim {
         this.explode(b);
         return false;
       }
+      if (b.kind === 'net') p.netUntil = this.tick + this.ticks(E.netter.netSec);
       this.hurtPlayer(p, b.dmg);
       return b.kind === 'wave'; // shockwaves roll on
     }
@@ -3034,7 +5888,14 @@ export class Sim {
 
   private stepContact(): void {
     for (const e of this.enemies.values()) {
-      if (!e.awake || e.kind === 'turret' || e.kind === 'boss') continue;
+      if (!e.awake || e.kind === 'turret' || isFixedBoss(e.kind)) continue;
+      if (e.kind === 'golem' && e.burst === 1) continue; // a heap of ash
+      if (e.kind === 'raakhasur') continue; // his touch is his own attack (the rush)
+      if (e.kind === 'elephant' && e.burst === 2) continue; // charging: it tramples instead (stepElephant)
+      if (e.kind === 'jodasur' && e.burst === 1) continue; // split in two
+      if (e.kind === 'ardh') continue; // a half crawling to its other half: it only wants to join
+      if (e.kind === 'mayavi') continue; // it never comes down to fight
+      if (e.kind === 'nidrasur') continue; // asleep he hurts nobody; rolling, stepNidrasur crushes
       const b = e.body;
       const boss = isBoss(e.kind);
       const dmg = e.kind === 'walker' ? E.walker.contactDmg : E.contactDmg;
@@ -3197,6 +6058,343 @@ export class Sim {
       if (p.state === 'alive' && p.hp < P.maxHp && this.resting(p)) p.hp = Math.min(P.maxHp, p.hp + heal);
   }
 
+  /** This run's surprises, placed from the seed (a generator of their own, so the rest of the run is unchanged). */
+  private planSurprises(seed: number): { x: number; kind: SurpriseKind; done: boolean }[] {
+    const pool = SURPRISE_POOLS[this.level.id];
+    if (!pool || !this.level.own) return [];
+    const rng = new Rng((seed * 7919 + 104729) % 2147483646 || 1);
+    const fin = this.level.arenas.find((a) => a.gate === -1);
+    const x0 = this.level.start.x + 700;
+    const x1 = (fin ? fin.left : levelWidth(this.level)) - 500;
+    if (x1 - x0 < 1500) return [];
+    const n = 3;
+    const bless = rng.int(n);
+    const out: { x: number; kind: SurpriseKind; done: boolean }[] = [];
+    let last: SurpriseKind | null = null;
+    for (let i = 0; i < n; i++) {
+      const seg = (x1 - x0) / n;
+      let x = x0 + seg * i + seg * (0.15 + 0.7 * rng.range(0, 1));
+      // never in a rest stop or on an arena's doorstep
+      for (const r of this.level.rests) if (x > r.x0 - 250 && x < r.x1 + 250) x = r.x1 + 260;
+      for (const a of this.level.arenas) if (x > a.trigger - 300 && x < a.right + 200) x = a.right + 220;
+      if (x > x1) continue;
+      // nothing twice in one run while the stage has others left
+      const fresh = pool.filter((k) => !out.some((o) => o.kind === k));
+      const choices = fresh.length ? fresh : pool.filter((k) => k !== last);
+      const kind: SurpriseKind =
+        i === bless ? 'blessing' : (choices[rng.int(choices.length)] as SurpriseKind);
+      out.push({ x: Math.round(x), kind, done: false });
+      last = kind;
+    }
+    return out;
+  }
+
+  /** Where this run's surprises lie (tests, and the trailer tools). */
+  surprisePlan(): readonly { x: number; kind: SurpriseKind }[] {
+    return this.surprises.map(({ x, kind }) => ({ x, kind }));
+  }
+
+  private stepSurprises(): void {
+    if (!this.surprises.length) return;
+    const run = this.surpriseRun;
+    if (run) {
+      if (this.tick >= run.until) this.surpriseRun = null;
+      else if (this.tick >= run.next) {
+        const alive = [...this.players.values()].filter((p) => p.state === 'alive');
+        const p = alive[this.rng.int(Math.max(1, alive.length))];
+        if (p && run.kind === 'skyfall') {
+          this.meteorVolley(p, 3);
+          run.next = this.tick + this.ticks(1.2);
+        } else if (p && run.kind === 'tremor') {
+          const q = alive.find((x) => x.onGround);
+          if (q) this.tremorWave(q, true);
+          run.next = this.tick + this.ticks(1.5);
+        }
+      }
+    }
+    const next = this.surprises.find((x) => !x.done);
+    if (!next) return;
+    let lead: Player | null = null;
+    for (const p of this.players.values()) if (p.state === 'alive' && (!lead || p.x > lead.x)) lead = p;
+    if (!lead || lead.x < next.x || !lead.onGround || this.resting(lead)) return;
+    if (this.activeArena() >= 0 || this.tick < this.calmUntil) return;
+    for (const e of this.enemies.values()) if (isBoss(e.kind) && e.awake) return;
+    next.done = true;
+    this.fireSurprise(next.kind, lead);
+  }
+
+  private fireSurprise(kind: SurpriseKind, lead: Player): void {
+    const n = this.players.size;
+    const roster = [...new Set(this.level.enemies.map((e) => e.kind))].filter((k) => AMBUSHERS.has(k));
+    const pick = (): TrooperKind =>
+      roster.length ? (roster[this.rng.int(roster.length)] as TrooperKind) : 'soldier';
+    const lim = (x: number): number => Math.max(60, Math.min(this.world.limitX - 60, x));
+    const spawn = (k: TrooperKind, x: number): Enemy => {
+      const y = lead.y - (AIRBORNE.has(k) ? 170 : 40);
+      const e = this.spawnAwake(k, lim(x), y, -1);
+      this.strays.add(e.id);
+      this.emit({ e: 'portal', x: r1(lim(x)), y: r1(y), how: 0 });
+      return e;
+    };
+    if (kind === 'ambush') {
+      // they were waiting on both sides
+      const count = 2 + Math.min(2, n - 1);
+      for (let i = 0; i < count; i++) {
+        const side = i % 2 === 0 ? 1 : -1;
+        spawn(pick(), lead.x + side * (260 + Math.floor(i / 2) * 70));
+      }
+    } else if (kind === 'elite') {
+      this.makeElite(spawn(pick(), lead.x + 320));
+    } else if (kind === 'stampede') {
+      // war elephants charging in from behind the squad
+      for (let i = 0; i < 2; i++) spawn('elephant', lead.x - lead.facing * (420 + i * 160));
+    } else if (kind === 'duel') {
+      // two champions of the akhada step out to fight
+      this.makeElite(spawn('pehlwan', lead.x + 300));
+      this.makeElite(spawn('gadadhar', lead.x + 380));
+    } else if (kind === 'raid') {
+      const fly = roster.filter((k) => AIRBORNE.has(k));
+      for (let i = 0; i < 2 + Math.min(2, n - 1); i++)
+        spawn(
+          fly.length ? (fly[i % fly.length] as TrooperKind) : 'jetpack',
+          lead.x - lead.facing * (240 + i * 80),
+        );
+    } else if (kind === 'skyfall' || kind === 'tremor') {
+      this.surpriseRun = {
+        kind,
+        until: this.tick + this.ticks(kind === 'skyfall' ? 5 : 4.5),
+        next: this.tick + this.ticks(0.6),
+      };
+    } else {
+      // the blessing: the squad healed and their supers filled
+      for (const p of this.players.values())
+        if (p.state === 'alive') {
+          p.hp = Math.min(P.maxHp, p.hp + 50);
+          this.gainUlt(p, U.max * 0.4);
+        }
+    }
+    this.emit({ e: 'surprise', kind, x: r1(lead.x), y: r1(lead.y) });
+  }
+
+  /** This run's stage goal: where its captives, targets or hold spot lie (from the seed, its own generator). */
+  private planGoal(seed: number): Sim['goal'] {
+    const def = SAGA_GOALS[this.level.id];
+    if (!def || !this.level.own) return null;
+    const rng = new Rng((seed * 48271 + 7) % 2147483646 || 1);
+    const fin = this.level.arenas.find((a) => a.gate === -1);
+    const x0 = this.level.start.x + 500;
+    const x1 = (fin ? fin.left : levelWidth(this.level)) - 400;
+    const spots: number[] = [];
+    const n = def.kind === 'hold' ? 1 : def.kind === 'race' ? 0 : def.n;
+    for (let i = 0; i < n; i++) {
+      const seg = (x1 - x0) / n;
+      let x = x0 + seg * i + seg * (0.15 + 0.7 * rng.range(0, 1));
+      if (def.kind === 'hold') x = x0 + (x1 - x0) * (0.4 + 0.2 * rng.range(0, 1));
+      for (const r of this.level.rests) if (x > r.x0 - 200 && x < r.x1 + 200) x = r.x1 + 220;
+      for (const a of this.level.arenas) if (x > a.trigger - 300 && x < a.right + 200) x = a.right + 220;
+      if (x < x1) spots.push(Math.round(x));
+    }
+    const dist = Math.max(1000, x1 + 400 - this.level.start.x);
+    const until = def.kind === 'race' ? this.countdownEnd + this.ticks(((def.secs ?? 20) * dist) / 1000) : 0;
+    return { def, spots, items: [], done: 0, status: 0, until, zone: null };
+  }
+
+  private stepGoal(): void {
+    const g = this.goal;
+    if (!g || g.status !== 0) return;
+    let lead: Player | null = null;
+    for (const p of this.players.values()) if (p.state === 'alive' && (!lead || p.x > lead.x)) lead = p;
+    const fin = this.level.arenas.find((a) => a.gate === -1);
+    const reached = !!lead && !!fin && lead.x >= fin.left;
+    if (g.def.kind === 'race') {
+      if (reached) this.goalDone(lead as Player);
+      else if (this.tick >= g.until) this.goalFail(lead);
+      return;
+    }
+    // the next spot comes into play as the squad gets near it
+    if (
+      lead &&
+      g.spots.length &&
+      lead.x >= (g.spots[0] as number) - (g.def.kind === 'hold' ? 0 : 60) &&
+      lead.onGround
+    ) {
+      g.spots.shift();
+      if (g.def.kind === 'hold')
+        g.zone = { x: lead.x, y: lead.y, held: 0, nextWave: this.tick + this.ticks(1) };
+      else {
+        const target = g.def.kind === 'targets';
+        const hp = target ? 10 + 6 * this.players.size : 1; // (a trooper has a handful)
+        g.items.push({
+          x: lead.x + (target ? 300 : 200),
+          y: lead.y - (target ? 44 : 30),
+          hp,
+          max: hp,
+          state: 1,
+        });
+      }
+    }
+    if (g.def.kind === 'rescue')
+      for (const it of g.items) {
+        if (it.state !== 1) continue;
+        // a captive whose rescuer is near flies toward them (so one caught over a pit or in rock can still be freed)
+        let near: Player | null = null;
+        let nd = 140 * 140;
+        for (const p of this.players.values()) {
+          const d = (p.x - it.x) ** 2 + (p.y - P.height / 2 - it.y) ** 2;
+          if (p.state === 'alive' && d < nd) {
+            nd = d;
+            near = p;
+          }
+        }
+        if (near) {
+          const k = Math.min(1, (120 * this.dt) / Math.sqrt(nd || 1));
+          it.x += (near.x - it.x) * k;
+          it.y += (near.y - P.height / 2 - it.y) * k;
+        }
+        for (const p of this.players.values())
+          if (p.state === 'alive' && Math.abs(p.x - it.x) < 26 && Math.abs(p.y - P.height / 2 - it.y) < 40) {
+            it.state = 2;
+            this.goalItem(it);
+            break;
+          }
+      }
+    if (g.zone) {
+      const z = g.zone;
+      const inside = [...this.players.values()].some(
+        (p) => p.state === 'alive' && Math.abs(p.x - z.x) < GOAL_HOLD_REACH,
+      );
+      if (inside) z.held++;
+      if (this.tick >= z.nextWave) {
+        z.nextWave = this.tick + this.ticks(3.2);
+        const roster = [...new Set(this.level.enemies.map((e) => e.kind))].filter((k) => AMBUSHERS.has(k));
+        for (const side of [-1, 1]) {
+          const k = roster.length ? (roster[this.rng.int(roster.length)] as TrooperKind) : 'soldier';
+          const x = Math.max(60, Math.min(this.world.limitX - 60, z.x + side * 380));
+          const y = z.y - (AIRBORNE.has(k) ? 170 : 40);
+          this.strays.add(this.spawnAwake(k, x, y, -1).id);
+          this.emit({ e: 'portal', x: r1(x), y: r1(y), how: 0 });
+        }
+      }
+      if (z.held >= this.ticks(g.def.secs ?? 20)) {
+        g.done = 1;
+        g.zone = null;
+        this.goalDone(lead ?? ([...this.players.values()][0] as Player));
+        return;
+      }
+    }
+    if (g.def.kind !== 'hold' && g.done >= g.def.n) {
+      this.goalDone(lead ?? ([...this.players.values()][0] as Player));
+      return;
+    }
+    // reaching the boss with the goal unfinished: it is missed
+    if (reached) this.goalFail(lead);
+  }
+
+  private goalItem(it: { x: number; y: number }): void {
+    const g = this.goal;
+    if (!g) return;
+    g.done++;
+    this.emit({ e: 'goal', k: 'item', d: g.done, n: g.def.n, x: r1(it.x), y: r1(it.y) });
+  }
+
+  private goalDone(at: Player): void {
+    const g = this.goal;
+    if (!g) return;
+    g.status = 1;
+    for (const p of this.players.values())
+      if (p.state === 'alive') {
+        p.hp = Math.min(P.maxHp, p.hp + 60);
+        this.gainUlt(p, U.max * 0.5);
+        p.stats.score += 1500;
+      }
+    this.emit({ e: 'goal', k: 'done', d: g.done, n: g.def.n, x: r1(at?.x ?? 0), y: r1(at?.y ?? 0) });
+  }
+
+  private goalFail(at: Player | null): void {
+    const g = this.goal;
+    if (!g) return;
+    g.status = 2;
+    g.zone = null;
+    this.emit({ e: 'goal', k: 'fail', d: g.done, n: g.def.n, x: r1(at?.x ?? 0), y: r1(at?.y ?? 0) });
+  }
+
+  /** A player's shot against the stage goal's targets: true while the bullet flies on. */
+  private bulletVsGoal(b: Bullet): boolean {
+    const g = this.goal;
+    if (!g || g.def.kind !== 'targets') return true;
+    for (const it of g.items) {
+      if (it.state !== 1 || Math.abs(b.x - it.x) > 18 || Math.abs(b.y - it.y) > 26) continue;
+      it.hp -= Math.max(1, b.dmg);
+      if (it.hp <= 0) {
+        it.state = 2;
+        this.emit({ e: 'boom', x: r1(it.x), y: r1(it.y), r: 30 });
+        this.goalItem(it);
+      }
+      return b.blast > 0 ? (this.explode(b), false) : false;
+    }
+    return true;
+  }
+
+  private goalSnap(): GoalSnapshot {
+    const g = this.goal as NonNullable<Sim['goal']>;
+    const out: GoalSnapshot = { k: g.def.kind, d: g.done, n: g.def.n, s: g.status, it: [] };
+    if (g.def.kind === 'race' && g.status === 0)
+      out.t = Math.max(0, Math.ceil((g.until - Math.max(this.tick, this.countdownEnd)) / this.tickRate));
+    if (g.zone) {
+      out.z = [
+        r1(g.zone.x),
+        r1(g.zone.y),
+        Math.min(1, Math.round((g.zone.held / this.ticks(g.def.secs ?? 20)) * 100) / 100),
+      ];
+      out.t = Math.max(0, Math.ceil((this.ticks(g.def.secs ?? 20) - g.zone.held) / this.tickRate));
+    }
+    for (const it of g.items)
+      if (it.state === 1) out.it.push(r1(it.x), r1(it.y), Math.round((it.hp / it.max) * 100));
+    return out;
+  }
+
+  /** The stage goal's targets still standing (the computer players shoot them when nothing else is near). */
+  goalTargets(): { x: number; y: number }[] {
+    const g = this.goal;
+    if (!g || g.def.kind !== 'targets' || g.status !== 0) return [];
+    return g.items.filter((it) => it.state === 1).map((it) => ({ x: it.x, y: it.y }));
+  }
+
+  /** The stage goal and how it went (tests, results): null on stages without one. */
+  goalState(): { kind: GoalKind; done: number; n: number; status: 0 | 1 | 2 } | null {
+    const g = this.goal;
+    return g ? { kind: g.def.kind, done: g.done, n: g.def.n, status: g.status } : null;
+  }
+
+  /** A volley of fireballs round a soldier and a little ahead, each later than the last (skyfall). */
+  private meteorVolley(p: Player, count: number): void {
+    const M = GAME_CONFIG.bossMoves.rain;
+    for (let i = 0; i < count; i++) {
+      const x = p.x + (i - (count - 1) / 2) * M.gap + this.rng.range(-24, 24) + p.facing * 30;
+      this.shoot(x, p.y - M.drop - i * 60, Math.PI / 2, GAME_CONFIG.hazards.skyfall.dmg, {
+        kind: 'meteor',
+        speed: M.speed * GAME_CONFIG.hazards.skyfall.speed,
+        size: 9,
+        blast: M.blast,
+        life: 3.5,
+      });
+    }
+  }
+
+  /** A shockwave along the ground at a soldier (from in front; from both sides when `both`). */
+  private tremorWave(q: Player, both: boolean): void {
+    const Tm = GAME_CONFIG.hazards.tremor;
+    for (const dir of both ? [1, -1] : [q.facing]) {
+      const w = this.shoot(q.x + dir * Tm.from, q.y - 12, dir > 0 ? Math.PI : 0, Tm.dmg, {
+        kind: 'wave',
+        speed: Tm.speed,
+        size: 12,
+        life: 2.6,
+      });
+      w.vy = 0;
+    }
+  }
+
   private stepHazard(): void {
     const h = this.level.hazard;
     if (!h) return;
@@ -3219,16 +6417,7 @@ export class Sim {
       // only at a soldier standing on the ground: the wave runs along that ground
       const q = alive.find((x) => x.onGround) ?? null;
       if (!q) return;
-      const Tm = GAME_CONFIG.hazards.tremor;
-      for (const dir of h.count >= 2 ? [1, -1] : [q.facing]) {
-        const w = this.shoot(q.x + dir * Tm.from, q.y - 12, dir > 0 ? Math.PI : 0, Tm.dmg, {
-          kind: 'wave',
-          speed: Tm.speed,
-          size: 12,
-          life: 2.6,
-        });
-        w.vy = 0;
-      }
+      this.tremorWave(q, h.count >= 2);
       this.emit({ e: 'hazard', kind: 'tremor', x: r1(q.x), y: r1(q.y) });
       return;
     }
@@ -3248,18 +6437,7 @@ export class Sim {
       this.emit({ e: 'hazard', kind: 'raid', x: r1(p.x), y: r1(p.y) });
       return;
     }
-    const M = GAME_CONFIG.bossMoves.rain;
-    for (let i = 0; i < h.count; i++) {
-      // spread round the soldier and a little ahead, each one later than the last
-      const x = p.x + (i - (h.count - 1) / 2) * M.gap + this.rng.range(-24, 24) + p.facing * 30;
-      this.shoot(x, p.y - M.drop - i * 60, Math.PI / 2, GAME_CONFIG.hazards.skyfall.dmg, {
-        kind: 'meteor',
-        speed: M.speed * GAME_CONFIG.hazards.skyfall.speed,
-        size: 9,
-        blast: M.blast,
-        life: 3.5,
-      });
-    }
+    this.meteorVolley(p, h.count);
     this.emit({ e: 'hazard', kind: h.kind, x: r1(p.x), y: r1(p.y) });
   }
 
@@ -3387,7 +6565,7 @@ export class Sim {
         });
         break;
       }
-      case 'garuda': {
+      case 'shyen': {
         // beak, wings, body
         const order = [...ground].sort((x, y) => heavy(x) - heavy(y));
         order.forEach((w, i) => put(w, edge(lead, Math.max(0, i - 1)), a.floor, i === 0 ? 0 : 1.3));
@@ -3432,6 +6610,8 @@ export class Sim {
       if (p.state !== 'dead' || this.tick < p.respawnAt || this.lives <= 0 || this.pendingResult) continue;
       this.lives--;
       const spot = this.respawnSpot(p);
+      // never back into the fire: it falls back behind the soldier coming back
+      if (this.chaseOn && spot.x < this.chaseX + 8 * T) this.chaseX = spot.x - 12 * T;
       p.x = spot.x;
       p.y = spot.y;
       p.vx = p.vy = 0;
@@ -3559,6 +6739,7 @@ export class Sim {
       pw: p.power ? POWER_KINDS.indexOf(p.power) : -1,
       pn: p.powerN,
       rs: storm ? this.arrowsFor(p) : 0,
+      ...(this.tick < p.netUntil ? { nt: 1 } : {}),
     }));
     // Only enemies near somebody are sent: a long level would otherwise bloat every packet.
     const near = (x: number, w: number): boolean => {
@@ -3581,12 +6762,57 @@ export class Sim {
         sh: e.shield > 0 ? 1 : 0,
         at: boss && e.awake ? e.atk : 0,
         tt: boss && e.awake && e.atk !== ATTACK.none ? this.tick - e.atkStart : 0,
-        p: boss ? e.atkParam : 0,
+        // (troopers: the lancer's raised javelin, the egg's cracking, the dancer's strike, the painting stepping out,
+        // the mirror shade's mirror)
+        p:
+          boss || e.kind === 'lancer' || e.kind === 'egg'
+            ? e.atkParam
+            : e.kind === 'dancer' || e.kind === 'painting' || e.kind === 'golem' || e.kind === 'elephant'
+              ? e.burst
+              : e.kind === 'mayavi'
+                ? this.tick < e.mx
+                  ? 1
+                  : 0
+                : e.kind === 'nidrasur'
+                  ? e.burst === 1
+                    ? 100
+                    : Math.min(99, Math.round((e.my / E.nidrasur.wakeAt) * 99))
+                  : e.kind === 'saptashir'
+                    ? e.my
+                    : e.kind === 'mashaal'
+                      ? Math.min(99, this.tick - e.atkStart)
+                      : e.kind === 'pehlwan' || e.kind === 'gadadhar' || e.kind === 'jodasur'
+                        ? e.burst
+                        : e.kind === 'ardh'
+                          ? e.atkParam
+                          : e.kind === 'slinger'
+                            ? Math.min(99, this.tick - e.atkStart)
+                            : e.kind === 'chakri'
+                              ? e.atkParam
+                                ? 1
+                                : 0
+                              : e.kind === 'rathi'
+                                ? e.burst
+                                : e.kind === 'archer' || e.kind === 'drummer' || e.kind === 'netter'
+                                  ? Math.min(99, this.tick - e.atkStart)
+                                  : e.kind === 'mirror'
+                                    ? Math.round(e.homeX)
+                                    : 0,
         ph: e.phase,
         ra: e.rule?.kind ? BOSS_RULES.indexOf(e.rule.kind) : -1,
         rt: e.rule?.kind ? this.tick - e.rule.start : 0,
         rs: e.rule?.storm ? 1 : 0,
-        sn: e.rule && this.tick < e.rule.stunUntil ? 1 : 0,
+        // stunned; for Chhaya, her jaws hanging open (the moment to strike)
+        sn:
+          (e.rule && this.tick < e.rule.stunUntil) ||
+          ((e.kind === 'chhaya' ||
+            e.kind === 'aandhi' ||
+            e.kind === 'darpan' ||
+            e.kind === 'raakhasur' ||
+            e.kind === 'suryakavach') &&
+            this.tick < e.mx)
+            ? 1
+            : 0,
         im: e.rule?.storm ? 1 : 0,
         el: e.elite ? 1 : 0,
         fl: (e.burnUntil > this.tick ? 1 : 0) | (e.liftUntil > this.tick ? 2 : 0),
@@ -3629,6 +6855,24 @@ export class Sim {
       taken: mask(this.taken),
       score: this.score,
       lx: Math.round(this.world.limitX),
+      ...(this.chaseOn ? { cx: Math.round(this.chaseX) } : {}),
+      ...(this.plats.length
+        ? {
+            pl: this.plats.flatMap((p, i) => [
+              Math.round(this.platDx[i] ?? 0),
+              Math.round(p.y),
+              p.on ? 1 : 0,
+            ]),
+          }
+        : {}),
+      ...(this.level.tide ? { wy: Math.round(this.waterY() ?? 0) } : {}),
+      ...(this.tick < this.mayaUntil ? { ma: 1 } : {}),
+      ...(this.lavaOn ? { lv: Math.round(this.lavaY) } : {}),
+      ...(this.level.vyuh ? { vw: Math.round(this.vyuhX) } : {}),
+      ...(this.meghAt > this.tick
+        ? { ij: [Math.round(this.meghX), Math.round(this.meghY)] as [number, number] }
+        : {}),
+      ...(this.level.gusts || this.storm ? { gu: this.gustDir || this.gustWarnDir * 2 } : {}),
       arena,
       boss,
       players,
@@ -3644,7 +6888,8 @@ export class Sim {
         k: BULLET_KINDS.indexOf(b.kind),
         p: b.power ? 1 : 0,
       })),
-      bm: this.brahma < 0 ? -1 : Math.floor(this.brahma),
+      bm: this.param < 0 ? -1 : Math.floor(this.param),
+      ...(this.goal ? { gl: this.goalSnap() } : {}),
       fx: [
         ...this.burns.map((f) => ({
           k: 0 as const,

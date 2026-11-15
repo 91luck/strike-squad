@@ -2525,7 +2525,7 @@ body.reduce-motion *::after {
   border-color: rgba(167, 139, 250, 0.8);
 }
 
-.brahma-bar {
+.param-bar {
   /* Team meter: bottom centre, between the thumbs on phones. */
   position: absolute;
   left: 50%;
@@ -2539,14 +2539,14 @@ body.reduce-motion *::after {
   overflow: hidden;
 }
 
-.brahma-fill {
+.param-fill {
   height: 100%;
   width: 0;
   background: linear-gradient(90deg, #f59e0b, #fde047, #fff7cc);
   transition: width 0.2s;
 }
 
-.brahma-bar span {
+.param-bar span {
   position: absolute;
   inset: 0;
   display: grid;
@@ -2557,7 +2557,7 @@ body.reduce-motion *::after {
   text-shadow: 0 1px 2px #000;
 }
 
-.brahma-bar.ready {
+.param-bar.ready {
   border-color: #fde047;
   animation: glowpulse 0.7s ease-in-out infinite;
 }
@@ -2802,7 +2802,7 @@ textarea {
   width: 100%;
 }
 
-/* ------------------------------------------------------------------ narayanastra: the samarpan instruction */
+/* ------------------------------------------------------------------ samarpanastra: the samarpan instruction */
 
 .samarpan {
   /* Above the team meter, below the action: never over the boss bar or the banner. */
@@ -3334,4 +3334,181 @@ body.reduce-motion .menu-actions .btn.primary.hazard {
   font-weight: 700;
   font-size: 12px;
   color: #fff;
+}
+
+/* ---------------------------------------------------------------- story comms (game/comms.ts) */
+.comms {
+  /* bottom left, out of the way of the hero card, combo, banners and boss bar; on touch screens (the stick
+     lives bottom left) it moves to the top middle and banners step down while it talks */
+  position: absolute;
+  left: calc(10px + env(safe-area-inset-left));
+  bottom: calc(14px + env(safe-area-inset-bottom));
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(440px, 58vw);
+  padding: 8px 14px 8px 8px;
+  border-radius: 14px;
+  background: linear-gradient(100deg, rgba(14, 8, 24, 0.88), rgba(14, 8, 24, 0.55));
+  border: 1px solid rgba(253, 224, 140, 0.35);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  opacity: 0;
+  transform: translateX(-16px);
+  transition:
+    opacity 0.25s ease,
+    transform 0.25s ease;
+}
+.comms.show {
+  opacity: 1;
+  transform: none;
+}
+.comms canvas {
+  flex: none;
+  width: 64px;
+  height: 64px;
+  border-radius: 12px;
+  background: radial-gradient(circle at 50% 40%, rgba(255, 200, 120, 0.35), rgba(30, 14, 30, 0.9));
+  border: 2px solid rgba(253, 224, 140, 0.6);
+}
+.comms[data-who='boss'] canvas,
+.comms[data-who='saptashir'] canvas {
+  background: radial-gradient(circle at 50% 40%, rgba(255, 80, 60, 0.4), rgba(30, 8, 12, 0.95));
+  border-color: rgba(248, 113, 113, 0.75);
+}
+.comms[data-who='boss'],
+.comms[data-who='saptashir'] {
+  border-color: rgba(248, 113, 113, 0.45);
+}
+.comms-body {
+  min-width: 0;
+}
+.comms-body b {
+  display: block;
+  font-family: var(--display);
+  font-size: var(--step--1);
+  letter-spacing: 0.08em;
+  color: #fde68a;
+}
+.comms[data-who='boss'] .comms-body b,
+.comms[data-who='saptashir'] .comms-body b {
+  color: #fca5a5;
+}
+.comms[data-who='hero'] .comms-body b {
+  color: #93c5fd;
+}
+.comms-body p {
+  margin: 2px 0 0;
+  font-size: var(--step-0);
+  line-height: 1.3;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+  min-height: 2.6em;
+}
+body:has(#touch:not([hidden])) .comms {
+  bottom: auto;
+  top: calc(70px + env(safe-area-inset-top));
+  left: 50%;
+  transform: translate(-50%, -12px);
+}
+body:has(#touch:not([hidden])) .comms.show {
+  transform: translate(-50%, 0);
+}
+body:has(#touch:not([hidden])):has(.comms.show) .banner {
+  top: 42%;
+}
+@media (max-height: 500px) {
+  .comms {
+    width: min(360px, 52vw);
+    padding: 5px 10px 5px 5px;
+  }
+  .comms canvas {
+    width: 44px;
+    height: 44px;
+  }
+  .comms-body p {
+    font-size: var(--step--1);
+    min-height: 2.4em;
+  }
+}
+
+/* the chapter page on the results screen */
+.story-page {
+  margin: 10px auto 14px;
+  max-width: 640px;
+  padding: 14px 18px;
+  border-radius: 14px;
+  text-align: left;
+  background: linear-gradient(160deg, rgba(120, 53, 15, 0.35), rgba(30, 14, 30, 0.6));
+  border: 1px solid rgba(253, 224, 140, 0.35);
+}
+.story-page h3 {
+  margin: 0 0 6px;
+  font-family: var(--display);
+  font-size: var(--step-1);
+  color: #fde68a;
+}
+.story-page p {
+  margin: 0;
+  line-height: 1.5;
+}
+.story-page .story-next {
+  margin-top: 8px;
+  font-weight: 700;
+  color: #fcd34d;
+}
+
+/* ---------------------------------------------------------------- the stage goal chip (view.ts) */
+.goal-chip {
+  position: absolute;
+  top: calc(66px + env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 4px 14px;
+  border-radius: 999px;
+  background: rgba(14, 8, 24, 0.72);
+  border: 1px solid rgba(253, 224, 140, 0.45);
+  pointer-events: none;
+  white-space: nowrap;
+  font-size: var(--step--1);
+}
+.goal-chip b {
+  font-family: var(--display);
+  letter-spacing: 0.04em;
+  color: #fde68a;
+}
+.goal-chip span {
+  font-weight: 700;
+  color: #fff;
+}
+.goal-chip.done {
+  border-color: #4ade80;
+}
+.goal-chip.done b,
+.goal-chip.done span {
+  color: #86efac;
+}
+.goal-chip.fail {
+  opacity: 0.55;
+}
+.goal-chip.urgent span {
+  color: #fca5a5;
+}
+body:has(#touch:not([hidden])) .comms {
+  top: calc(100px + env(safe-area-inset-top));
+}
+@media (max-height: 500px) {
+  .goal-chip {
+    top: calc(52px + env(safe-area-inset-top));
+    padding: 2px 10px;
+  }
+}
+
+.result-goal {
+  margin: 6px auto;
+  font-family: var(--display);
+  color: #fde68a;
 }

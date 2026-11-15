@@ -37,11 +37,11 @@ export type ArtStyle =
   | 'night'
   | 'inferno'
   | 'space'
-  // Themed worlds: a pharaoh's tomb, a frost-giant hall, Olympus (stormy ruins and the marble temple),
+  // Themed worlds: a pharaoh's tomb, a frost-giant hall, the marble peak (stormy ruins and a marble temple),
   // the demon citadel's gate and the inside of an alien hive ship.
   | 'tomb'
   | 'frosthall'
-  | 'olympus'
+  | 'marble'
   | 'temple'
   | 'hellgate'
   | 'hive'
@@ -53,16 +53,16 @@ export type ArtStyle =
   | 'naglok'
   | 'maya'
   | 'bhasm'
-  | 'kurukshetra'
+  | 'ranbhoomi'
   | 'chakra'
   | 'dwand'
   | 'mahayuddh';
 
 /**
  * Who the enemies are (cosmetic only: same rules, different look, names and boss art). `army` soldiers,
- * the `pharaoh`'s tomb guard, `norse` frost warriors, `olympus` myth beasts, a `demon` army and `void` aliens.
+ * the `pharaoh`'s tomb guard, `norse` frost warriors, `marble` myth beasts, a `demon` army and `void` aliens.
  */
-export type Faction = 'army' | 'pharaoh' | 'norse' | 'olympus' | 'demon' | 'void';
+export type Faction = 'army' | 'pharaoh' | 'norse' | 'marble' | 'demon' | 'void';
 
 export interface EnemySpawn {
   id: number;
@@ -90,7 +90,9 @@ export interface PickupSpawn {
  *  - well:   gravity well (a black hole): pulls soldiers sideways and all shots toward its centre (power px/s).
  *  - magnet: magnetic storm: shots curve (power rad/s); drawn as an aurora.
  */
-export type FieldKind = 'lowg' | 'lift' | 'well' | 'magnet';
+/** Fields: low gravity, an updraft, a gravity well, a magnetic storm, a pool of poison (Naag Lok). */
+/** `belt`: the turning rings of the bhanwarvyuh carry whoever stands in them at `power` px/s (negative: leftward). */
+export type FieldKind = 'lowg' | 'lift' | 'well' | 'magnet' | 'poison' | 'belt' | 'mud';
 export interface FieldDef {
   kind: FieldKind;
   x0: number;
@@ -106,7 +108,7 @@ export interface GateDef {
   /** Rows covered by the gate (inclusive). */
   rowTop: number;
   rowBottom: number;
-  /** A wall of fire: not opened by clearing an arena but by the rain astra (varuna). */
+  /** A wall of fire: not opened by clearing an arena but by the rain astra (jal). */
   fire: boolean;
 }
 
@@ -119,9 +121,9 @@ export interface CheckpointDef {
 
 /**
  * Astras a boss calls itself (Astra Saga), on top of its normal attacks: serpents that hunt the squad, the
- * narayanastra storm, the vaishnava orb, the brahmashirsha. Rules and their counters: `GAME_CONFIG.bossAstra`.
+ * samarpanastra storm, the tej orb, the pralay. Rules and their counters: `GAME_CONFIG.bossAstra`.
  */
-export const BOSS_RULES = ['naga', 'narayana', 'vaishnava', 'brahmashirsha'] as const;
+export const BOSS_RULES = ['naga', 'samarpan', 'tej', 'pralay'] as const;
 export type BossRule = (typeof BOSS_RULES)[number];
 
 /**
@@ -149,10 +151,10 @@ export interface WaveSpawn {
  *   makara  the crocodile: the heavy jaw comes from one end, the other jaw snaps shut behind a moment later
  *   suchi   the needle: one long file from a single end, each close on the heels of the last
  *   vajra   the thunderbolt: three tight knots drop out of the sky together
- *   garuda  the eagle: a beak leads from one end, wings of flyers on both sides, the body follows
+ *   shyen  the eagle: a beak leads from one end, wings of flyers on both sides, the body follows
  */
-export type Vyuha = 'chakra' | 'ardha' | 'makara' | 'suchi' | 'vajra' | 'garuda';
-export const VYUHAS: readonly Vyuha[] = ['chakra', 'ardha', 'makara', 'suchi', 'vajra', 'garuda'];
+export type Vyuha = 'chakra' | 'ardha' | 'makara' | 'suchi' | 'vajra' | 'shyen';
+export const VYUHAS: readonly Vyuha[] = ['chakra', 'ardha', 'makara', 'suchi', 'vajra', 'shyen'];
 
 export interface ArenaDef {
   id: number;
@@ -262,11 +264,43 @@ export interface LevelDef {
   mods: MissionMods;
   fields: FieldDef[];
   faction: Faction;
-  /** The squad charges a shared brahmastra in this mission. */
-  brahma: boolean;
+  /** The squad charges a shared paramastra in this mission. */
+  param: boolean;
   /** Hue shift (degrees) for this stage's enemies and bosses, so each saga stage has its own colours. Cosmetic. */
   tint: number;
   hazard: HazardDef | null;
+  /** A wall of fire chases the squad from behind (Agnivan; see GAME_CONFIG.chase). */
+  chase: boolean;
+  /** Moving one-way surfaces: the floating stones that sink under weight, a boat that sails (Sagar Setu). */
+  plats: PlatDef[];
+  /**
+   * A stage of its own (the rebuilt Astra Saga): its own terrain, rules, rakshasas and boss, no gates and no ambush
+   * arenas. The template rules the older stages share (rest after every arena, battle arrays...) do not apply.
+   */
+  own: boolean;
+  /** Underground and unlit (Naag Lok): the screen is dark but for the squad's light and what glows. */
+  dark: boolean;
+  /** Lava rising from below (Bhasm Parvat; see GAME_CONFIG.lava). */
+  lava: boolean;
+  /** The bhanwarvyuh closes behind the squad: no going back (Chakra Durg; see GAME_CONFIG.vyuh). */
+  vyuh: boolean;
+  /** Meghbaan's arrows from the clouds (Suvarna; see GAME_CONFIG.megh). */
+  megh: boolean;
+  /** Gusts of wind across the stage (Vayu Shikhar; see GAME_CONFIG.gusts). */
+  gusts: boolean;
+  /** The sea rising and falling (Sagar Setu): water surface y = base + amp·sin(2πt/period). */
+  tide: { base: number; amp: number; periodSec: number } | null;
+}
+
+/** A floating stone (sinks while stood on, floats back up) or a boat (sails to `to` once a soldier boards). */
+export interface PlatDef {
+  /** A floating stone, a boat, or one of Vishdhar's heads (bobs up and down; landing on it hurts him). */
+  kind: 'stone' | 'boat' | 'head' | 'fake' | 'hidden' | 'chariot' | 'vimana';
+  x0: number;
+  x1: number;
+  y: number;
+  /** A boat's journey's end (its x0 there). */
+  to: number;
 }
 
 const T = GAME_CONFIG.tile;
@@ -285,8 +319,16 @@ export class Builder {
   checkpoints: CheckpointDef[] = [];
   zones: { x: number; name: string }[] = [];
   rests: { x0: number; x1: number }[] = [];
+  plats: PlatDef[] = [];
   art: { x: number; style: ArtStyle }[] = [];
   fields: FieldDef[] = [];
+
+  /**
+   * Row offset: everything placed is shifted down by `dy` rows. Templates are written for an 18-row screen with the
+   * ground at row 14; a stage that climbs or descends places each stretch at its own height by changing `dy`
+   * (the level is then taller than the screen and the camera follows the squad up and down).
+   */
+  dy = 0;
 
   constructor(
     readonly cols: number,
@@ -296,16 +338,25 @@ export class Builder {
   }
 
   set(c: number, r: number, t: Tile): void {
-    if (c >= 0 && c < this.cols && r >= 0 && r < this.rows) this.tiles[r * this.cols + c] = t;
+    const rr = r + this.dy;
+    if (c >= 0 && c < this.cols && rr >= 0 && rr < this.rows) this.tiles[rr * this.cols + c] = t;
   }
 
   get(c: number, r: number): Tile {
-    return c >= 0 && c < this.cols && r >= 0 && r < this.rows ? (this.tiles[r * this.cols + c] as Tile) : 0;
+    const rr = r + this.dy;
+    return c >= 0 && c < this.cols && rr >= 0 && rr < this.rows
+      ? (this.tiles[rr * this.cols + c] as Tile)
+      : 0;
+  }
+
+  /** Rows below the local top (row 0) to the bottom of the level, in local rows. */
+  private get bottom(): number {
+    return this.rows - this.dy;
   }
 
   /** Solid ground from column c0 to c1 (inclusive) with its surface at `top`, filled to the bottom. */
   ground(c0: number, c1: number, top: number): this {
-    for (let c = c0; c <= c1; c++) for (let r = top; r < this.rows; r++) this.set(c, r, Tile.Solid);
+    for (let c = c0; c <= c1; c++) for (let r = top; r < this.bottom; r++) this.set(c, r, Tile.Solid);
     return this;
   }
 
@@ -321,17 +372,17 @@ export class Builder {
 
   /** First row (from the top) you can stand on in column c: solid ground, or also platforms when `any`. */
   surface(c: number, any = false): number {
-    for (let r = 1; r < this.rows; r++) {
+    for (let r = 1 - this.dy; r < this.bottom; r++) {
       const t = this.get(c, r);
       if ((t === Tile.Solid || (any && t === Tile.OneWay)) && this.get(c, r - 1) === Tile.Empty) return r;
     }
-    return any ? this.rows : this.surface(c, true);
+    return any ? this.bottom : this.surface(c, true);
   }
 
   /** Enemy standing on the surface at row `surface` (flyers hover 4 rows above it). */
   enemy(kind: TrooperKind, col: number, surface: number): this {
-    const flying = kind === 'drone' || kind === 'jetpack';
-    const y = flying ? (surface - 4) * T : surface * T;
+    const flying = kind === 'drone' || kind === 'jetpack' || kind === 'harpy' || kind === 'lancer';
+    const y = (flying ? surface - 4 + this.dy : surface + this.dy) * T;
     this.enemies.push({ id: this.enemies.length, kind, x: col * T + T / 2, y });
     return this;
   }
@@ -341,7 +392,7 @@ export class Builder {
       id: this.pickups.length,
       kind,
       x: col * T + T / 2,
-      y: surface * T - 22,
+      y: (surface + this.dy) * T - 22,
       respawn,
       secret,
     });
@@ -350,26 +401,39 @@ export class Builder {
 
   /** A physics field over columns c0..c1 and rows r0..r1 (inclusive). */
   field(kind: FieldKind, c0: number, c1: number, r0: number, r1: number, power: number): this {
-    this.fields.push({ kind, x0: c0 * T, x1: (c1 + 1) * T, y0: r0 * T, y1: (r1 + 1) * T, power });
+    this.fields.push({
+      kind,
+      x0: c0 * T,
+      x1: (c1 + 1) * T,
+      y0: (r0 + this.dy) * T,
+      y1: (r1 + 1 + this.dy) * T,
+      power,
+    });
     return this;
   }
 
   /** A rest stop over columns c0..c1. */
+  /** A moving one-way surface over columns c0..c1 at row `row` (see PlatDef). */
+  plat(kind: PlatDef['kind'], c0: number, c1: number, row: number, toCol = c0): this {
+    this.plats.push({ kind, x0: c0 * T, x1: (c1 + 1) * T, y: (row + this.dy) * T, to: toCol * T });
+    return this;
+  }
+
   rest(c0: number, c1: number): this {
     this.rests.push({ x0: c0 * T, x1: (c1 + 1) * T });
     return this;
   }
 
   checkpoint(col: number, surface: number): this {
-    this.checkpoints.push({ id: this.checkpoints.length, x: col * T + T / 2, y: surface * T });
+    this.checkpoints.push({ id: this.checkpoints.length, x: col * T + T / 2, y: (surface + this.dy) * T });
     return this;
   }
 
   /** A gate column from the top of the screen down to `bottom`. Returns its id. */
   gate(col: number, bottom: number, fire = false): number {
     const id = this.gates.length;
-    this.gates.push({ id, col, rowTop: 0, rowBottom: bottom, fire });
-    for (let r = 0; r <= bottom; r++) this.set(col, r, Tile.Gate);
+    this.gates.push({ id, col, rowTop: 0, rowBottom: bottom + this.dy, fire });
+    for (let r = -this.dy; r <= bottom; r++) this.set(col, r, Tile.Gate);
     return id;
   }
 
@@ -389,7 +453,7 @@ export class Builder {
       trigger: a.trigger * T,
       left: a.left * T,
       right: a.right * T,
-      floor: a.floor * T,
+      floor: (a.floor + this.dy) * T,
       gate: a.gate,
       waves,
       boss,
@@ -401,7 +465,7 @@ export class Builder {
   }
 
   boss(kind: BossKind, col: number, y: number, arena: number, hpMul = 1): this {
-    this.bosses.push({ kind, x: col * T + T / 2, y, arena, hpMul });
+    this.bosses.push({ kind, x: col * T + T / 2, y: y + this.dy * T, arena, hpMul });
     return this;
   }
 
@@ -422,9 +486,17 @@ export class Builder {
     start: { x: number; y: number };
     mods?: MissionMods;
     faction?: Faction;
-    brahma?: boolean;
+    param?: boolean;
     tint?: number;
     hazard?: HazardDef;
+    chase?: boolean;
+    tide?: LevelDef['tide'];
+    own?: boolean;
+    gusts?: boolean;
+    dark?: boolean;
+    lava?: boolean;
+    vyuh?: boolean;
+    megh?: boolean;
   }): LevelDef {
     if (this.gates.length > MAX_GATES) throw new Error(`${meta.id}: more than ${MAX_GATES} gates`);
     if (this.pickups.length > MAX_PICKUPS) throw new Error(`${meta.id}: more than ${MAX_PICKUPS} pickups`);
@@ -448,9 +520,18 @@ export class Builder {
       mods: meta.mods ?? BASE_MODS,
       fields: this.fields,
       faction: meta.faction ?? 'army',
-      brahma: meta.brahma ?? false,
+      param: meta.param ?? false,
       tint: meta.tint ?? 0,
       hazard: meta.hazard ?? null,
+      chase: meta.chase ?? false,
+      own: meta.own ?? false,
+      gusts: meta.gusts ?? false,
+      dark: meta.dark ?? false,
+      lava: meta.lava ?? false,
+      vyuh: meta.vyuh ?? false,
+      megh: meta.megh ?? false,
+      plats: this.plats,
+      tide: meta.tide ?? null,
     };
   }
 }

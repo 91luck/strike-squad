@@ -24,10 +24,10 @@ describe('the daily trial', () => {
       expect(L.hazard).toEqual(t.hazard);
       expect(L.pickups).toHaveLength(base.pickups.length);
       const astras = new Set(L.pickups.map((p) => p.kind).filter((k) => POWER_KINDS.includes(k as never)));
-      for (const k of astras) expect([...t.astras, 'varuna', 'vaishnava']).toContain(k);
+      for (const k of astras) expect([...t.astras, 'jal', 'tej']).toContain(k);
       // what a stage cannot do without stays where it stood
       for (const [j, p] of base.pickups.entries())
-        if (p.kind === 'varuna' || p.kind === 'vaishnava') expect(L.pickups[j]!.kind).toBe(p.kind);
+        if (p.kind === 'jal' || p.kind === 'tej') expect(L.pickups[j]!.kind).toBe(p.kind);
       for (const a of L.arenas) if (!a.boss && a.waves.length) expect(a.vyuha[0]).toBe(t.vyuha);
       // the stage itself is left as it was
       expect(getMission(t.stage).hazard).toEqual(base.hazard);

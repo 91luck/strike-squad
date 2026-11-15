@@ -27,6 +27,11 @@ import type { Sfx } from '../audio/sfx';
 import type { Settings } from '../settings';
 import { $, el } from '../ui/dom';
 import { Renderer, type DrawOptions } from './renderer';
+import { POWER_COLOR } from './power-fx';
+import { ASTRA_NAME } from '../daily';
+import { CHAPTERS, GOAL_TEXT, SURPRISE_LINES } from '../story';
+import { Comms, openingLines, type CommsCast } from './comms';
+import { hasBoss3d } from './boss3d';
 
 /** Names and one-line tips for the boss intro card. */
 export const BOSS_INFO: Record<BossKind, { name: string; sub: string; tip: string }> = {
@@ -45,69 +50,161 @@ export const BOSS_INFO: Record<BossKind, { name: string; sub: string; tip: strin
     sub: 'Final stronghold · 3 phases',
     tip: 'Low laser: JUMP. High laser: DUCK or slide. Everyone, unleash your supers!',
   },
+  vriksha: {
+    name: 'JWALA VRIKSH-ASUR',
+    sub: 'The burning banyan · 2 phases',
+    tip: 'Jump the roots. Fruit falls on the glowing marks. When its bark hardens, climb the boughs and hit its heart.',
+  },
+  darpan: {
+    name: 'DARPAN-ASUR',
+    sub: 'The great mirror of the hall of illusions',
+    tip: 'While it shines it turns every shot back at you: hold fire. Strike when it goes dull after its reflections, or dull it with MAYASTRA.',
+  },
+  vishdhar: {
+    name: 'VISHDHAR',
+    sub: 'The many-hooded serpent of the poisoned lake',
+    tip: 'His scales turn your shots. Jump onto his heads, one after another. Stay out of the poison.',
+  },
+  aandhi: {
+    name: 'AANDHI',
+    sub: 'The false sage of Meghgiri',
+    tip: 'His guise turns half your blows. Hit him while his arms are up holding a storm, and crouch into the wind. VAYUSTRA turns his storm on him.',
+  },
+  saptashir: {
+    name: 'SAPTASHIR',
+    sub: 'The seven-headed king of the golden city',
+    tip: 'His heads take your shots and grow back. Cut all seven, then pour fire into him before they return. When he charges PRALAY, fire the squad PARAMASTRA: it strikes his heart.',
+  },
+  jodasur: {
+    name: 'JODASUR',
+    sub: 'King of Rajgarh, born in two halves',
+    tip: 'Boulders, a pounce, a bull charge. Bring him down and he splits: stand between the halves and shoot each one OUTWARD to push them apart before they join again. Turn his TEJ orb back with the altar astra.',
+  },
+  suryakavach: {
+    name: 'SURYAKAVACH',
+    sub: 'Who holds the gate of the bhanwarvyuh',
+    tip: 'While the sun shines no blow touches him (his boon). Fight his maharathis and wait for the eclipse, or throw CHAKRAM to cover the sun yourself. Then everyone fire!',
+  },
+  maniyodha: {
+    name: 'MANIYODHA',
+    sub: "the guru's son, the jewel on his brow",
+    tip: 'Arrows in fans, agnibaan fire running along the ground, a leaping cut if you get close. When he calls SAMARPANASTRA: STOP FIRING until it passes. Then he is spent and open.',
+  },
+  raakhasur: {
+    name: 'RAAKHASUR',
+    sub: 'Whose touch turns any head to ash',
+    tip: 'His body shrugs off weapons. Never let his burning hand reach you. When Nartaki dances, copy her pose with the arrow keys each beat: he copies her and burns himself, then he is wide open.',
+  },
+  chhaya: {
+    name: 'CHHAYA',
+    sub: 'The shadow-catcher of the southern sea',
+    tip: 'A dark pool follows your shadow: step off it before her hand comes up. Strike while her jaws hang open.',
+  },
 };
 
 /** Boss names per themed faction (the army keeps WARHOUND, VULTURE and the IRON FORTRESS). */
-const FACTION_NAME: Record<Exclude<Faction, 'army'>, Record<BossKind, string>> = {
-  pharaoh: { walker: 'GIANT SCORPION', gunship: 'SUN FALCON', boss: 'ANUBIS COLOSSUS' },
-  norse: { walker: 'FENRIR', gunship: 'THOR', boss: 'FROST GIANT' },
-  olympus: { walker: 'MINOTAUR', gunship: 'STORM HARPY', boss: 'ZEUS' },
-  demon: { walker: 'INFERNO BEAST', gunship: 'FIRE DRAGON', boss: 'DEMON KING' },
-  void: { walker: 'XENO CRAWLER', gunship: 'UFO MOTHERSHIP', boss: 'HIVE QUEEN' },
+const FACTION_NAME: Record<Exclude<Faction, 'army'>, Partial<Record<BossKind, string>>> = {
+  pharaoh: {
+    walker: 'GIANT SCORPION',
+    gunship: 'SUN FALCON',
+    boss: 'JACKAL COLOSSUS',
+    vriksha: 'JWALA VRIKSH-ASUR',
+  },
+  norse: { walker: 'DIRE WOLF', gunship: 'THUNDER WARDEN', boss: 'FROST GIANT' },
+  marble: { walker: 'BULL TITAN', gunship: 'STORM HARPY', boss: 'SKY TYRANT' },
+  demon: {
+    walker: 'INFERNO BEAST',
+    gunship: 'FIRE DRAGON',
+    boss: 'DEMON KING',
+    vriksha: 'JWALA VRIKSH-ASUR',
+  },
+  void: {
+    walker: 'XENO CRAWLER',
+    gunship: 'UFO MOTHERSHIP',
+    boss: 'HIVE QUEEN',
+    vriksha: 'JWALA VRIKSH-ASUR',
+  },
 };
 
 /** Boss subtitles per themed faction (same attacks as the army machines, different creatures). */
-const FACTION_SUB: Record<Exclude<Faction, 'army'>, Record<BossKind, string>> = {
-  pharaoh: { walker: 'Giant scorpion', gunship: 'Sun falcon', boss: 'Living statue · 3 phases' },
-  norse: { walker: 'Giant wolf', gunship: 'Thunder god', boss: 'Frost giant · 3 phases' },
-  olympus: { walker: 'Bull-headed brute', gunship: 'Storm harpy', boss: 'King of the gods · 3 phases' },
-  demon: { walker: 'Demon beast', gunship: 'Fire dragon', boss: 'Demon throne · 3 phases' },
-  void: { walker: 'Xeno crawler', gunship: 'Alien saucer', boss: 'Hive queen · 3 phases' },
+const FACTION_SUB: Record<Exclude<Faction, 'army'>, Partial<Record<BossKind, string>>> = {
+  pharaoh: {
+    walker: 'Giant scorpion',
+    gunship: 'Sun falcon',
+    boss: 'Living statue · 3 phases',
+    vriksha: 'JWALA VRIKSH-ASUR',
+  },
+  norse: {
+    walker: 'Giant wolf',
+    gunship: 'Thunder warden',
+    boss: 'Frost giant · 3 phases',
+    vriksha: 'JWALA VRIKSH-ASUR',
+  },
+  marble: {
+    walker: 'Bull-headed brute',
+    gunship: 'Storm harpy',
+    boss: 'Sky tyrant · 3 phases',
+    vriksha: 'JWALA VRIKSH-ASUR',
+  },
+  demon: {
+    walker: 'Demon beast',
+    gunship: 'Fire dragon',
+    boss: 'Demon throne · 3 phases',
+    vriksha: 'JWALA VRIKSH-ASUR',
+  },
+  void: {
+    walker: 'Xeno crawler',
+    gunship: 'Alien saucer',
+    boss: 'Hive queen · 3 phases',
+    vriksha: 'JWALA VRIKSH-ASUR',
+  },
 };
 
 /** Saga boss subtitles: the asura host's champions. */
-const SAGA_SUB: Record<BossKind, string> = {
+const SAGA_SUB: Partial<Record<BossKind, string>> = {
   walker: 'Asura champion',
   gunship: 'Sky rakshasa',
   boss: 'Asura lord · 3 phases',
+  vriksha: 'The burning banyan · 2 phases',
 };
 
 /** Power names, icons and what they do (HUD and pickup banners). */
 export const POWER_INFO: Record<PowerKind, { name: string; icon: string; tip: string }> = {
   agni: { name: 'AGNI ASTRA', icon: '🔥', tip: 'Fire wave + burning ground' },
-  varuna: { name: 'VARUNA ASTRA', icon: '🌧', tip: 'Rain: puts out walls of fire' },
+  jal: { name: 'JAL ASTRA', icon: '🌧', tip: 'Rain: puts out walls of fire' },
   vayu: { name: 'VAYU ASTRA', icon: '🌪', tip: 'Gust: blows enemies and shots away' },
   singularity: { name: 'BLACK HOLE', icon: '🕳', tip: 'Swallows enemies and their shots' },
-  naga: { name: 'NAGASTRA', icon: '🐍', tip: 'Three serpents that hunt the nearest foes' },
-  garuda: {
-    name: 'GARUDASTRA',
+  naga: { name: 'NAAGASTRA', icon: '🐍', tip: 'Three serpents that hunt the nearest foes' },
+  shyen: {
+    name: 'SHYENASTRA',
     icon: '🦅',
     tip: 'Wipes enemy serpents and shots from the sky, crushes flyers',
   },
-  sudarshana: {
-    name: 'SUDARSHANA CHAKRA',
+  chakram: {
+    name: 'CHAKRAM',
     icon: '☸',
     tip: 'The discus: hits six foes in turn, then comes back',
   },
-  pashupata: {
-    name: 'PASHUPATASTRA',
+  vidyut: {
+    name: 'VIDYUTASTRA',
     icon: '🔱',
     tip: 'A new form every call: trident, spirit or fire rain',
   },
-  vaishnava: { name: 'VAISHNAVASTRA', icon: '☀', tip: 'Turns a boss’s golden orb back on the boss' },
+  tej: { name: 'TEJASTRA', icon: '☀', tip: 'Turns a boss’s golden orb back on the boss' },
+  maya: { name: 'MAYASTRA', icon: '◈', tip: 'Shows every illusion as it is; dulls the mirror' },
 };
 
-/** Wire index of a vaishnava orb. */
+/** Wire index of a tej orb. */
 const ORB = BULLET_KINDS.indexOf('orb');
 
 /** Boss astra banners: the call, and what to do about it. */
 const BOSS_ASTRA_TEXT: Record<BossRule, { call: string; tip: string }> = {
-  naga: { call: '🐍 NAGASTRA!', tip: 'Serpents incoming: shoot them, dash, or call GARUDA' },
-  narayana: { call: '🏹 NARAYANASTRA!', tip: 'STOP FIRING: lay down your weapons and it spares you' },
-  vaishnava: { call: '☀ VAISHNAVASTRA!', tip: 'Grab the VAISHNAVA altar and turn the orb back' },
-  brahmashirsha: {
-    call: '✴ BRAHMASHIRSHA!',
-    tip: 'Answer it with the BRAHMASTRA, or dash at the last moment',
+  naga: { call: '🐍 NAAGASTRA!', tip: 'Serpents incoming: shoot them, dash, or call SHYEN' },
+  samarpan: { call: '🏹 SAMARPANASTRA!', tip: 'STOP FIRING: lay down your weapons and it spares you' },
+  tej: { call: '☀ TEJASTRA!', tip: 'Grab the TEJ altar and turn the orb back' },
+  pralay: {
+    call: '✴ PRALAY!',
+    tip: 'Answer it with the PARAMASTRA, or dash at the last moment',
   },
 };
 
@@ -134,8 +231,13 @@ const VYUHA_TEXT: Record<Vyuha, [string, string]> = {
   makara: ['MAKARA VYUHA', 'the heavy jaw is in front — the other shuts behind you'],
   suchi: ['SUCHI VYUHA', 'the needle: one long file through one gate — hold the mouth'],
   vajra: ['VAJRA VYUHA', 'the thunderbolt drops on you from the sky — keep moving'],
-  garuda: ['GARUDA VYUHA', 'the eagle: a beak in front, wings overhead, the body behind'],
+  shyen: ['SHYEN VYUHA', 'the eagle: a beak in front, wings overhead, the body behind'],
 };
+
+/** The name of the level's final arena (the stage boss). */
+function finalArenaName(level: { arenas: readonly { gate: number; name: string }[] }): string | null {
+  return level.arenas.find((a) => a.gate === -1)?.name ?? null;
+}
 
 export class MatchView {
   /** Said as the next match begins, instead of the stage's own line (the daily trial sets it). */
@@ -186,6 +288,8 @@ export class MatchView {
 
   begin(meId: string, first: Snapshot, level: LevelDef): void {
     this.renderer.setLevel(level);
+    this.comms.clear();
+    this.holdSeen = false;
     this.meId = meId;
     this.stats = { kills: 0, ults: 0, bestCombo: 0, bossesDown: 0 };
     this.lastCountdown = -1;
@@ -285,6 +389,11 @@ export class MatchView {
         case 'life':
           this.notice(`♥ +1 squad life (${ev.lives})`);
           break;
+        case 'chase':
+          r.shake(reduce ? 0 : 6);
+          this.sfx.play('explode');
+          this.showBanner('JWALA BURNS — the fire is behind you. Keep moving!', true);
+          break;
         case 'regain':
           // the carried astra came back through fighting: a sound, and the chip's count goes up
           if (ev.id === this.meId) this.sfx.play('powerup');
@@ -342,25 +451,37 @@ export class MatchView {
           this.music?.play('boss', this.stageNum());
           this.bossArena = this.renderer.level.arenas[ev.arena]?.name ?? null;
           this.bossIntro(ev.kind, this.renderer.level.arenas[ev.arena]?.name);
+          if (this.chapter() && this.renderer.level.arenas[ev.arena]?.gate === -1)
+            this.comms.say(this.chapter()?.boss ?? [], this.cast(), 3300);
           break;
         case 'bossPhase':
+          if (this.chapter() && this.bossArena === finalArenaName(this.renderer.level))
+            this.comms.say(
+              [this.chapter()?.rage].filter((l) => l !== undefined),
+              this.cast(),
+              1200,
+            );
           r.flash('#ffffff', 0.35);
           if (!reduce) r.shake(10);
           this.sfx.play('explode');
           this.showBanner(
-            isSagaId(this.renderer.level.id)
-              ? ev.phase >= 3
-                ? `FINAL PHASE — ${this.bossName(ev.kind)} unleashes everything!`
-                : `${this.bossName(ev.kind)} grows stronger: new moves!`
-              : ev.kind === 'boss'
-                ? ev.phase === 2
-                  ? 'PHASE 2 — drones and ground slams!'
-                  : 'FINAL PHASE — it’s enraged!'
-                : `${this.bossName(ev.kind)} is enraged!`,
+            ev.kind === 'vriksha'
+              ? 'Its bark hardens! Climb the boughs and strike the burning heart.'
+              : isSagaId(this.renderer.level.id)
+                ? ev.phase >= 3
+                  ? `FINAL PHASE — ${this.bossName(ev.kind)} unleashes everything!`
+                  : `${this.bossName(ev.kind)} grows stronger: new moves!`
+                : ev.kind === 'boss'
+                  ? ev.phase === 2
+                    ? 'PHASE 2 — drones and ground slams!'
+                    : 'FINAL PHASE — it’s enraged!'
+                  : `${this.bossName(ev.kind)} is enraged!`,
             true,
           );
           break;
         case 'bossDown': {
+          if (this.chapter() && this.bossArena === finalArenaName(this.renderer.level))
+            this.comms.say(this.chapter()?.down ?? [], this.cast(), 500);
           this.music?.play('stage', this.stageNum());
           this.stats.bossesDown++;
           for (let i = 0; i < 5; i++)
@@ -379,13 +500,26 @@ export class MatchView {
           r.ultEffect(ev, hero.color, reduce);
           this.sfx.play('powerup');
           this.sfx.play('explode');
-          const who = ev.id === this.meId ? '' : `${this.nameOf(ev.id)}: `;
-          this.showBanner(`${who}${hero.ultName}!${ev.sync ? '  ⚡ SYNC ×1.5' : ''}`);
+          if (ev.id === this.meId)
+            // your own super: the full-screen cut-in says its name (cutin.ts)
+            r.powerCutIn(
+              hero.id,
+              hero.ultName,
+              ev.sync ? 'SYNC ×1.5' : hero.name.toUpperCase(),
+              hero.color,
+              '#fde047',
+              false,
+            );
+          else this.showBanner(`${this.nameOf(ev.id)}: ${hero.ultName}!${ev.sync ? '  ⚡ SYNC ×1.5' : ''}`);
           break;
         }
         case 'astra': {
           // No banner and no feed line, for anyone's astra: the astra shows itself (astra-cine.ts).
           r.astraEffect(ev, reduce);
+          if (ev.id === this.meId && !(ev.kind === 'tej' && ev.v === 1)) {
+            const [hi, lo] = POWER_COLOR[ev.kind];
+            r.powerCutIn(this.heroOfPlayer(ev.id), ASTRA_NAME[ev.kind].toUpperCase(), '', lo, hi, true);
+          }
           if (ev.id === this.meId && !reduce) r.shake(8);
           this.sfx.play(ev.kind === 'singularity' ? 'explode' : 'astra');
           break;
@@ -402,8 +536,8 @@ export class MatchView {
         case 'immune':
           if (Math.random() < 0.3) r.styleText(ev.x, ev.y, 'IMMUNE', false);
           break;
-        case 'brahma':
-          r.brahmaEffect(ev, reduce);
+        case 'param':
+          r.paramEffect(ev, reduce);
           if (ev.phase === 0) this.sfx.play('beep');
           else {
             this.sfx.play('explode');
@@ -422,6 +556,12 @@ export class MatchView {
           const stage = SAGA.find((x) => x.id === r.level.id);
           if (this.intro) this.showBanner(this.intro);
           else if (stage && stage.num > 1) this.showBanner(`Stage ${stage.num} · ${stage.twist}`);
+          // the story: the chapter opens on the radio once the stage's own banner has had its moment
+          if (stage && !this.intro) {
+            this.comms.say(openingLines(stage.id), this.cast(), 1600);
+            // and what this stage asks of the squad
+            this.comms.say([{ who: 'vani', text: GOAL_TEXT[stage.id].start }], this.cast(), 1700);
+          }
           break;
         }
         case 'hazard':
@@ -440,6 +580,42 @@ export class MatchView {
             );
           }
           break;
+        case 'surprise': {
+          // something new breaks out (where and what changes every run): a banner, a word from Vani, a jolt
+          const sp = SURPRISE_LINES[ev.kind];
+          if (sp) {
+            this.showBanner(sp.banner, ev.kind !== 'blessing');
+            const line = sp.lines[this.surpriseN++ % sp.lines.length] ?? '';
+            this.comms.say([{ who: 'vani', text: line }], this.cast(), 400, true);
+          }
+          if (ev.kind === 'blessing') {
+            r.flash('#fde68a', 0.35);
+            this.sfx.play('powerup');
+          } else {
+            if (!reduce) r.shake(6);
+            this.sfx.play('beep');
+          }
+          break;
+        }
+        case 'goal': {
+          const id = this.renderer.level.id;
+          if (!isSagaId(id)) break;
+          const txt = GOAL_TEXT[id];
+          if (ev.k === 'item') {
+            this.sfx.play('powerup');
+            r.spark(ev.x, ev.y, '#fde68a', 16, reduce, 200);
+            if (txt.item) this.comms.say([{ who: 'vani', text: txt.item }], this.cast(), 0, true);
+          } else if (ev.k === 'done') {
+            this.sfx.play('victory');
+            r.flash('#fde68a', 0.3);
+            this.showBanner(`★ ${txt.title.toUpperCase()}: DONE! Healed, supers charged, +1500`);
+            this.comms.say([{ who: 'vani', text: txt.done }], this.cast(), 300, true);
+          } else {
+            this.sfx.play('beep');
+            this.comms.say([{ who: 'vani', text: txt.fail }], this.cast(), 300, true);
+          }
+          break;
+        }
         case 'portal':
           r.portal(ev.x, ev.y, ev.how, performance.now());
           break;
@@ -489,7 +665,7 @@ export class MatchView {
     return st ? (ASURA_LOOKS[st.id] ?? null) : null;
   }
 
-  /** Told when a narayanastra starts or ends (the input holds auto-fire during it). */
+  /** Told when a samarpanastra starts or ends (the input holds auto-fire during it). */
   onStorm: ((on: boolean) => void) | null = null;
 
   private heroIds = new Map<string, number>();
@@ -503,10 +679,37 @@ export class MatchView {
     // Saga bosses are named by their arenas (JWALA-ASUR, VISHARAJ, ...).
     if (isSagaId(this.renderer.level.id) && this.bossArena) return this.bossArena;
     const faction = this.renderer.level.faction;
-    return faction === 'army' ? BOSS_INFO[kind].name : FACTION_NAME[faction][kind];
+    return faction === 'army' ? BOSS_INFO[kind].name : (FACTION_NAME[faction][kind] ?? BOSS_INFO[kind].name);
   }
 
   private bossArena: string | null = null;
+
+  /** A hold's banner has been shown this mission. */
+  private holdSeen = false;
+  /** Surprises so far this mission (to vary Vani's words). */
+  private surpriseN = 0;
+
+  /** The story's radio (comms.ts). */
+  readonly comms = new Comms();
+
+  /** This saga stage's chapter of the story, if this is a saga stage. */
+  private chapter(): (typeof CHAPTERS)[keyof typeof CHAPTERS] | undefined {
+    const id = this.renderer.level.id;
+    return isSagaId(id) ? CHAPTERS[id] : undefined;
+  }
+
+  /** Who is talking: your hero, and the boss now fighting (its rendered face, if it has one). */
+  private cast(): CommsCast {
+    const hero = heroOf(this.heroOfPlayer(this.meId));
+    const arena = this.bossArena ?? finalArenaName(this.renderer.level);
+    const key = arena?.toLowerCase();
+    return {
+      hero: hero.id,
+      heroName: hero.name,
+      boss: key && hasBoss3d(key) ? key : undefined,
+      bossName: arena ?? undefined,
+    };
+  }
 
   private bossIntro(kind: BossKind, title = this.bossName(kind)): void {
     const info = BOSS_INFO[kind];
@@ -518,10 +721,10 @@ export class MatchView {
       faction === 'army'
         ? info.sub
         : style
-          ? (BOSS_TITLES[style.id] ?? SAGA_SUB[kind])
+          ? (BOSS_TITLES[style.id] ?? SAGA_SUB[kind] ?? info.sub)
           : isSagaId(this.renderer.level.id)
-            ? SAGA_SUB[kind]
-            : FACTION_SUB[faction][kind];
+            ? (SAGA_SUB[kind] ?? info.sub)
+            : (FACTION_SUB[faction][kind] ?? info.sub);
     // A boss that calls astras: its card says how to answer them; a saga boss also names its own moves.
     const tips = rules.map((r) => `${BOSS_ASTRA_TEXT[r].call} ${BOSS_ASTRA_TEXT[r].tip}`);
     if (style) tips.push(...sagaMoveTips(style));
@@ -550,6 +753,42 @@ export class MatchView {
     this.renderer.shake(8);
     this.bossLag = 1;
     $('boss-bar').hidden = false;
+  }
+
+  /** The stage goal chip under the progress bar: what to do, how far, how long. */
+  private updateGoal(s: Snapshot): void {
+    const chip = $('goal');
+    const g = s.gl;
+    const id = this.renderer.level.id;
+    // (in a boss fight the boss's bar has that place, and the goal is decided by then)
+    if (!g || !isSagaId(id) || s.phase === 'countdown' || s.boss) {
+      chip.hidden = true;
+      return;
+    }
+    const txt = GOAL_TEXT[id];
+    chip.hidden = false;
+    $('goal-title').textContent = txt.title;
+    const timed = g.t !== undefined;
+    $('goal-prog').textContent =
+      g.s === 1
+        ? '✓ DONE'
+        : g.s === 2
+          ? '✗ missed'
+          : g.k === 'race'
+            ? `${g.t ?? 0}s`
+            : g.k === 'hold'
+              ? g.z
+                ? `${Math.round(g.z[2] * 100)}% · ${g.t ?? 0}s`
+                : 'ahead'
+              : `${g.d}/${g.n}`;
+    // a hold begins: say so once
+    if (g.z && !this.holdSeen) {
+      this.holdSeen = true;
+      this.showBanner(`🛡 ${txt.title.toUpperCase()}! The way on opens when the bar is full`, true);
+    }
+    chip.classList.toggle('done', g.s === 1);
+    chip.classList.toggle('fail', g.s === 2);
+    chip.classList.toggle('urgent', g.s === 0 && timed && (g.t ?? 99) <= 10);
   }
 
   showBanner(text: string, bad = false): void {
@@ -675,6 +914,7 @@ export class MatchView {
     this.updatePowers(s, me);
     $('hud-lives').title = `${s.lives} squad lives left`;
     $('hud-score').textContent = String(s.score);
+    this.updateGoal(s);
     if (me) {
       // Health: the bar drops at once, a pale "damage taken" bar follows it down.
       const hp = Math.max(0, Math.min(100, me.hp));
@@ -750,7 +990,7 @@ export class MatchView {
     }
   }
 
-  /** Held power chip, the ASTRA button glow, and the team brahmastra meter. */
+  /** Held power chip, the ASTRA button glow, and the team paramastra meter. */
   private updatePowers(s: Snapshot, me: PlayerSnapshot | undefined): void {
     // A boss astra is being called (or its orb is out): one big, plain instruction on what to do about it.
     const cast = s.enemies.find((e) => e.ra >= 0);
@@ -758,27 +998,27 @@ export class MatchView {
       cast !== undefined
         ? BOSS_RULES[cast.ra]
         : s.bullets.some((b) => b.e === 1 && b.k === ORB)
-          ? 'vaishnava'
+          ? 'tej'
           : undefined;
     const box = document.getElementById('hud-samarpan');
     if (box) {
       box.hidden = !rule;
       const rs = me?.rs ?? 0;
-      if (rule === 'narayana')
+      if (rule === 'samarpan')
         box.textContent =
           rs > 0
             ? `🏹 YOU ARE FIGHTING IT: ${rs} ARROWS EACH VOLLEY · STOP FIRING`
             : '🙏 SAMARPAN · LOWER YOUR WEAPONS: STOP FIRING AND IT SPARES YOU';
       else if (rule) box.textContent = `${BOSS_ASTRA_TEXT[rule].call} ${BOSS_ASTRA_TEXT[rule].tip}`;
-      box.classList.toggle('resist', rule === 'narayana' && rs > 0);
+      box.classList.toggle('resist', rule === 'samarpan' && rs > 0);
     }
-    this.onStorm?.(rule === 'narayana');
+    this.onStorm?.(rule === 'samarpan');
     const chip = $('hud-power');
     const kind = me && me.pw >= 0 ? POWER_KINDS[me.pw] : undefined;
     const btn = document.getElementById('btn-touch-astra');
     if (btn) {
       // On phones the button itself shows what it will fire, and how many are left.
-      const label = kind && me ? `${POWER_INFO[kind].icon} ×${me.pn}` : s.bm >= 100 ? '☀ BRAHMA' : null;
+      const label = kind && me ? `${POWER_INFO[kind].icon} ×${me.pn}` : s.bm >= 100 ? '☀ PARAM' : null;
       const fallback = this.renderer.level.faction === 'void' ? 'POWER' : 'ASTRA';
       const text = label ?? fallback;
       if (btn.textContent !== text) btn.textContent = text;
@@ -790,13 +1030,13 @@ export class MatchView {
       chip.title = info.tip;
       chip.classList.toggle('void', kind === 'singularity');
     } else chip.hidden = true;
-    const bar = $('hud-brahma');
+    const bar = $('hud-param');
     if (s.bm >= 0) {
       bar.hidden = false;
-      ($('hud-brahma-fill') as HTMLElement).style.width = `${s.bm}%`;
+      ($('hud-param-fill') as HTMLElement).style.width = `${s.bm}%`;
       const ready = s.bm >= 100;
       bar.classList.toggle('ready', ready);
-      $('hud-brahma-label').textContent = ready ? 'BRAHMASTRA READY · ASTRA' : 'BRAHMASTRA';
+      $('hud-param-label').textContent = ready ? 'PARAMASTRA READY · ASTRA' : 'PARAMASTRA';
       btn?.classList.toggle('ready', Boolean(kind) || ready);
     } else {
       bar.hidden = true;

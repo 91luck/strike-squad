@@ -10,7 +10,7 @@ import { drawSpirit } from './astra-fx';
 
 /**
  * Drawing for the advanced missions: power pickups and altars, walls of fire, burning ground, black holes,
- * rain and wind gusts, the brahmastra pillar, and the physics fields (lift beams, gravity wells, aurora storms).
+ * rain and wind gusts, the paramastra pillar, and the physics fields (lift beams, gravity wells, aurora storms).
  *
  * Everything here is stateless drawing on a context already transformed into world space, so the renderer stays
  * the owner of particles, camera and timing. Shapes are procedural (gradients and arcs): nothing to download.
@@ -22,25 +22,27 @@ const T = 32;
 /** Colour of each power (pickup orb, HUD, effects). */
 export const POWER_COLOR: Record<PowerKind, [string, string]> = {
   agni: ['#fde68a', '#ea580c'],
-  varuna: ['#bae6fd', '#0284c7'],
+  jal: ['#bae6fd', '#0284c7'],
   vayu: ['#d9f99d', '#16a34a'],
   singularity: ['#ddd6fe', '#5b21b6'],
   naga: ['#a7f3d0', '#047857'],
-  garuda: ['#fed7aa', '#c2410c'],
-  sudarshana: ['#fef08a', '#ca8a04'],
-  pashupata: ['#bae6fd', '#1e40af'],
-  vaishnava: ['#fef3c7', '#d97706'],
+  shyen: ['#fed7aa', '#c2410c'],
+  chakram: ['#fef08a', '#ca8a04'],
+  vidyut: ['#bae6fd', '#1e40af'],
+  tej: ['#fef3c7', '#d97706'],
+  maya: ['#f5d0fe', '#9333ea'],
 };
 const POWER_LABEL: Record<PowerKind, string> = {
   agni: 'AGNI',
-  varuna: 'VARUNA',
+  jal: 'JAL',
   vayu: 'VAYU',
   singularity: 'BLACK HOLE',
   naga: 'NAGA',
-  garuda: 'GARUDA',
-  sudarshana: 'CHAKRA',
-  pashupata: 'PASHUPATA',
-  vaishnava: 'VAISHNAVA',
+  shyen: 'SHYEN',
+  chakram: 'CHAKRA',
+  vidyut: 'VIDYUT',
+  tej: 'TEJ',
+  maya: 'MAYA',
 };
 
 /** A glowing power orb with its symbol; altars stand on a stone pedestal. */
@@ -96,7 +98,7 @@ function drawSymbol(
     ctx.quadraticCurveTo(0, 2, -3, 6);
     ctx.quadraticCurveTo(-6, 0, 0, -7);
     ctx.fill();
-  } else if (kind === 'varuna') {
+  } else if (kind === 'jal') {
     ctx.fillStyle = '#f0f9ff';
     ctx.beginPath();
     ctx.moveTo(0, -7);
@@ -121,7 +123,7 @@ function drawSymbol(
     ctx.stroke();
     ctx.fillStyle = '#ecfdf5';
     ctx.fillRect(3, -8, 3, 3);
-  } else if (kind === 'garuda') {
+  } else if (kind === 'shyen') {
     // spread wings
     ctx.strokeStyle = '#fff7ed';
     ctx.beginPath();
@@ -131,7 +133,7 @@ function drawSymbol(
     ctx.moveTo(0, 1);
     ctx.lineTo(0, 6);
     ctx.stroke();
-  } else if (kind === 'sudarshana') {
+  } else if (kind === 'chakram') {
     ctx.rotate(nowMs / 120);
     ctx.strokeStyle = '#fffbeb';
     ctx.beginPath();
@@ -144,7 +146,7 @@ function drawSymbol(
       ctx.lineTo(Math.cos(a) * 9, Math.sin(a) * 9);
       ctx.stroke();
     }
-  } else if (kind === 'pashupata') {
+  } else if (kind === 'vidyut') {
     // trident
     ctx.strokeStyle = '#eff6ff';
     ctx.beginPath();
@@ -157,7 +159,7 @@ function drawSymbol(
     ctx.moveTo(-5, -2);
     ctx.lineTo(5, -2);
     ctx.stroke();
-  } else if (kind === 'vaishnava') {
+  } else if (kind === 'tej') {
     // a sun
     ctx.fillStyle = '#fffbeb';
     ctx.beginPath();
@@ -223,7 +225,7 @@ export function drawFireWall(ctx: CanvasRenderingContext2D, g: GateDef, nowMs: n
   ctx.restore();
 }
 
-/** Burning ground left by agni, black holes, and pashupata spirits. */
+/** Burning ground left by agni, black holes, and vidyut spirits. */
 export function drawFx(ctx: CanvasRenderingContext2D, fx: FxSnapshot[], nowMs: number): void {
   for (const f of fx) {
     if (f.k === 1) drawHole(ctx, f.x, f.y, f.w, f.t, nowMs);

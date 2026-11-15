@@ -7,9 +7,9 @@ import { tone } from './sprites';
  * same attacks, timings and hit boxes, decided by the simulation), but each faction gives them a different body:
  *
  *   faction   walker           gunship          final stronghold
- *   pharaoh   giant scorpion   sun falcon       Anubis colossus on a pyramid
- *   norse     Fenrir wolf      thunder god      frost giant
- *   olympus   minotaur         storm harpy      Zeus on his temple
+ *   pharaoh   giant scorpion   sun falcon       jackal colossus on a pyramid
+ *   norse     Dire wolf wolf      thunder warden      frost giant
+ *   marble   bull titan         storm harpy      the Sky Tyrant on his temple
  *   demon     inferno beast    fire dragon      demon king on his throne
  *   void      xeno crawler     UFO saucer       hive queen
  *
@@ -114,14 +114,14 @@ export const lit = (flash: boolean) => (c: string) => (flash ? tone(c, 0.28) : c
 const DAMAGE_PUFF: Record<Themed, string> = {
   pharaoh: 'rgba(214,180,120,0.6)',
   norse: 'rgba(224,242,254,0.7)',
-  olympus: 'rgba(191,219,254,0.7)',
+  marble: 'rgba(191,219,254,0.7)',
   demon: 'rgba(249,115,22,0.75)',
   void: 'rgba(74,222,128,0.6)',
 };
 
 function puff(k: BossKit, faction: Themed, x: number, y: number, chance: number): void {
   if (k.reduce || Math.random() > chance) return;
-  const hot = faction === 'demon' || faction === 'olympus';
+  const hot = faction === 'demon' || faction === 'marble';
   k.add({
     x: x + (Math.random() - 0.5) * 60,
     y,
@@ -230,7 +230,7 @@ function paintThemedWalker(k: BossKit, faction: Themed, e: EnemySnapshot, nowMs:
     if (e.at === ATTACK.cannon && a.telegraph)
       k.glow(e.x + e.f * sting[0], e.y + sting[1], 6 + 12 * prog(a), '#a3e635');
   } else if (faction === 'norse' || faction === 'demon') {
-    // FENRIR (a huge grey wolf with a broken chain) / INFERNO BEAST (a horned, lava-cracked hellhound).
+    // DIRE WOLF (a huge grey wolf with a broken chain) / INFERNO BEAST (a horned, lava-cracked hellhound).
     const wolf = faction === 'norse';
     const fur = L(wolf ? '#4b5563' : '#2a0e0e');
     const dark = L(wolf ? '#1f2937' : '#150606');
@@ -349,8 +349,8 @@ function paintThemedWalker(k: BossKit, faction: Themed, e: EnemySnapshot, nowMs:
     eyeCol = wolf ? '#38bdf8' : '#fde047';
     if (e.at === ATTACK.cannon && a.telegraph)
       k.glow(e.x + e.f * 88, e.y + hy + 10, 6 + 14 * prog(a), wolf ? '#bae6fd' : '#f97316');
-  } else if (faction === 'olympus') {
-    // MINOTAUR: a bronze-armoured bull-man with a double axe.
+  } else if (faction === 'marble') {
+    // BULL TITAN: a bronze-armoured bull-man with a double axe.
     const hide = L('#7c3f22');
     const dark = L('#4a2412');
     const bronze = L('#b7791f');
@@ -819,7 +819,7 @@ function paintThemedGunship(k: BossKit, faction: Themed, e: EnemySnapshot, nowMs
   ctx.translate(0, bob);
   ctx.rotate(bank);
   let core: [number, number, string];
-  if (faction === 'pharaoh' || faction === 'olympus') {
+  if (faction === 'pharaoh' || faction === 'marble') {
     // SUN FALCON (golden, a sun disc over its head) / STORM HARPY (bronze feathers, a wild-haired face, talons).
     const falcon = faction === 'pharaoh';
     const main = ramp3(falcon ? '#b7791f' : '#78350f', L);
@@ -878,7 +878,7 @@ function paintThemedGunship(k: BossKit, faction: Themed, e: EnemySnapshot, nowMs
     // near wing on top
     birdWing(ctx, [-2, -10], beat.lift, beat.fold, 1, wingR, tip);
   } else if (faction === 'norse') {
-    // THE THUNDER GOD on a storm cloud: winged helm, red cloak, beard, a hammer crackling with lightning.
+    // THE THUNDER WARDEN on a storm cloud: horned helm, red cloak, grey beard, an axe crackling with lightning.
     const cloud = L('#374151');
     for (const [x, y, r] of [
       [-60, 14, 24],
@@ -898,22 +898,26 @@ function paintThemedGunship(k: BossKit, faction: Themed, e: EnemySnapshot, nowMs
     for (const x of [-8, 4]) ell(ctx, x, -36, 5, 5, '#d1d5db', false);
     ctx.fillStyle = '#6b4423';
     ctx.fillRect(-18, -8, 40, 5); // belt
-    // head: winged helm, blond beard, glowing eyes
+    // head: horned helm, grey beard, glowing eyes
     ell(ctx, 4, -64, 14, 14, L('#e0b48c'));
     poly(ctx, [-12, -70, 20, -70, 18, -82, -10, -82], L('#9ca3af'));
-    poly(ctx, [-12, -76, -26, -92, -16, -72], '#f5f5f4');
-    poly(ctx, [18, -76, 30, -94, 22, -72], '#f5f5f4');
-    poly(ctx, [-10, -58, 18, -58, 14, -40, 4, -34, -6, -40], L('#f59e0b'));
+    poly(ctx, [-12, -76, -22, -80, -24, -96, -14, -80], '#d6d3d1');
+    poly(ctx, [18, -76, 28, -80, 30, -96, 22, -80], '#d6d3d1');
+    poly(ctx, [-10, -58, 18, -58, 14, -40, 4, -34, -6, -40], L('#9ca3af'));
     ctx.fillStyle = '#7dd3fc';
     ctx.fillRect(8, -66, 5, 3);
-    // arm raising the hammer
+    // arm raising the axe
     const raise = hot ? -18 : 0;
     limb(ctx, [16, -44, 36, -36 + raise, 46, -48 + raise], 8, L('#e0b48c'));
-    poly(ctx, [36, -68 + raise, 62, -68 + raise, 62, -52 + raise, 36, -52 + raise], L('#9ca3af'));
+    poly(
+      ctx,
+      [46, -76 + raise, 64, -70 + raise, 66, -56 + raise, 50, -48 + raise, 46, -60 + raise],
+      L('#9ca3af'),
+    );
     limb(ctx, [48, -52 + raise, 46, -36 + raise], 4, '#6b4423');
     core = [49, -60 + raise, '#bae6fd'];
     if (!k.reduce && Math.random() < 0.5) {
-      // crackling lightning around the hammer
+      // crackling lightning around the axe
       ctx.strokeStyle = '#e0f2fe';
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -1133,7 +1137,7 @@ function paintThemedColossus(
   let mountCol: string;
   let coreCol: string;
   if (faction === 'pharaoh') {
-    // ANUBIS COLOSSUS: a stepped pyramid base, a black jackal head with a gold collar, cobra mounts.
+    // JACKAL COLOSSUS: a stepped pyramid base, a black jackal head with a gold collar, cobra mounts.
     for (let i = 0; i < 6; i++) {
       const inset = i * 8;
       poly(
@@ -1207,8 +1211,8 @@ function paintThemedColossus(
         poly(ctx, [left - 30, y - 8 + i * 8, left - 46, y - 10 + i * 8, left - 30, y - 2 + i * 8], '#e0f2fe');
     });
     coreCol = ph === 3 ? '#ffffff' : '#7dd3fc';
-  } else if (faction === 'olympus') {
-    // ZEUS ON HIS TEMPLE: a marble temple front, the king of the gods rising above it with a lightning bolt.
+  } else if (faction === 'marble') {
+    // SKY TYRANT ON HIS TEMPLE: a marble temple front, the sky tyrant rising above it with a lightning bolt.
     poly(
       ctx,
       [left - 12, e.y, left + W + 12, e.y, left + W + 12, e.y - 12, left - 12, e.y - 12],
@@ -1224,7 +1228,7 @@ function paintThemedColossus(
       L('#d6d0c2'),
     );
     poly(ctx, [left - 16, top + 96, e.x, top + 66, left + W + 16, top + 96], L('#ece8de'));
-    // Zeus: shoulders, white beard, gold laurel, storm eyes
+    // the Sky Tyrant: shoulders, white beard, gold laurel, storm eyes
     const hx = e.x;
     const hy = top + 30;
     poly(ctx, [hx - 52, top + 70, hx + 52, top + 70, hx + 40, hy + 10, hx - 40, hy + 10], L('#e0b48c'));

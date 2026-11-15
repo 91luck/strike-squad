@@ -1,4 +1,5 @@
 import {
+  HEROES,
   ATTACK,
   ATTACK_WINDUP,
   BEAM,
@@ -91,6 +92,122 @@ import {
   type FireRun,
 } from './astra-art';
 import { AstraCinema } from './astra-cine';
+import { CutIn } from './cutin';
+import { drawSkyEvent } from './sky-events';
+import { drawGoal } from './goal-art';
+import { GOAL_TEXT } from '../story';
+import { SKIES, drawSkyLook } from './skies';
+import { PLAT_H, TERRAIN_SIZE, TOP_H, TOP_LIP, terrain3d, terrainPlat } from './terrain3d';
+import { Paramastra } from './paramastra-art';
+import {
+  drawDancer,
+  drawDarpan,
+  drawFalseFloor,
+  drawGardenRest,
+  drawHiddenFloor,
+  drawMayaShot,
+  drawMirrorShade,
+  drawPainting,
+} from './maya-art';
+import {
+  drawRaakhasur,
+  drawBhasmShot,
+  drawGolem,
+  drawLantern,
+  drawLava,
+  drawPret,
+  drawShrineRest,
+} from './bhasm-art';
+import {
+  drawArcher,
+  drawManiyodha,
+  drawChariot,
+  drawDrummer,
+  drawElephant,
+  drawKuruShot,
+  drawVeersmarak,
+} from './kuru-art';
+import {
+  drawBelt,
+  drawChakraShot,
+  drawChakri,
+  drawEclipse,
+  drawSuryakavach,
+  drawNetOn,
+  drawNetter,
+  drawRathi,
+  drawShivir,
+  drawVyuhWall,
+} from './chakra-art';
+import {
+  drawAkhadaRest,
+  drawArdh,
+  drawDwandShot,
+  drawGadadhar,
+  drawJodasur,
+  drawMud,
+  drawPehlwan,
+  drawSlinger,
+} from './dwand-art';
+import {
+  drawChandanVatika,
+  drawMeghMark,
+  drawNidrasur,
+  drawSuvarnaShot,
+  drawMashaal,
+  drawMayavi,
+  drawHansvimaan,
+  drawSaptashir,
+} from './suvarna-art';
+import { onSpritesReady, preloadHeroSprites, spritesReady } from './sprites3d';
+import { backdrop3d, backdrop3dReady, clouds3d, warmBackdrop3d, type BackdropLayer } from './backdrop3d';
+import {
+  drawDark,
+  drawEgg,
+  drawVishdhar,
+  drawVishdharHead,
+  drawMushrooms,
+  drawNagaWarrior,
+  drawPoison,
+  drawSpitter,
+  drawSarprajRest,
+  drawVenomShot,
+  type Light,
+} from './naag-art';
+import {
+  drawCaveRest,
+  drawHarpy,
+  drawAandhi,
+  drawLancer,
+  drawRoller,
+  drawWind,
+  drawWindShot,
+} from './vayu-art';
+import {
+  drawBoat,
+  drawBoatRest,
+  drawConch,
+  drawCrab,
+  drawGrabMark,
+  drawMakar,
+  drawSea,
+  drawSeaShot,
+  drawChhaya,
+  drawStone,
+} from './sagar-art';
+import {
+  drawAgniShot,
+  drawBat,
+  drawBurningThicket,
+  drawChakraCut,
+  drawChaseFire,
+  drawFallingTree,
+  drawImp,
+  drawRiverRest,
+  drawStream,
+  drawTreant,
+  drawVriksha,
+} from './agnivan-art';
 import { FxSprites, type FxName } from './fx';
 import { cloudHD, drawSunShafts, shadeLayer } from './backdrop-hd';
 import { propHD } from './prop-hd';
@@ -304,7 +421,7 @@ const AMBIENT: Record<
 const HD_FROM = 1.1;
 
 /** Astras shot up into the clouds (the bow tilts to the sky for them). */
-const SKY_ASTRAS: ReadonlySet<PowerKind> = new Set<PowerKind>(['varuna', 'garuda', 'pashupata']);
+const SKY_ASTRAS: ReadonlySet<PowerKind> = new Set<PowerKind>(['jal', 'shyen', 'vidyut']);
 
 export class Renderer {
   /** Swapped for an offscreen context while a boss is drawn for tinting (demon / void missions). */
@@ -349,16 +466,30 @@ export class Renderer {
   private readonly white = new WeakMap<HTMLCanvasElement, HTMLCanvasElement>();
   private seenBullets = new Set<number>();
   private enemyPrevX = new Map<number, number>();
+  private enemyPrevY = new Map<number, number>();
+  /** Agnivan's set pieces, found in the level when it loads (see agnivanPieces). */
+  private agni: {
+    log: { x0: number; x1: number; y: number; c0: number; c1: number } | null;
+    stream: { x0: number; x1: number; top: number; bottom: number } | null;
+  } | null = null;
+  /** Glowing mushrooms on the floors of a dark stage (Naag Lok), found when the level loads. */
+  private mushrooms: { x: number; y: number; seed: number }[] = [];
+  /** When the burning tree started to come down (ms; 0 = still standing). */
+  private treeFallAt = 0;
   /** Saga boss id → its look (found once from the arena it stands in). */
   private bossLooks = new Map<number, AsuraLook | null>();
   /** Astra apparitions (astra-cine.ts): the sigil, the sky, the creature each astra summons. */
   private cine = new AstraCinema();
+  /** Your own super moves and astras: the fighting-game cut-in over the screen (cutin.ts). */
+  private readonly cutin = new CutIn();
+  /** The team paramastra's four movements (paramastra-art.ts). */
+  private paramastra = new Paramastra();
   private trails: Trail[] = [];
   private slashes: Slash[] = [];
   private lastTrail = new Map<string, number>();
   private airJumpsSeen = new Map<string, number>();
   private styleFloats: { x: number; y: number; text: string; life: number; mine: boolean }[] = [];
-  /** Astra effects that play out over time: rain curtains, wind gusts, the brahmastra pillar and dark sky. */
+  /** Astra effects that play out over time: rain curtains, wind gusts, the paramastra pillar and dark sky. */
   private rains: { x0: number; x1: number; ground: number; life: number }[] = [];
   private winds: { x: number; y: number; f: 1 | -1; life: number }[] = [];
   /** Fire pillars running out behind an agni flame wall. */
@@ -377,6 +508,7 @@ export class Renderer {
     if (!ctx) throw new Error('Canvas 2D is not supported in this browser.');
     this.ctx = ctx;
     this.fx.load();
+    preloadHeroSprites(HEROES.map((h) => h.id));
     this.props = buildProps(this.lvl);
     this.resize();
   }
@@ -389,8 +521,21 @@ export class Renderer {
   setLevel(level: LevelDef): void {
     if (level === this.lvl) return;
     this.lvl = level;
+    this.agni = this.agnivanPieces(level);
+    this.mushrooms = [];
+    if (level.dark)
+      for (let c = 2; c < level.cols - 2; c += 7 + ((c * 13) % 5)) {
+        for (let r = 1; r < level.rows; r++)
+          if (tileAt(level, c, r) === Tile.Solid && tileAt(level, c, r - 1) === Tile.Empty) {
+            this.mushrooms.push({ x: c * T + 16, y: r * T, seed: c });
+            break;
+          }
+      }
+    this.treeFallAt = 0;
     this.bossLooks.clear();
     this.props = buildProps(level);
+    warmBackdrop3d(zoneAt(level, 0));
+    terrain3d(zoneAt(level, 0));
     this.queueWarm();
     this.ambient = [];
     this.reset();
@@ -410,6 +555,7 @@ export class Renderer {
     this.portals = [];
     this.glowBurst = [];
     this.cine.clear();
+    this.cutin.clear();
     this.trails = [];
     this.slashes = [];
     this.styleFloats = [];
@@ -773,6 +919,8 @@ export class Renderer {
 
   /** Queues the three lit backdrop layers of a zone for ahead-of-time building (once per zone). */
   private warmBackdrop(id: ZoneId): void {
+    warmBackdrop3d(id);
+    terrain3d(id);
     const z = ZONES[id];
     this.warm.push(() => this.lit('far', z.far, z, false));
     this.warm.push(() => this.lit('far2', tone(z.far, -0.15), z, false));
@@ -828,6 +976,8 @@ export class Renderer {
   private skyKey = '';
   private grade: HTMLCanvasElement | null = null;
   private maya: HTMLCanvasElement | null = null;
+  /** Chakra Durg: how far the eclipse has come over the sun (0..1, eased). */
+  private eclK = 0;
   private gradeKey = '';
   /** Pixel layers kept between frames (see `pixelated`'s `keep`), by key. */
   private readonly kept = new Map<string, { c: HTMLCanvasElement; frame: number; x: number; y: number }>();
@@ -999,12 +1149,22 @@ export class Renderer {
       this.pixelated(() =>
         this.cine.drawBack(this.ctx, o.nowMs, this.camX, this.camY, this.viewW, this.viewH),
       );
+    if (this.paramastra.active) this.paramastra.drawBack(this.ctx, o.nowMs, this.camY);
     if (this.lvl.fields.length) drawFields(ctx, this.lvl.fields, this.camX, this.viewW, o.nowMs);
     this.drawProps(false);
     this.drawTiles(s, o.nowMs);
+    if (this.agni) this.drawAgnivanPieces(o.nowMs);
+    if (this.lvl.fields.length) this.drawPoisonPools(o.nowMs);
+    if (this.lvl.dark)
+      for (const m of this.mushrooms)
+        if (m.x > this.camX - 40 && m.x < this.camX + this.viewW + 40)
+          drawMushrooms(this.ctx, m.x, m.y, m.seed, o.nowMs);
+    if (s.pl) this.drawPlats(s, o.nowMs);
+    if (this.lvl.fields.some((f) => f.kind === 'belt' || f.kind === 'mud')) this.drawBelts(o.nowMs);
     this.drawRests(o.nowMs);
     this.drawCheckpoints(s, o.nowMs);
     this.drawPickups(s, o.nowMs);
+    if (s.gl && isSagaId(this.lvl.id)) drawGoal(ctx, s.gl, GOAL_TEXT[this.lvl.id].look, o.nowMs);
     this.drawPortals(o.nowMs);
     if (s.fx.some((f) => f.k === 0) || this.fireRuns.length)
       this.pixelated(() => {
@@ -1041,9 +1201,26 @@ export class Renderer {
     this.drawBows(players, o.nowMs, true);
     for (const p of players) if (p.id !== o.meId) this.drawPlayer(p, false, o.nowMs);
     if (me) this.drawPlayer(me, true, o.nowMs);
+    for (const p of players) if (p.nt === 1 && p.st === 0) drawNetOn(ctx, p.x, p.y, o.nowMs);
     this.drawSlashes(dt);
+    if (s.wy !== undefined) this.drawSeaFront(s.wy, o.nowMs);
+    if (s.lv !== undefined) drawLava(ctx, s.lv, this.camX, this.viewW, this.levelH + 40, o.nowMs);
+    if (s.gu)
+      drawWind(
+        ctx,
+        s.gu,
+        this.camX,
+        this.camY,
+        this.viewW,
+        this.viewH,
+        o.nowMs,
+        s.enemies.some((e) => e.k === 'aandhi' && e.at === ATTACK.storm),
+      );
     this.drawTelegraphs(s, players, o.nowMs);
     this.drawBullets(s, o.nowMs);
+    if (s.ij) drawMeghMark(ctx, s.ij[0], s.ij[1], o.nowMs);
+    if (s.vw !== undefined) drawVyuhWall(ctx, s.vw, this.camX, this.camY, this.viewH, o.nowMs);
+    if (s.cx !== undefined) drawChaseFire(ctx, s.cx, this.camX, this.camY, this.viewW, this.viewH, o.nowMs);
     if (s.fx.length)
       drawFx(
         ctx,
@@ -1060,15 +1237,19 @@ export class Renderer {
     this.drawBossAstras(s, o.nowMs);
     this.drawAstraFx(dt, o.nowMs);
     if (this.cine.active) this.pixelated(() => this.cine.drawFront(this.ctx, o.nowMs));
+    if (this.paramastra.active)
+      this.paramastra.drawFront(this.ctx, o.nowMs, this.camX, this.camY, this.viewW, this.viewH);
     this.drawBows(players, o.nowMs, false); // over the astra's own flash, so the bow is seen loosing it
     this.stepParticles(dt);
     this.drawProps(true);
     this.drawAmbient(dt, o.nowMs);
+    if (this.lvl.dark) this.drawDarkness(s, players, o.nowMs);
     this.drawFloats(dt);
     this.drawStyleFloats(dt);
 
     // screen space
     ctx.setTransform(1, 0, 0, 1, 0, 0);
+    this.drawBloom();
     this.drawGrade();
     this.drawMaya(s, players);
     this.dark += (this.darkTarget - this.dark) * Math.min(1, dt * 5);
@@ -1076,6 +1257,8 @@ export class Renderer {
       ctx.fillStyle = `rgba(12, 6, 24, ${0.6 * this.dark})`;
       ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
     }
+    if (this.cutin.active)
+      this.cutin.draw(ctx, o.nowMs, this.canvas.width, this.canvas.height, this.dpr, o.reduceMotion);
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     this.drawOffscreenMarkers(players, o.meId, o.nowMs);
     this.drawProgress(s, players, o.meId);
@@ -1096,7 +1279,7 @@ export class Renderer {
     while (this.warm.length && performance.now() - t0 < 4) this.warm.shift()?.();
     const W = levelWidth(this.level);
     this.camX = ((nowMs / 1000) * 45) % Math.max(1, W - this.viewW - 400);
-    this.camY = FULL_H - this.viewH;
+    this.camY = this.levelH - this.viewH;
     ctx.imageSmoothingEnabled = false;
     this.drawBackdrop(nowMs);
     ctx.setTransform(
@@ -1134,7 +1317,7 @@ export class Renderer {
       ty = lead.y - this.viewH * 0.66;
     } else {
       tx = 0;
-      ty = FULL_H;
+      ty = this.levelH;
     }
     // Zoomed-in phones: tilt the camera up to keep a flying boss in view.
     const ship = s?.enemies.find(
@@ -1147,7 +1330,7 @@ export class Renderer {
       if (me) ty = Math.max(ty, me.y - this.viewH + 56); // but never lose your own soldier
     }
     tx = Math.max(0, Math.min(W - this.viewW, tx));
-    ty = Math.max(0, Math.min(FULL_H - this.viewH, ty));
+    ty = Math.max(0, Math.min(this.levelH - this.viewH, ty));
     if (!this.camReady || Math.abs(tx - this.camX) > this.viewW) {
       this.camX = tx;
       this.camY = ty;
@@ -1189,6 +1372,8 @@ export class Renderer {
   }
 
   private drawBackdrop(nowMs: number): void {
+    // the backdrop is laid out for an 18-row level: in a taller one it is measured from the level's bottom
+    const bgY = this.camY - (this.levelH - FULL_H);
     const ctx = this.ctx;
     const zid = zoneAt(this.lvl, this.camX + this.viewW / 2);
     const z = ZONES[zid];
@@ -1207,7 +1392,7 @@ export class Renderer {
     // once into an opaque picture and copied each frame: two full-screen gradient fills a frame were the single
     // dearest thing in the whole scene on machines that draw without a graphics card.
     const sunX = W * 0.72;
-    const sunY = Math.round((H * (0.42 + (this.camY / FULL_H) * 0.2)) / 6) * 6;
+    const sunY = Math.round((H * (0.42 + (bgY / FULL_H) * 0.2)) / 6) * 6;
     const skyKey = `${zid}|${W}|${H}|${sunY}`;
     if (this.skyKey !== skyKey || !this.sky) {
       this.skyKey = skyKey;
@@ -1296,13 +1481,57 @@ export class Renderer {
     const s = this.scale;
     const layer = (img: HTMLCanvasElement, factor: number, yOff: number): void => {
       const off = (this.camX * factor) % 1024;
-      const yy = Math.round((-this.camY * factor + yOff) * s);
+      const yy = Math.round((-bgY * factor + yOff) * s);
       for (let x = -off; x < this.viewW + 1024; x += 1024)
         ctx.drawImage(img, Math.round(x * s), yy, Math.round(1024 * s) + 1, Math.round(FULL_H * s));
     };
-    // clouds
+    // The saga stages' rendered layers (art3d/backdrop.py), once all three have loaded: smooth-scaled, they replace
+    // the hand-drawn silhouettes and the cartoon clouds.
+    const art3d = backdrop3dReady(zid);
+    const layer3d = (key: BackdropLayer, factor: number, yOff: number): void => {
+      const b = backdrop3d(zid, key);
+      if (!b) return;
+      const off = (this.camX * factor) % 1024;
+      const yy = Math.round((-bgY * factor + yOff + b.top) * s);
+      const hh = Math.round((FULL_H - b.top) * s);
+      const ww = Math.round(1024 * s);
+      for (let x = -off; x < this.viewW + 1024; x += 1024)
+        ctx.drawImage(b.img, Math.round(x * s), yy, ww + 1, hh);
+    };
+    // a rendered stage's own sky (skies.ts): its sun or moons, its stars, what its clouds are made of
+    const look = art3d ? SKIES[zid] : undefined;
+    if (look) drawSkyLook(ctx, look, W, H, sunX, sunY, this.camX * s, this.reduce ? 0 : nowMs);
+    // clouds: the rendered ones over a rendered stage, else the hand-drawn ones
+    const sheet =
+      art3d && !z.space && !this.lvl.dark && (look?.clouds ?? 0.42) > 0
+        ? clouds3d(look?.cloudTint ?? (z.moon ? '#aab8e8' : tone(z.sun, 0.25)))
+        : undefined;
+    if (sheet) {
+      ctx.globalAlpha = look?.clouds ?? 0.42;
+      ctx.imageSmoothingEnabled = true;
+      for (let i = 0; i < 5; i++) {
+        const span = this.viewW + 300;
+        const x =
+          ((((i * 397 - this.camX * 0.08 + (this.reduce ? 0 : nowMs / 1000) * (6 + i * 2)) % span) + span) %
+            span) -
+          220;
+        const sz = 0.65 + (i % 3) * 0.15;
+        ctx.drawImage(
+          sheet,
+          (i % 3) * 440,
+          0,
+          440,
+          140,
+          Math.round(x * s),
+          Math.round((30 + i * 24 - bgY * 0.08) * s),
+          Math.round(220 * sz * s),
+          Math.round(70 * sz * s),
+        );
+      }
+      ctx.imageSmoothingEnabled = false;
+    }
     ctx.globalAlpha = 0.7;
-    for (let i = 0; i < (z.space ? 0 : 5); i++) {
+    for (let i = 0; i < (z.space || this.lvl.dark || art3d ? 0 : 5); i++) {
       const cloud = cloudHD(i, this.bgK, z.moon ? '#c9d6ff' : tone(z.sun, 0.1));
       const span = this.viewW + 300;
       const x =
@@ -1312,21 +1541,37 @@ export class Renderer {
       ctx.drawImage(
         cloud,
         Math.round(x * s),
-        Math.round((40 + i * 26 - this.camY * 0.08) * s),
+        Math.round((40 + i * 26 - bgY * 0.08) * s),
         Math.round(220 * s),
         Math.round(70 * s),
       );
     }
     ctx.globalAlpha = 1;
-    layer(this.lit('far', z.far, z, false), 0.12, 0);
-    layer(this.lit('far2', tone(z.far, -0.15), z, false), 0.22, 30);
-    // haze
-    const fog = ctx.createLinearGradient(0, H * 0.45, 0, H);
-    fog.addColorStop(0, 'rgba(0,0,0,0)');
-    fog.addColorStop(1, z.fog);
-    ctx.fillStyle = fog;
-    ctx.fillRect(0, Math.floor(H * 0.45), W, H - Math.floor(H * 0.45));
-    layer(this.lit(z.layer, z.mid, z, true), 0.45, 40);
+    if (art3d) {
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      layer3d('far', 0.12, 0);
+      if (!this.reduce && this.quality < 2) drawSkyEvent(ctx, zid, nowMs, W, H, s);
+      layer3d('far2', 0.22, 30);
+      const fog3 = ctx.createLinearGradient(0, H * 0.5, 0, H);
+      fog3.addColorStop(0, 'rgba(0,0,0,0)');
+      fog3.addColorStop(1, z.fog);
+      ctx.fillStyle = fog3;
+      ctx.fillRect(0, Math.floor(H * 0.5), W, H - Math.floor(H * 0.5));
+      layer3d('mid', 0.45, 40);
+      ctx.imageSmoothingEnabled = false;
+    }
+    if (!art3d) {
+      layer(this.lit('far', z.far, z, false), 0.12, 0);
+      layer(this.lit('far2', tone(z.far, -0.15), z, false), 0.22, 30);
+      // haze
+      const fog = ctx.createLinearGradient(0, H * 0.45, 0, H);
+      fog.addColorStop(0, 'rgba(0,0,0,0)');
+      fog.addColorStop(1, z.fog);
+      ctx.fillStyle = fog;
+      ctx.fillRect(0, Math.floor(H * 0.45), W, H - Math.floor(H * 0.45));
+      layer(this.lit(z.layer, z.mid, z, true), 0.45, 40);
+    }
     if (z.skyFx === 'storm' && !this.reduce) {
       // A lightning storm: rare full-screen flashes with a forked bolt behind the skyline.
       const t = nowMs / 1000;
@@ -1359,7 +1604,7 @@ export class Renderer {
             (((i * 173 - this.camX * 0.45) % (this.viewW + 200)) + this.viewW + 200) % (this.viewW + 200);
           ctx.fillRect(
             Math.round(x * s),
-            Math.round((FULL_H - 300 + (i % 3) * 40 - this.camY * 0.45 + 40) * s),
+            Math.round((FULL_H - 300 + (i % 3) * 40 - bgY * 0.45 + 40) * s),
             Math.ceil(3 * s),
             Math.ceil(3 * s),
           );
@@ -1414,6 +1659,7 @@ export class Renderer {
       ctx.imageSmoothingQuality = 'high';
     }
     const lip = TILE_HD_LIP / 2;
+    const tileSmooth = ctx.imageSmoothingEnabled;
     for (let c = c0; c <= c1; c++) {
       const zone: ZoneId = zoneAt(this.lvl, c * T);
       for (let r = 0; r < L.rows; r++) {
@@ -1424,7 +1670,20 @@ export class Renderer {
         if (t === Tile.Solid) {
           const top = r > 0 && tileAt(L, c, r - 1) !== Tile.Solid;
           const v = (c * 7 + r * 3) % 4;
-          if (hd) {
+          const ground = terrain3d(zone);
+          if (ground) {
+            // the rendered ground (terrain3d.ts), sampled by world position: one continuous surface
+            const k = ground.fill.width / TERRAIN_SIZE;
+            const sx = (x % TERRAIN_SIZE) * k;
+            const sy = (y % TERRAIN_SIZE) * k;
+            ctx.imageSmoothingEnabled = true;
+            ctx.drawImage(ground.fill, sx, sy, T * k, T * k, x, y, T, T);
+            const left = c > 0 && tileAt(L, c - 1, r) !== Tile.Solid;
+            const right = c < L.cols - 1 && tileAt(L, c + 1, r) !== Tile.Solid;
+            if (left || right) this.groundEdge(x, y, left, right);
+            if (top) ctx.drawImage(ground.top, sx, 0, T * k, TOP_H * k, x, y - TOP_LIP, T, TOP_H);
+            ctx.imageSmoothingEnabled = tileSmooth;
+          } else if (hd) {
             // one picture per place in the noise patch (its variant follows from the place): at most 32 per zone
             const bx = c % BLOCK;
             const by = r % BLOCK;
@@ -1438,7 +1697,16 @@ export class Renderer {
             ctx.fillRect(x, y, T, T);
           }
         } else if (t === Tile.OneWay) {
-          if (hd) {
+          const log = this.agni?.log;
+          if (log && c >= log.c0 && c <= log.c1 && r === Math.round(log.y / T)) continue; // the fallen tree is the bridge
+          const ledge = terrainPlat(zone);
+          if (ledge) {
+            // the stage's own ledge (terrain3d.ts), sampled by world position: one continuous beam
+            const k = ledge.width / TERRAIN_SIZE;
+            ctx.imageSmoothingEnabled = true;
+            ctx.drawImage(ledge, (x % TERRAIN_SIZE) * k, 0, T * k, PLAT_H * k, x, y, T, PLAT_H);
+            ctx.imageSmoothingEnabled = tileSmooth;
+          } else if (hd) {
             ctx.drawImage(this.hdPlatform(ZONES[zone].plat, c % 2), x, y, T, T / 2);
           } else ctx.drawImage(platformTile(zone, c), x, y);
         }
@@ -1452,7 +1720,8 @@ export class Renderer {
       const open = this.gateOpen(s, gdef.id);
       const h = (gdef.rowBottom + 1) * T;
       if (gdef.fire) {
-        if (!open) drawFireWall(ctx, gdef, nowMs);
+        if (!open && this.sagaStage() === 1) drawBurningThicket(ctx, x + T / 2, h, nowMs);
+        else if (!open) drawFireWall(ctx, gdef, nowMs);
         continue;
       }
       if (open) {
@@ -1463,6 +1732,24 @@ export class Renderer {
         continue;
       }
       drawGate(ctx, ZONES[zoneAt(this.lvl, x)].gate, x, T, h, nowMs);
+    }
+  }
+
+  /** A cliff face where the rendered ground meets open air at the side: shadowed, with a lit rim. */
+  private groundEdge(x: number, y: number, left: boolean, right: boolean): void {
+    const ctx = this.ctx;
+    for (const [on, x0, dir] of [
+      [left, x, 1],
+      [right, x + T, -1],
+    ] as const) {
+      if (!on) continue;
+      const g = ctx.createLinearGradient(x0, 0, x0 + dir * 10, 0);
+      g.addColorStop(0, 'rgba(0,0,0,0.45)');
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(Math.min(x0, x0 + dir * 10), y, 10, T);
+      ctx.fillStyle = dir > 0 ? 'rgba(255,255,255,0.14)' : 'rgba(0,0,0,0.25)';
+      ctx.fillRect(dir > 0 ? x0 : x0 - 1.5, y, 1.5, T);
     }
   }
 
@@ -1504,7 +1791,17 @@ export class Renderer {
         const x = r.x0 + T * 12;
         let row = 0;
         while (row < L.rows && tileAt(L, Math.floor(x / T), row) === Tile.Empty) row++;
-        drawAshram(this.ctx, Math.round(x), row * T, (r.x1 - r.x0) / 2 - T, nowMs);
+        if (this.sagaStage() === 1) drawRiverRest(this.ctx, r.x0, r.x1, row * T, T, nowMs);
+        else if (this.sagaStage() === 2) drawBoatRest(this.ctx, r.x0, r.x1, row * T, nowMs);
+        else if (this.sagaStage() === 3) drawCaveRest(this.ctx, r.x0, r.x1, row * T, nowMs);
+        else if (this.sagaStage() === 4) drawSarprajRest(this.ctx, r.x0, r.x1, row * T, nowMs);
+        else if (this.sagaStage() === 5) drawGardenRest(this.ctx, r.x0, r.x1, row * T, nowMs);
+        else if (this.sagaStage() === 6) drawShrineRest(this.ctx, r.x0, r.x1, row * T, nowMs);
+        else if (this.sagaStage() === 7) drawVeersmarak(this.ctx, r.x0, r.x1, row * T, nowMs);
+        else if (this.sagaStage() === 8) drawShivir(this.ctx, r.x0, r.x1, row * T, nowMs);
+        else if (this.sagaStage() === 9) drawAkhadaRest(this.ctx, r.x0, r.x1, row * T, nowMs);
+        else if (this.sagaStage() === 10) drawChandanVatika(this.ctx, r.x0, r.x1, row * T, nowMs);
+        else drawAshram(this.ctx, Math.round(x), row * T, (r.x1 - r.x0) / 2 - T, nowMs);
       }
     });
   }
@@ -1956,6 +2253,8 @@ export class Renderer {
     );
     if (ps !== 'fall') this.shadow(e.x, e.y, 11);
     this.blit(e.h === 1 ? this.whiteOf(f.img) : f.img, e.x, e.y, e.f);
+    // (the hand-drawn troopers' glowing visor; the rendered ones have their own eyes and lenses)
+    if (spritesReady(key)) return;
     const ctx = this.ctx;
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
@@ -2000,6 +2299,127 @@ export class Renderer {
   private drawEnemyBody(e: EnemySnapshot, nowMs: number): void {
     const ctx = this.ctx;
     const flash = e.h === 1;
+    if (e.k === 'mashaal') {
+      drawMashaal(ctx, e.x, e.y, e.f, nowMs, e.id, e.p, flash);
+      return;
+    }
+    if (e.k === 'mayavi') {
+      drawMayavi(ctx, e.x, e.y, e.f, nowMs, e.id, e.p === 1, flash);
+      return;
+    }
+    if (e.k === 'nidrasur') {
+      drawNidrasur(ctx, e.x, e.y, e.f, nowMs, e.p, flash);
+      return;
+    }
+    if (e.k === 'pehlwan') {
+      drawPehlwan(ctx, e.x, e.y, e.f, nowMs, e.id, e.p, flash);
+      return;
+    }
+    if (e.k === 'gadadhar') {
+      drawGadadhar(ctx, e.x, e.y, e.f, nowMs, e.id, e.p, flash);
+      return;
+    }
+    if (e.k === 'slinger') {
+      drawSlinger(ctx, e.x, e.y, e.f, nowMs, e.id, e.p, flash);
+      return;
+    }
+    if (e.k === 'ardh') {
+      drawArdh(ctx, e.x, e.y, e.p, nowMs, flash);
+      return;
+    }
+    if (e.k === 'chakri') {
+      drawChakri(ctx, e.x, e.y, e.f, nowMs, e.id, e.p === 1, flash);
+      return;
+    }
+    if (e.k === 'rathi') {
+      drawRathi(ctx, e.x, e.y, e.f, nowMs, e.id, e.p, flash);
+      return;
+    }
+    if (e.k === 'netter') {
+      drawNetter(ctx, e.x, e.y, e.f, nowMs, e.id, e.p, flash);
+      return;
+    }
+    if (e.k === 'archer') {
+      drawArcher(ctx, e.x, e.y, e.f, nowMs, e.id, e.p, flash);
+      return;
+    }
+    if (e.k === 'elephant') {
+      drawElephant(ctx, e.x, e.y, e.f, nowMs, e.id, e.p, flash);
+      return;
+    }
+    if (e.k === 'drummer') {
+      drawDrummer(ctx, e.x, e.y, e.f, nowMs, e.id, e.p, flash);
+      return;
+    }
+    if (e.k === 'pret') {
+      drawPret(ctx, e.x, e.y, e.f, nowMs, e.id, flash);
+      return;
+    }
+    if (e.k === 'golem') {
+      drawGolem(ctx, e.x, e.y, e.f, nowMs, e.id, e.p === 1, flash);
+      return;
+    }
+    if (e.k === 'lantern') {
+      drawLantern(ctx, e.x, e.y, e.f, nowMs, e.id, flash);
+      return;
+    }
+    if (e.k === 'mirror') {
+      drawMirrorShade(ctx, e.x, e.y, e.f, e.p, nowMs, flash);
+      return;
+    }
+    if (e.k === 'dancer') {
+      drawDancer(ctx, e.x, e.y, e.f, nowMs, e.id, e.p === 1, flash);
+      return;
+    }
+    if (e.k === 'painting') {
+      drawPainting(ctx, e.x, e.y, e.f, nowMs, e.p === 1, flash);
+      return;
+    }
+    if (e.k === 'serpent') {
+      drawNagaWarrior(ctx, e.x, e.y, e.f, nowMs, e.id, flash);
+      return;
+    }
+    if (e.k === 'spitter') {
+      drawSpitter(ctx, e.x, e.y, e.f, nowMs, e.id, flash);
+      return;
+    }
+    if (e.k === 'egg') {
+      drawEgg(ctx, e.x, e.y, e.p / 100, nowMs, flash);
+      return;
+    }
+    if (e.k === 'harpy' || e.k === 'roller' || e.k === 'lancer') {
+      const px = this.enemyPrevX.get(e.id) ?? e.x;
+      const py = this.enemyPrevY.get(e.id) ?? e.y;
+      this.enemyPrevX.set(e.id, e.x);
+      this.enemyPrevY.set(e.id, e.y);
+      if (e.k === 'harpy')
+        drawHarpy(ctx, e.x, e.y, e.f, nowMs, e.id, Math.hypot(e.x - px, e.y - py) > 4, flash);
+      else if (e.k === 'roller') drawRoller(ctx, e.x, e.y, e.f, nowMs, e.id, 1, flash);
+      else drawLancer(ctx, e.x, e.y, e.f, nowMs, e.id, e.p === 1, flash);
+      return;
+    }
+    if (e.k === 'makar') {
+      drawMakar(ctx, e.x, e.y, e.f, nowMs, e.id, flash);
+      return;
+    }
+    if (e.k === 'crab' || e.k === 'conch') {
+      const px = this.enemyPrevX.get(e.id) ?? e.x;
+      this.enemyPrevX.set(e.id, e.x);
+      if (e.k === 'crab') drawCrab(ctx, e.x, e.y, e.f, nowMs, e.id, Math.abs(e.x - px) > 0.05, flash);
+      else drawConch(ctx, e.x, e.y, e.f, nowMs, e.id, flash);
+      return;
+    }
+    if (e.k === 'imp' || e.k === 'bat' || e.k === 'treant') {
+      const px = this.enemyPrevX.get(e.id) ?? e.x;
+      const py = this.enemyPrevY.get(e.id) ?? e.y;
+      this.enemyPrevX.set(e.id, e.x);
+      this.enemyPrevY.set(e.id, e.y);
+      if (e.k === 'imp') drawImp(ctx, e.x, e.y, e.f, nowMs, e.id, Math.abs(e.y - py) > 0.4, flash);
+      else if (e.k === 'bat')
+        drawBat(ctx, e.x, e.y, e.f, nowMs, e.id, Math.hypot(e.x - px, e.y - py) > 3, flash);
+      else drawTreant(ctx, e.x, e.y, e.f, nowMs, e.id, Math.abs(e.x - px) > 0.05, flash);
+      return;
+    }
     const faction = this.lvl.faction;
     // Saga stages each field their own host (sprites.ts SAGA_HOSTS); keys keep their sprites apart.
     const sagaN = isSagaId(this.lvl.id) ? Number(this.lvl.id.slice(6)) : 0;
@@ -2063,6 +2483,169 @@ export class Renderer {
     const w = GAME_CONFIG.enemies[e.k as 'walker'].width;
     if (e.x + w < this.camX - 60 || e.x - w > this.camX + this.viewW + 60) return;
     const faction = this.lvl.faction;
+    if (e.k === 'saptashir') {
+      drawSaptashir(this.ctx, e.x, e.y, nowMs, {
+        at: e.at,
+        tt: e.tt,
+        wind: Math.round((ATTACK_WINDUP[e.at] ?? 0) * GAME_CONFIG.tickRate),
+        dead: e.hp <= 0 || s.result === 'won',
+        flash: e.h === 1,
+        phase: e.ph,
+        heads: e.p,
+        shirsha: e.ra >= 0 && BOSS_RULES[e.ra] === 'pralay',
+        ids: { tenfire: ATTACK.tenfire, moonblade: ATTACK.moonblade, meteors: ATTACK.meteors },
+      });
+      return;
+    }
+    if (e.k === 'jodasur') {
+      drawJodasur(this.ctx, e.x, e.y, nowMs, {
+        at: e.at,
+        tt: e.tt,
+        wind: Math.round((ATTACK_WINDUP[e.at] ?? 0) * GAME_CONFIG.tickRate),
+        dead: e.hp <= 0 || s.result === 'won',
+        flash: e.h === 1,
+        face: e.f,
+        phase: e.ph,
+        split: e.p === 1,
+        ids: { hurl: ATTACK.hurl, pounce: ATTACK.pounce, bull: ATTACK.bull },
+      });
+      return;
+    }
+    if (e.k === 'suryakavach') {
+      const ecl = e.sn === 1 && e.hp > 0;
+      this.eclK += ((ecl ? 1 : 0) - this.eclK) * 0.08;
+      const ctx = this.ctx;
+      ctx.save();
+      ctx.translate(this.camX, this.camY);
+      drawEclipse(ctx, this.viewW, this.viewH, this.eclK, nowMs);
+      ctx.restore();
+      drawSuryakavach(ctx, e.x, e.y, nowMs, {
+        at: e.at,
+        tt: e.tt,
+        wind: Math.round((ATTACK_WINDUP[e.at] ?? 0) * GAME_CONFIG.tickRate),
+        dead: e.hp <= 0 || s.result === 'won',
+        flash: e.h === 1,
+        eclipse: ecl,
+        phase: e.ph,
+        ids: { mace: ATTACK.mace, spears: ATTACK.spears, rathis: ATTACK.rathis },
+      });
+      return;
+    }
+    if (e.k === 'maniyodha') {
+      drawManiyodha(this.ctx, e.x, e.y, nowMs, {
+        at: e.at,
+        tt: e.tt,
+        wind: Math.round((ATTACK_WINDUP[e.at] ?? 0) * GAME_CONFIG.tickRate),
+        dead: e.hp <= 0 || s.result === 'won',
+        flash: e.h === 1,
+        face: e.f,
+        phase: e.ph,
+        samarpan: e.ra >= 0,
+        spent: e.sn === 1,
+        ids: { fan: ATTACK.fan, agnibaan: ATTACK.agnibaan, cleave: ATTACK.cleave },
+      });
+      return;
+    }
+    if (e.k === 'raakhasur') {
+      const c = GAME_CONFIG.enemies.raakhasur;
+      const tr = GAME_CONFIG.tickRate;
+      const dance = e.at === ATTACK.dance;
+      const t = e.tt - Math.round((ATTACK_WINDUP[ATTACK.dance] ?? 1) * tr);
+      const beatT = Math.round(c.beatSec * tr);
+      const step = dance && t >= 0 ? Math.floor(t / beatT) : -1;
+      const pose = step >= 0 && step < c.steps ? Math.floor(e.p / 4 ** step) % 4 : -1;
+      drawRaakhasur(this.ctx, e.x, e.y, nowMs, {
+        at: e.at,
+        tt: e.tt,
+        wind: Math.round((ATTACK_WINDUP[e.at] ?? 0) * tr),
+        open: e.sn === 1,
+        dead: e.hp <= 0 || s.result === 'won',
+        flash: e.h === 1,
+        face: e.f,
+        phase: e.ph,
+        pose,
+        beat: pose >= 0 ? (t % beatT) / beatT : 0,
+        step: Math.max(0, step),
+        steps: c.steps,
+        ids: { rush: ATTACK.rush, ash: ATTACK.ash, rain: ATTACK.rain, dance: ATTACK.dance },
+        viewL: this.camX,
+        viewR: this.camX + this.viewW,
+      });
+      return;
+    }
+    if (e.k === 'darpan') {
+      drawDarpan(this.ctx, e.x, e.y, nowMs, {
+        at: e.at,
+        tt: e.tt,
+        wind: Math.round((ATTACK_WINDUP[e.at] ?? 0) * 30),
+        dull: e.sn === 1,
+        dead: e.hp <= 0 || s.result === 'won',
+        flash: e.h === 1,
+        beam: ATTACK.beam,
+        phase: e.ph,
+      });
+      return;
+    }
+    if (e.k === 'vishdhar') {
+      drawVishdhar(this.ctx, e.x, e.y, nowMs, e.hp <= 0 || s.result === 'won', e.h === 1, e.ph);
+      return;
+    }
+    if (e.k === 'aandhi') {
+      drawAandhi(
+        this.ctx,
+        e.x,
+        e.y,
+        nowMs,
+        {
+          at: e.at,
+          tt: e.tt,
+          wind: Math.round((ATTACK_WINDUP[e.at] ?? 0) * 30),
+          phase: e.ph,
+          dead: e.hp <= 0 || s.result === 'won',
+          flash: e.h === 1,
+          storm: ATTACK.storm,
+          boulders: ATTACK.boulders,
+          javelins: ATTACK.javelins,
+          call: ATTACK.call,
+          reel: e.sn === 1,
+        },
+        s.boss !== null || e.hp <= 0 || s.result === 'won',
+      );
+      return;
+    }
+    if (e.k === 'chhaya') {
+      const wind = Math.round((ATTACK_WINDUP[e.at] ?? 0) * 30);
+      if (e.at === ATTACK.grab && !(e.hp <= 0))
+        drawGrabMark(this.ctx, e.p, e.y, wind ? e.tt / wind : 1, wind ? (e.tt - wind) / 12 : 0, nowMs);
+      drawChhaya(this.ctx, e.x, e.y, nowMs, {
+        at: e.at,
+        tt: e.tt,
+        wind,
+        p: e.p,
+        phase: e.ph,
+        open: e.sn === 1,
+        dead: e.hp <= 0 || s.result === 'won',
+        flash: e.h === 1,
+        grab: ATTACK.grab,
+        surge: ATTACK.surge,
+        spit: ATTACK.spit,
+      });
+      return;
+    }
+    if (e.k === 'vriksha') {
+      drawVriksha(this.ctx, e.x, e.y, nowMs, {
+        at: e.at,
+        tt: e.tt,
+        wind: Math.round((ATTACK_WINDUP[e.at] ?? 0) * 30),
+        phase: e.ph,
+        dead: e.hp <= 0 || s.result === 'won',
+        flash: e.h === 1,
+        roots: ATTACK.roots,
+        fruit: ATTACK.fruit,
+        breath: ATTACK.breath,
+      });
+      return;
+    }
     if (faction === 'army') {
       this.drawBossBody(e, s, nowMs);
       return;
@@ -2110,6 +2693,175 @@ export class Renderer {
   }
 
   /** The saga look of a boss: the style of the arena it fights in (null outside the saga). */
+  /** Height of the level in px (taller than the screen in a stage that climbs or descends). */
+  private get levelH(): number {
+    return levelHeight(this.level);
+  }
+
+  /** The saga stage on screen (1..10), 0 outside the saga. */
+  private sagaStage(): number {
+    return isSagaId(this.lvl.id) ? Number(this.lvl.id.slice(6)) : 0;
+  }
+
+  /**
+   * Agnivan's set pieces, found by the zones its course names: the burning tree that falls across the ravine
+   * ('Girta Ped', shared/src/saga.ts) and the stream bed under the wall of fire ('Aage bhi Aag').
+   */
+  private agnivanPieces(L: LevelDef): Renderer['agni'] {
+    if (L.id !== 'astra-1') return null;
+    const T = GAME_CONFIG.tile;
+    const at = (name: string): number => L.zones.find((z) => z.name === name)?.x ?? -1;
+    const fall = at('Girta Ped');
+    const dive = at('Aage bhi Aag');
+    const row = (x: number, from: number): number => {
+      let r = from;
+      while (r < L.rows && tileAt(L, Math.floor(x / T), r) !== Tile.OneWay) r++;
+      return r;
+    };
+    let log: NonNullable<Renderer['agni']>['log'] = null;
+    if (fall >= 0) {
+      const c0 = fall / T + 5;
+      let c1 = c0;
+      const r = row(c0 * T + 1, 0);
+      while (tileAt(L, c1 + 1, r) === Tile.OneWay) c1++;
+      log = { x0: c0 * T, x1: (c1 + 1) * T, y: r * T, c0, c1 };
+    }
+    let stream: NonNullable<Renderer['agni']>['stream'] = null;
+    if (dive >= 0) {
+      // the channel: the columns past the zone start whose ground dips below the path's floor (row 14)
+      let c0 = dive / T;
+      while (c0 < L.cols && tileAt(L, c0, 14) !== Tile.Empty) c0++;
+      let c1 = c0;
+      while (c1 + 1 < L.cols && tileAt(L, c1 + 1, 14) === Tile.Empty) c1++;
+      stream = { x0: c0 * T, x1: (c1 + 1) * T, top: 14.55 * T, bottom: 17 * T };
+    }
+    return { log, stream };
+  }
+
+  /** Pools of poison (Naag Lok). */
+  private drawPoisonPools(nowMs: number): void {
+    for (const f of this.lvl.fields) {
+      if (f.kind !== 'poison' || f.x1 < this.camX - 40 || f.x0 > this.camX + this.viewW + 40) continue;
+      drawPoison(this.ctx, f.x0, f.x1, f.y0 + T + 6, f.y1, nowMs);
+    }
+  }
+
+  /** The dark of Naag Lok: a veil over everything but the squad's light and what glows. */
+  private drawDarkness(s: Snapshot, players: PlayerSnapshot[], nowMs: number): void {
+    const L = this.lvl;
+    const dim = L.zones
+      .filter((z) => z.name === 'Andhi Surang')
+      .some((z) => {
+        const i = L.zones.indexOf(z);
+        const end = L.zones[i + 1]?.x ?? Infinity;
+        return this.camX + this.viewW / 2 > z.x && this.camX + this.viewW / 2 < end;
+      });
+    const lights: Light[] = [];
+    for (const p of players) if (p.st === 0) lights.push({ x: p.x, y: p.y - 20, r: dim ? 100 : 160 });
+    for (const r of L.rests) {
+      let row = 0;
+      const c = Math.floor((r.x0 + r.x1) / 2 / T);
+      while (row < L.rows && tileAt(L, c, row) !== Tile.Solid) row++;
+      lights.push({ x: (r.x0 + r.x1) / 2, y: row * T - 40, r: 320 });
+    }
+    for (const m of this.mushrooms) lights.push({ x: m.x, y: m.y - 8, r: 60 });
+    for (const f of L.fields)
+      if (f.kind === 'poison') lights.push({ x: (f.x0 + f.x1) / 2, y: f.y0 + T, r: 70 });
+    for (const b of s.bullets) if (b.e === 1) lights.push({ x: b.x, y: b.y, r: 28 });
+    for (const e of s.enemies) {
+      if (e.k === 'vishdhar') lights.push({ x: e.x - 30, y: e.y - 130, r: 140 });
+      else if (e.k === 'spitter' || e.k === 'egg') lights.push({ x: e.x, y: e.y - 20, r: 36 });
+      else lights.push({ x: e.x, y: e.y - 14, r: 22 });
+    }
+    for (const pk of this.lvl.pickups) lights.push({ x: pk.x, y: pk.y, r: 40 });
+    const sc = this.scale;
+    drawDark(
+      this.ctx,
+      this.canvas.width,
+      this.canvas.height,
+      lights,
+      (x, y) => [(x - this.camX) * sc, (y - this.camY) * sc],
+      sc,
+      dim ? 0.94 : 0.86,
+    );
+    void nowMs;
+  }
+
+  /** Sagar Setu's floating stones and boat, where the snapshot says they are now. */
+  /** Chakra Durg's turning rings: the ground's surface marching along in each `belt` field. */
+  private drawBelts(nowMs: number): void {
+    const L = this.lvl;
+    for (const f of L.fields) {
+      if ((f.kind !== 'belt' && f.kind !== 'mud') || f.x1 < this.camX || f.x0 > this.camX + this.viewW)
+        continue;
+      const c0 = Math.max(Math.floor(f.x0 / T), Math.floor(this.camX / T) - 1);
+      const c1 = Math.min(Math.ceil(f.x1 / T) - 1, Math.ceil((this.camX + this.viewW) / T) + 1);
+      for (let c = c0; c <= c1; c++) {
+        // the ground's surface: up from the bottom of the field (the hanging shield walls are not ground)
+        let row = Math.min(L.rows - 1, Math.floor(f.y1 / T) - 1);
+        while (row > 0 && tileAt(L, c, row) !== Tile.Empty) row--;
+        if (tileAt(L, c, row + 1) === Tile.Empty) continue;
+        if (f.kind === 'mud') drawMud(this.ctx, c * T, (c + 1) * T, (row + 1) * T, nowMs);
+        else drawBelt(this.ctx, c * T, (c + 1) * T, (row + 1) * T, Math.sign(f.power), nowMs);
+      }
+    }
+  }
+
+  private drawPlats(s: Snapshot, nowMs: number): void {
+    const pl = s.pl as number[];
+    this.lvl.plats.forEach((d, i) => {
+      const dx = pl[i * 3] ?? 0;
+      const y = pl[i * 3 + 1] ?? d.y;
+      const x0 = d.x0 + dx;
+      const x1 = d.x1 + dx;
+      if (x1 < this.camX - 200 || x0 > this.camX + this.viewW + 200) return;
+      if (d.kind === 'fake') drawFalseFloor(this.ctx, x0, x1, y, pl[i * 3 + 2] === 1, s.ma === 1, nowMs);
+      else if (d.kind === 'hidden') drawHiddenFloor(this.ctx, x0, x1, y, s.ma === 1, nowMs, i);
+      else if (d.kind === 'head') {
+        const k = s.enemies.find((e) => e.k === 'vishdhar');
+        drawVishdharHead(this.ctx, x0, x1, y, d.y + 4 * T, nowMs, i, !k || k.hp <= 0 || s.result === 'won');
+      } else if (d.kind === 'vimana') drawHansvimaan(this.ctx, x0, x1, y, nowMs, dx > 0 && x0 < d.to);
+      else if (d.kind === 'chariot') drawChariot(this.ctx, x0, x1, y, nowMs, dx > 0 && x0 < d.to);
+      else if (d.kind === 'boat') drawBoat(this.ctx, x0, x1, y, nowMs, dx > 0 && x0 < d.to);
+      else drawStone(this.ctx, x0, x1, y, y - d.y, i, nowMs);
+    });
+  }
+
+  /** The sea in front of whatever is in it (Sagar Setu): over every column without ground at the path's level. */
+  private drawSeaFront(wy: number, nowMs: number): void {
+    const L = this.lvl;
+    const runs: [number, number][] = [];
+    const c0 = Math.max(0, Math.floor(this.camX / T) - 1);
+    const c1 = Math.min(L.cols - 1, Math.ceil((this.camX + this.viewW) / T) + 1);
+    let start = -1;
+    for (let c = c0; c <= c1 + 1; c++) {
+      const open = c <= c1 && tileAt(L, c, 14) === Tile.Empty;
+      if (open && start < 0) start = c;
+      if (!open && start >= 0) {
+        runs.push([start * T, c * T]);
+        start = -1;
+      }
+    }
+    drawSea(this.ctx, runs, wy, levelHeight(L) + 40, nowMs);
+  }
+
+  private drawAgnivanPieces(nowMs: number): void {
+    const a = this.agni;
+    if (!a) return;
+    const ctx = this.ctx;
+    if (a.stream && a.stream.x1 > this.camX && a.stream.x0 < this.camX + this.viewW)
+      drawStream(ctx, a.stream.x0, a.stream.x1, a.stream.top, a.stream.bottom, nowMs);
+    const log = a.log;
+    if (!log || log.x0 > this.camX + this.viewW + 400 || log.x1 < this.camX - 200) return;
+    // A great discus cuts the tree as the squad comes in sight of it; it falls across as the bridge.
+    if (!this.treeFallAt && this.camX + this.viewW > log.x0 - 3 * GAME_CONFIG.tile)
+      this.treeFallAt = this.camX > log.x0 ? nowMs - 5000 : nowMs;
+    const since = this.treeFallAt ? (nowMs - this.treeFallAt) / 1000 : -1;
+    const fall = since < 0.55 ? 0 : (since - 0.55) / 0.8;
+    drawFallingTree(ctx, log.x0, log.x1, log.y, Math.max(0, fall), nowMs);
+    if (since >= 0 && since < 0.6) drawChakraCut(ctx, log.x0, log.y - 40, since / 0.55, nowMs);
+  }
+
   private sagaLook(e: EnemySnapshot): AsuraLook | null {
     if (!isSagaId(this.lvl.id)) return null;
     const known = this.bossLooks.get(e.id);
@@ -2778,6 +3530,16 @@ export class Renderer {
       if (this.drawAstraShot(kind, b, nowMs)) continue;
       if (b.e === 1) {
         ctx.globalCompositeOperation = 'source-over';
+        if (this.sagaStage() === 1 && drawAgniShot(ctx, kind, b, nowMs)) continue;
+        if (this.sagaStage() === 2 && drawSeaShot(ctx, kind, b, nowMs)) continue;
+        if (this.sagaStage() === 3 && drawWindShot(ctx, kind, b, nowMs)) continue;
+        if (this.sagaStage() === 4 && drawVenomShot(ctx, kind, b, nowMs)) continue;
+        if (this.sagaStage() === 5 && drawMayaShot(ctx, kind, b, nowMs)) continue;
+        if (this.sagaStage() === 6 && drawBhasmShot(ctx, kind, b, nowMs)) continue;
+        if (this.sagaStage() === 7 && drawKuruShot(ctx, kind, b, nowMs)) continue;
+        if (this.sagaStage() === 8 && drawChakraShot(ctx, kind, b, nowMs)) continue;
+        if (this.sagaStage() === 9 && drawDwandShot(ctx, kind, b, nowMs)) continue;
+        if (this.sagaStage() === 10 && drawSuvarnaShot(ctx, kind, b, nowMs)) continue;
         if (
           (kind === 'grenade' || kind === 'bomb' || kind === 'missile') &&
           drawOrdnance(ctx, this.lvl.faction, kind, b.x, b.y, b.vx, b.vy, nowMs)
@@ -2958,6 +3720,11 @@ export class Renderer {
     }
   }
 
+  /** The cut-in for your own power: the super move (`small` false) or an astra call (`small` true). */
+  powerCutIn(hero: number, title: string, sub: string, color: string, glow: string, small: boolean): void {
+    this.cutin.play(hero, title, sub, color, glow, performance.now(), small);
+  }
+
   /** "PARRY!", "KNIFE KILL"… popping over the action. */
   styleText(x: number, y: number, text: string, mine: boolean): void {
     this.styleFloats.push({ x, y: y - 10, text, life: 1, mine });
@@ -3003,13 +3770,13 @@ export class Renderer {
     const col = RULE_COLOR[ev.kind];
     if (ev.phase === 0) {
       this.rings.push({ x: ev.x, y: ev.y, r: 120, life: 0.5, max: 0.5, color: col });
-      if (ev.kind === 'narayana' || ev.kind === 'brahmashirsha') this.darkTarget = 0.6;
+      if (ev.kind === 'samarpan' || ev.kind === 'pralay') this.darkTarget = 0.6;
       return;
     }
     if (ev.phase === 1) {
-      this.flash(col, ev.kind === 'brahmashirsha' ? 0.8 : 0.2);
-      if (!reduce) this.shake(ev.kind === 'brahmashirsha' ? 22 : 6);
-      if (ev.kind === 'brahmashirsha') {
+      this.flash(col, ev.kind === 'pralay' ? 0.8 : 0.2);
+      if (!reduce) this.shake(ev.kind === 'pralay' ? 22 : 6);
+      if (ev.kind === 'pralay') {
         this.darkTarget = 0;
         this.pillar = { x: ev.x, ground: ev.y + 170, life: 0.9, strike: true };
       }
@@ -3037,16 +3804,16 @@ export class Renderer {
   astraEffect(ev: Extract<SimEvent, { e: 'astra' }>, reduce: boolean): void {
     const [hi, lo] = POWER_COLOR[ev.kind];
     const cy = ev.y - 24;
-    // The vaishnava orb turning back is not a new call: it keeps the first apparition.
-    if (!(ev.kind === 'vaishnava' && ev.v === 1)) this.cine.add(ev.kind, ev.x, ev.y, ev.f, performance.now());
+    // The tej orb turning back is not a new call: it keeps the first apparition.
+    if (!(ev.kind === 'tej' && ev.v === 1)) this.cine.add(ev.kind, ev.x, ev.y, ev.f, performance.now());
     this.bows.set(ev.id, { born: performance.now(), kind: ev.kind });
     this.rings.push({ x: ev.x, y: cy, r: 6, life: 0.4, max: 0.4, color: hi });
     this.spark(ev.x + ev.f * 16, cy, lo, 12, reduce, 220);
-    if (ev.kind === 'naga' || ev.kind === 'sudarshana') {
+    if (ev.kind === 'naga' || ev.kind === 'chakram') {
       this.flash(lo, 0.12);
       return;
     }
-    if (ev.kind === 'garuda') {
+    if (ev.kind === 'shyen') {
       // The eagle's dive: a sweep of wind and a ring that clears the sky.
       this.winds.push({ x: ev.x - ev.f * 300, y: cy - 120, f: ev.f, life: 0.7 });
       for (let i = 0; i < 3; i++)
@@ -3055,12 +3822,12 @@ export class Renderer {
       if (!reduce) this.shake(8);
       return;
     }
-    if (ev.kind === 'pashupata') {
+    if (ev.kind === 'vidyut') {
       this.flash(ev.v === 2 ? '#f97316' : '#7dd3fc', 0.3);
       if (!reduce) this.shake(ev.v === 0 ? 14 : 6);
       return;
     }
-    if (ev.kind === 'vaishnava') {
+    if (ev.kind === 'tej') {
       this.flash('#fde047', ev.v === 1 ? 0.55 : 0.2);
       if (ev.v === 1)
         for (let i = 0; i < 4; i++)
@@ -3078,8 +3845,8 @@ export class Renderer {
       this.fireRuns.push({ x: ev.x, y: ev.y, f: ev.f, born: performance.now() });
       this.flash('#ff7a1a', 0.18);
       if (!reduce) this.shake(6);
-    } else if (ev.kind === 'varuna') {
-      const P = GAME_CONFIG.powers.varuna;
+    } else if (ev.kind === 'jal') {
+      const P = GAME_CONFIG.powers.jal;
       const a = ev.x + ev.f * P.range;
       const b = ev.x - ev.f * P.back;
       this.rains.push({ x0: Math.min(a, b), x1: Math.max(a, b), ground: ev.y, life: 1.6 });
@@ -3093,34 +3860,26 @@ export class Renderer {
     }
   }
 
-  /** The brahmastra: the sky darkens and a pillar of light gathers (phase 0), then strikes (phase 1). */
-  brahmaEffect(ev: Extract<SimEvent, { e: 'brahma' }>, reduce: boolean): void {
+  /** The paramastra: the sky darkens and a pillar of light gathers (phase 0), then strikes (phase 1). */
+  paramEffect(ev: Extract<SimEvent, { e: 'param' }>, reduce: boolean): void {
+    const B = GAME_CONFIG.powers.param;
     if (ev.phase === 0) {
-      this.cine.add('brahma', ev.x, ev.y, 1, performance.now());
+      this.paramastra.begin(ev.x, ev.y, performance.now(), B.windupSec * 1000, B.range);
       this.darkTarget = 1;
-      this.pillar = { x: ev.x, ground: ev.y, life: 1.2, strike: false };
+      if (!reduce) this.shake(4);
       return;
     }
     this.darkTarget = 0;
-    this.pillar = { x: ev.x, ground: ev.y, life: 0.9, strike: true };
-    this.flash('#fff7cc', 0.85);
-    if (!reduce) this.shake(20);
-    for (let i = 0; i < 6; i++)
-      this.rings.push({
-        x: ev.x,
-        y: ev.y - 20,
-        r: 10 + i * 60,
-        life: 0.5 + i * 0.12,
-        max: 1.1,
-        color: i % 2 ? '#fde047' : '#ffffff',
-      });
-    for (let k = 0; k < (reduce ? 4 : 14); k++) {
+    this.paramastra.strike(ev.x, ev.y, performance.now());
+    this.flash('#fff7cc', 0.5);
+    if (!reduce) this.shake(26);
+    for (let k = 0; k < (reduce ? 6 : 30); k++) {
       const x = this.camX + Math.random() * this.viewW;
       this.spark(x, ev.y - 40 - Math.random() * 200, '#fde68a', 5, reduce, 260);
     }
   }
 
-  /** Rain curtains, wind gusts and the brahmastra pillar (world space). */
+  /** Rain curtains, wind gusts and the paramastra pillar (world space). */
   private drawAstraFx(dt: number, nowMs: number): void {
     const ctx = this.ctx;
     if (this.rains.length) {
@@ -3447,6 +4206,49 @@ export class Renderer {
   }
 
   /** The zone's colour grade and the vignette, painted once per zone and size and copied each frame. */
+  private bloomA: HTMLCanvasElement | null = null;
+  private bloomB: HTMLCanvasElement | null = null;
+
+  /**
+   * Bloom: fire, lava, muzzle flashes, astras and glowing eyes bleed light into the air around them. The frame is
+   * shrunk to an eighth, multiplied by itself twice (the darks fall away, only the bright parts are left), and laid
+   * back over the frame smoothly enlarged (the enlarging is the blur) with additive light. Off when the quality
+   * governor has stepped down, and with `?hd=0`.
+   */
+  private drawBloom(): void {
+    if (this.quality > 0 || this.lowDetail) return;
+    const W = this.canvas.width;
+    const H = this.canvas.height;
+    const w = Math.max(8, Math.round(W / 8));
+    const h = Math.max(8, Math.round(H / 8));
+    const a = this.bloomA ?? (this.bloomA = document.createElement('canvas'));
+    const b = this.bloomB ?? (this.bloomB = document.createElement('canvas'));
+    if (a.width !== w || a.height !== h) {
+      a.width = b.width = w;
+      a.height = b.height = h;
+    }
+    const ga = a.getContext('2d');
+    const gb = b.getContext('2d');
+    if (!ga || !gb) return;
+    ga.globalCompositeOperation = 'copy';
+    ga.imageSmoothingEnabled = true;
+    ga.drawImage(this.canvas, 0, 0, w, h);
+    gb.globalCompositeOperation = 'copy';
+    gb.drawImage(a, 0, 0);
+    ga.globalCompositeOperation = 'multiply';
+    ga.drawImage(b, 0, 0);
+    ga.drawImage(b, 0, 0);
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.globalAlpha = 0.5;
+    ctx.drawImage(a, 0, 0, W, H);
+    ctx.restore();
+  }
+
   private drawGrade(): void {
     const W = this.canvas.width;
     const H = this.canvas.height;
@@ -3628,9 +4430,13 @@ export class Renderer {
   static drawIcon(c: HTMLCanvasElement, hero: number): void {
     const g = c.getContext('2d');
     if (!g) return;
-    g.imageSmoothingEnabled = false;
+    const key = `h${hero}-face`;
+    // the rendered portrait is smooth (and larger than the box); the hand-drawn one keeps its pixels
+    g.imageSmoothingEnabled = spritesReady(key);
+    g.imageSmoothingQuality = 'high';
     g.clearRect(0, 0, c.width, c.height);
     g.drawImage(heroPortrait(hero), 0, 0, c.width, c.height);
+    if (!spritesReady(key)) onSpritesReady(key, () => Renderer.drawIcon(c, hero));
   }
 }
 

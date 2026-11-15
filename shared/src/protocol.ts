@@ -6,8 +6,10 @@ import type { FailReason, MissionResult, SimEvent, Snapshot } from './sim';
  * build the same level from shared code, so an old server and a new page must not play together).
  * 6: the Astra Saga stages were rebuilt.
  * 7: saga boss styles and moves, portal / ground / elite waves, secret pickups (new events and snapshot fields).
+ * 12: every saga stage rebuilt as a stage of its own (new enemy kinds, bosses, attacks, the `net` shot, snapshot
+ *     fields `pl`, `wy`, `gu`, `ma`, `lv`, `vw`, `ij` and the player's `nt`).
  */
-export const PROTOCOL_VERSION = 10;
+export const PROTOCOL_VERSION = 13;
 
 /** Unambiguous alphabet (no I, L, O, 0, 1). */
 export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -46,7 +48,7 @@ export type ClientMessage =
       dash?: boolean;
       melee?: boolean;
       ult?: boolean;
-      /** Fire the held power (astra) or the team brahmastra. Optional. */
+      /** Fire the held power (astra) or the team paramastra. Optional. */
       astra?: boolean;
       /** Server tick the client is displaying when it sampled this input (lag compensation). Optional. */
       vt?: number;
@@ -126,6 +128,8 @@ export interface MissionEnd {
   score: number;
   livesLeft: number;
   board: BoardEntry[];
+  /** The stage goal and how it went (saga stages): its kind, done of n, 1 done / 2 missed / 0 never reached. */
+  goal?: { kind: string; done: number; n: number; status: 0 | 1 | 2 };
 }
 
 export type ServerMessage =

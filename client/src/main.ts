@@ -34,6 +34,8 @@ import { OnlineMatch } from './game/online';
 import { SoloMatch, type SoloOptions } from './game/practice';
 import { Renderer } from './game/renderer';
 import { charFrame, heroLook, RUN_FRAMES, CENTER_X, FEET_Y } from './game/sprites';
+import { BIG, bigFrame3d, preloadHeroSprites } from './game/sprites3d';
+import { CHAPTERS, GOAL_TEXT } from './story';
 import { MatchView } from './game/view';
 import { InputController } from './input/input';
 import { Connection, type ConnState } from './net/connection';
@@ -155,7 +157,7 @@ function squadLink(code: string): string {
   return platform.inviteLink(code) ?? inviteLink(code);
 }
 
-// Narayanastra: auto-fire holds off while the storm rages (laying down your weapons is how you get through it).
+// Samarpanastra: auto-fire holds off while the storm rages (laying down your weapons is how you get through it).
 view.onStorm = (on) => {
   input.holdAutoFire = on;
 };
@@ -492,7 +494,7 @@ function missionControls(id: MissionId): void {
   const info = missionInfo(id);
   input.autoFireOverride = info.advanced ? false : null;
   const level = getMission(id);
-  const powers = level.brahma || level.pickups.some((p) => isPower(p.kind));
+  const powers = level.param || level.pickups.some((p) => isPower(p.kind));
   $('touch').classList.toggle('has-powers', powers);
   $('btn-touch-astra').classList.toggle('void', level.faction === 'void');
   $('btn-touch-astra').textContent = level.faction === 'void' ? 'POWER' : 'ASTRA';
@@ -754,8 +756,13 @@ function showResults(r: MissionEnd, isOnline: boolean): void {
   const best = r.board.reduce((n, b) => Math.max(n, b.rank), -1);
   const played = currentMission();
   const info = missionInfo(played.id);
-  // Stars: 1 for finishing, +1 with a life to spare, +1 with a life to spare for every soldier.
-  const stars = !won ? 0 : 1 + (r.livesLeft >= 1 ? 1 : 0) + (r.livesLeft >= players ? 1 : 0);
+  // Stars: 1 for finishing, +1 with a life to spare, and the third for the stage goal on a saga stage (elsewhere,
+  // a life to spare for every soldier).
+  const stars = !won
+    ? 0
+    : 1 +
+      (r.livesLeft >= 1 ? 1 : 0) +
+      (r.goal ? (r.goal.status === 1 ? 1 : 0) : r.livesLeft >= players ? 1 : 0);
   const shardsBefore = progress.shards;
   // A daily trial is its own record: it does not clear (or unlock) the stage it borrows.
   const trial = !isOnline ? (practiceOpts?.daily ?? null) : null;
@@ -844,6 +851,22 @@ function showResults(r: MissionEnd, isOnline: boolean): void {
       : players === 1
         ? 'Tip: fire your super with a friend for a SYNC bonus. Tap “Play with friends” and send the link!'
         : 'Tip: knife up close, slide under shots and keep the combo going for a higher rank.';
+  // the story: the chapter just won, and the hook for the next one
+  const chapter = saga && won && !trial ? CHAPTERS[saga.id] : undefined;
+  $('result-story').hidden = !chapter;
+  if (chapter) {
+    $('story-title').textContent = chapter.title;
+    $('story-page').textContent = chapter.page;
+    $('story-next').textContent = chapter.next;
+  }
+  // the stage goal, won or lost
+  const goalLine = saga && !trial && r.goal ? GOAL_TEXT[saga.id] : undefined;
+  $('result-goal').hidden = !goalLine;
+  if (goalLine && r.goal)
+    $('result-goal').textContent =
+      r.goal.status === 1
+        ? `★ Stage goal done: ${goalLine.title}${r.goal.n > 1 ? ` (${r.goal.done}/${r.goal.n})` : ''}`
+        : `Stage goal missed: ${goalLine.title}${r.goal.n > 1 ? ` (${r.goal.done}/${r.goal.n})` : ''}. Do it for the third star!`;
   renderBoard(r.board, meId);
   showScreen('results');
   renderResultsButtons();
@@ -1434,9 +1457,9 @@ function renderSaga(): void {
       const icon =
         st.astra in POWER_INFO
           ? POWER_INFO[st.astra as keyof typeof POWER_INFO].icon
-          : st.astra === 'brahma'
+          : st.astra === 'param'
             ? '☀'
-            : st.astra === 'narayana'
+            : st.astra === 'samarpan'
               ? '🏹'
               : '✴';
       const b = el(
@@ -1481,9 +1504,9 @@ function renderCodex(): void {
       const icon =
         st.astra in POWER_INFO
           ? POWER_INFO[st.astra as keyof typeof POWER_INFO].icon
-          : st.astra === 'brahma'
+          : st.astra === 'param'
             ? '☀'
-            : st.astra === 'narayana'
+            : st.astra === 'samarpan'
               ? '🏹'
               : '✴';
       const known = progress.unlocked(st.id);
@@ -1670,13 +1693,12 @@ function heroFrame(t: number): void {
   const cycle = settings.value.reduceMotion ? 0 : t % 4000;
   const running = cycle < 1800;
   const firing = cycle > 2300 && cycle < 3400;
-  const f = charFrame(
-    `h${id}`,
-    look,
-    running ? 'run' : 'idle',
-    running ? Math.floor(t / 75) % RUN_FRAMES : Math.floor(t / 450) % 2,
-    cycle > 3000 && cycle < 3400 ? 'uf' : 'f',
-  );
+  const pose = running ? 'run' : 'idle';
+  const frame = running ? Math.floor(t / 75) % RUN_FRAMES : Math.floor(t / 450) % 2;
+  const aim = cycle > 3000 && cycle < 3400 ? 'uf' : 'f';
+  // the rendered showcase frames (3x the game's HD frames) once they have loaded, else the game frame blown up
+  const big = bigFrame3d(id, pose, frame, aim);
+  const f = big ?? charFrame(`h${id}`, look, pose, frame, aim);
   const S = 3;
   g.clearRect(0, 0, heroCanvas.width, heroCanvas.height);
   g.imageSmoothingEnabled = false;
@@ -1688,15 +1710,12 @@ function heroFrame(t: number): void {
   g.fill();
   // A high-definition frame (hero-hd.ts) has twice the pixels and its own anchor: draw it at half the scale.
   const hd = hdCanvases.has(f.img);
-  const k = hd ? S / HD : S;
-  g.imageSmoothingEnabled = false;
-  g.drawImage(
-    f.img,
-    ox - (hd ? HD_CENTER : CENTER_X) * k,
-    oy - (hd ? HD_FEET : FEET_Y) * k,
-    f.img.width * k,
-    f.img.height * k,
-  );
+  const k = big ? S / BIG : hd ? S / HD : S;
+  const ax = big ? HD_CENTER * 3 : hd ? HD_CENTER : CENTER_X;
+  const ay = big ? HD_FEET * 3 : hd ? HD_FEET : FEET_Y;
+  g.imageSmoothingEnabled = !!big;
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(f.img, ox - ax * k, oy - ay * k, f.img.width * k, f.img.height * k);
   if (firing && Math.floor(t / 60) % 2 === 0) {
     const mx = ox + f.muzzleX * S;
     const my = oy + f.muzzleY * S;
@@ -1728,6 +1747,10 @@ function pickHero(id: number): void {
   }
   settings.update({ hero });
   showHeroMeta();
+  preloadHeroSprites(
+    HEROES.map((h) => h.id),
+    true,
+  );
   if (room && room.phase !== 'match') conn.send({ t: 'setHero', hero });
   sfx.play('beep');
 }

@@ -231,7 +231,7 @@ export function propHD(kind: Prop['kind'], v: number): HTMLCanvasElement | null 
   const jungle = { palm, bush, fern, rock, flower, tuft } as Partial<
     Record<Prop['kind'], (v: number) => HTMLCanvasElement>
   >;
-  // the jungle set here; tomb and norse in prop-hd-ancient.ts; camp, base, Olympus, demon citadel and hive in
+  // the jungle set here; tomb and norse in prop-hd-ancient.ts; camp, base, the marble peak, demon citadel and hive in
   // prop-hd-war.ts (three variants each)
   const f = jungle[kind] ?? ANCIENT_PROPS[kind] ?? WAR_PROPS[kind];
   if (!f) return null;

@@ -8,6 +8,7 @@ import {
   NEUTRAL_INPUT,
   newMover,
   SAGA,
+  SAGA_COURSES,
   stepPlayerMovement,
   type BoardEntry,
   type PlayerSnapshot,
@@ -798,7 +799,7 @@ describe('villain tease and bonus shards', () => {
       expect(t?.taunt, st.id).toBe(TAUNTS[st.id]);
       expect(t?.astraName).toBe(st.astraName);
     }
-    expect(teaserFor('astra-1')?.villains).toContain('AGNI-DAITYA');
+    expect(teaserFor('astra-1')?.villains).toContain('JWALA VRIKSH-ASUR');
   });
 
   it('grants bonus shards, ignoring junk amounts', () => {
@@ -1048,5 +1049,87 @@ describe('the daily trial record', () => {
     expect(text.lines).toHaveLength(3);
     expect(text.place).toMatch(/ — /);
     expect(text.lines[0]).toMatch(/^Astras of the day: \w+ and \w+$/);
+  });
+});
+
+describe('the saga stages’ rendered backdrops (art3d/backdrop.py → assets/backdrops)', () => {
+  const dir = join(__dirname, '../src/assets/backdrops');
+  const meta = JSON.parse(readFileSync(join(dir, 'backdrops.json'), 'utf8')) as Record<
+    string,
+    { top: number }
+  >;
+  it('every art style a saga stage uses has all three layers, each a real image with its crop recorded', () => {
+    const arts = new Set<string>();
+    for (const c of Object.values(SAGA_COURSES)) for (const s of c.sections) if (s.art) arts.add(s.art);
+    expect(arts.size).toBeGreaterThanOrEqual(10);
+    for (const art of arts)
+      for (const layer of ['far', 'far2', 'mid']) {
+        const key = `${art}-${layer}`;
+        expect(meta[key], key).toBeDefined();
+        expect(meta[key]?.top ?? -1).toBeGreaterThanOrEqual(0);
+        expect(meta[key]?.top ?? 999).toBeLessThan(576);
+        const f = join(dir, `${key}.webp`);
+        expect(existsSync(f), f).toBe(true);
+        expect(statSync(f).size).toBeGreaterThan(2000);
+      }
+  });
+  it('stays light: all the backdrops together under 6 MB (they load per stage, never at start)', () => {
+    const total = readdirSync(dir)
+      .filter((f) => f.endsWith('.webp'))
+      .reduce((n, f) => n + statSync(join(dir, f)).size, 0);
+    expect(total).toBeLessThan(6 * 1024 * 1024);
+  });
+});
+
+describe('the saga bosses’ rendered parts (art3d/boss_rig.py → assets/bosses3d)', () => {
+  const dir = join(__dirname, '../src/assets/bosses3d');
+  it('each boss atlas has its body, its arms know their length, and every part lies inside the atlas', () => {
+    const files = readdirSync(dir).filter((f) => f.endsWith('.json'));
+    expect(files.length).toBeGreaterThanOrEqual(10);
+    for (const f of files) {
+      const m = JSON.parse(readFileSync(join(dir, f), 'utf8')) as {
+        ss: number;
+        parts: Record<
+          string,
+          { x: number; y: number; w: number; h: number; ax: number; ay: number; len?: number }
+        >;
+      };
+      expect(m.ss, f).toBe(2);
+      // the figure itself (Darpan-asur is a mirror: its frame), and a face for the story radio
+      expect(m.parts.body ?? m.parts.frame, f).toBeDefined();
+      expect(m.parts.face, f).toBeDefined();
+      for (const [name, p] of Object.entries(m.parts)) {
+        if (name === 'arm' || name === 'mace') expect(p.len ?? 0, `${f} ${name}`).toBeGreaterThan(10);
+        expect(p.w * p.h, `${f} ${name}`).toBeGreaterThan(0);
+      }
+      expect(existsSync(join(dir, f.replace('.json', '.webp')))).toBe(true);
+    }
+  });
+});
+
+describe('the saga story (story.ts)', () => {
+  it('every stage has its chapter, and every radio line fits the comms panel', async () => {
+    const { CHAPTERS } = await import('../src/story');
+    for (const st of SAGA) {
+      const ch = CHAPTERS[st.id];
+      expect(ch, st.id).toBeDefined();
+      expect(ch.open.length).toBeGreaterThanOrEqual(2);
+      expect(ch.boss.length).toBeGreaterThanOrEqual(1);
+      expect(ch.down.length).toBeGreaterThanOrEqual(1);
+      for (const l of [...ch.open, ...ch.boss, ch.rage, ...ch.down])
+        expect(l.text.length, l.text).toBeLessThanOrEqual(100);
+      expect(ch.page.length).toBeGreaterThan(80);
+    }
+  });
+});
+
+describe('the saga stages’ rendered ground (art3d/terrain.py → assets/terrain)', () => {
+  it('every art style a saga stage uses has its rock and its surface', () => {
+    const dir = join(__dirname, '../src/assets/terrain');
+    const arts = new Set<string>();
+    for (const c of Object.values(SAGA_COURSES)) for (const s of c.sections) arts.add(s.art);
+    for (const art of arts)
+      for (const part of ['fill', 'top'])
+        expect(existsSync(join(dir, `${art}-${part}.webp`)), `${art}-${part}`).toBe(true);
   });
 });

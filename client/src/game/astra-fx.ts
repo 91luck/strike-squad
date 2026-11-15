@@ -1,10 +1,10 @@
 import { GAME_CONFIG, type BossRule } from '@strikesquad/shared';
 
 /**
- * Astra Saga drawing: the new astras in flight (serpents, the sudarshana discus, vaishnava orbs, narayanastra
- * arrows, a spirit's sparks, pashupata's fire rain), the pashupata spirit itself, and the bosses' astra calls
+ * Astra Saga drawing: the new astras in flight (serpents, the chakram discus, tej orbs, samarpanastra
+ * arrows, a spirit's sparks, vidyut's fire rain), the vidyut spirit itself, and the bosses' astra calls
  * (the wind-up every player learns to read: the hiss of serpents, the gathering orb, the halo of a thousand
- * arrows, the four-headed light of the brahmashirsha).
+ * arrows, the four-headed light of the pralay).
  *
  * Stateless drawing in world space, procedural shapes only (nothing to download), like power-fx.ts.
  */
@@ -81,7 +81,7 @@ export function drawSerpent(
   ctx.restore();
 }
 
-/** The sudarshana chakra: a spinning golden discus with teeth and a fiery rim. */
+/** The chakram chakra: a spinning golden discus with teeth and a fiery rim. */
 export function drawChakra(ctx: Ctx, x: number, y: number, nowMs: number, homeward: boolean): void {
   ctx.save();
   ctx.translate(x, y);
@@ -123,7 +123,7 @@ export function drawChakra(ctx: Ctx, x: number, y: number, nowMs: number, homewa
   ctx.restore();
 }
 
-/** A vaishnava orb. A boss's orb is a heavy golden sun ringed with warning red; one turned back burns blue-white. */
+/** A tej orb. A boss's orb is a heavy golden sun ringed with warning red; one turned back burns blue-white. */
 export function drawOrb(ctx: Ctx, x: number, y: number, enemy: boolean, nowMs: number): void {
   const pulse = 0.5 + 0.5 * Math.sin(nowMs / 90);
   ctx.save();
@@ -148,7 +148,7 @@ export function drawOrb(ctx: Ctx, x: number, y: number, enemy: boolean, nowMs: n
   ctx.restore();
 }
 
-/** A narayanastra arrow: a falling bolt of gold with a bright head. */
+/** A samarpanastra arrow: a falling bolt of gold with a bright head. */
 export function drawArrow(ctx: Ctx, x: number, y: number, vx: number, vy: number): void {
   const a = Math.atan2(vy, vx);
   ctx.save();
@@ -174,7 +174,7 @@ export function drawArrow(ctx: Ctx, x: number, y: number, vx: number, vy: number
   ctx.restore();
 }
 
-/** A spirit's spark (pashupata): a small blue-white bolt. */
+/** A spirit's spark (vidyut): a small blue-white bolt. */
 export function drawSpark(ctx: Ctx, x: number, y: number, vx: number, vy: number): void {
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';
@@ -189,7 +189,7 @@ export function drawSpark(ctx: Ctx, x: number, y: number, vx: number, vy: number
   ctx.restore();
 }
 
-/** Pashupata's fire rain: a falling ball of fire with a long tail. */
+/** Vidyut's fire rain: a falling ball of fire with a long tail. */
 export function drawMeteor(ctx: Ctx, x: number, y: number, vx: number, vy: number, nowMs: number): void {
   const a = Math.atan2(vy, vx);
   ctx.save();
@@ -208,7 +208,7 @@ export function drawMeteor(ctx: Ctx, x: number, y: number, vx: number, vy: numbe
   ctx.restore();
 }
 
-/** The pashupata spirit: a translucent blue flame with a trident, hovering at its summoner's shoulder. */
+/** The vidyut spirit: a translucent blue flame with a trident, hovering at its summoner's shoulder. */
 export function drawSpirit(ctx: Ctx, x: number, y: number, left: number, nowMs: number): void {
   const fade = Math.min(1, left / 0.6);
   const bob = Math.sin(nowMs / 220) * 4;
@@ -253,14 +253,14 @@ export function drawSpirit(ctx: Ctx, x: number, y: number, left: number, nowMs: 
 /** Colour of each boss astra (cast rings, banners). */
 export const RULE_COLOR: Record<BossRule, string> = {
   naga: '#a78bfa',
-  narayana: '#fde047',
-  vaishnava: '#fbbf24',
-  brahmashirsha: '#f472b6',
+  samarpan: '#fde047',
+  tej: '#fbbf24',
+  pralay: '#f472b6',
 };
 
 /**
  * A boss calling an astra (from its cast point x, y). `t` is seconds since the call, `wind` its wind-up in
- * seconds, `storm` whether a narayanastra storm is raging. The wind-up always reads the same way: rings that
+ * seconds, `storm` whether a samarpanastra storm is raging. The wind-up always reads the same way: rings that
  * close in on the cast point, getting brighter as release nears.
  */
 export function drawBossCast(
@@ -278,11 +278,11 @@ export function drawBossCast(
   const wind =
     kind === 'naga'
       ? BA.naga.windupSec
-      : kind === 'vaishnava'
-        ? BA.vaishnava.windupSec
-        : kind === 'narayana'
-          ? BA.narayana.windupSec
-          : BA.brahmashirsha.windupSec;
+      : kind === 'tej'
+        ? BA.tej.windupSec
+        : kind === 'samarpan'
+          ? BA.samarpan.windupSec
+          : BA.pralay.windupSec;
   const k = Math.min(1, t / wind);
   const col = RULE_COLOR[kind];
   ctx.save();
@@ -316,11 +316,11 @@ export function drawBossCast(
         nowMs + i * 90,
       );
     }
-  } else if (kind === 'vaishnava') {
+  } else if (kind === 'tej') {
     ctx.globalAlpha = 0.4 + k * 0.6;
     drawOrb(ctx, x, y, true, nowMs);
     ctx.globalAlpha = 1;
-  } else if (kind === 'narayana') {
+  } else if (kind === 'samarpan') {
     // A halo of a thousand arrows in the sky over the arena; while the storm rages, the whole sky glows.
     const cx = camX + viewW / 2;
     const cy = 150;
@@ -341,7 +341,7 @@ export function drawBossCast(
     glow(ctx, cx, cy, 70, 'rgba(253,224,71,0.5)');
     ctx.globalAlpha = 1;
   } else {
-    // Brahmashirsha: four heads of light gathering over the caster, and a column that thickens as it charges.
+    // Pralay: four heads of light gathering over the caster, and a column that thickens as it charges.
     for (let i = 0; i < 4; i++) {
       const a = -Math.PI / 2 + (i - 1.5) * 0.45;
       const hx = x + Math.cos(a) * (34 + k * 26);
@@ -379,7 +379,7 @@ export function drawDazed(ctx: Ctx, x: number, y: number, nowMs: number): void {
   ctx.restore();
 }
 
-/** Untouchable boss (narayanastra storm): a golden shell around it. */
+/** Untouchable boss (samarpanastra storm): a golden shell around it. */
 export function drawImmune(ctx: Ctx, x: number, y: number, w: number, h: number, nowMs: number): void {
   ctx.save();
   ctx.globalCompositeOperation = 'lighter';

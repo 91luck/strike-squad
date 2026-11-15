@@ -7,15 +7,15 @@ import type { PowerKind } from '@strikesquad/shared';
  * gathers light into them, then releases the astra's own apparition across the sky:
  *
  *   agni         a phoenix of fire sweeping forward, the sky glowing orange, heat rising
- *   varuna       a great wave curling over the field, light shafts through falling water
+ *   jal       a great wave curling over the field, light shafts through falling water
  *   vayu         a tornado spiral with streaming wind lines
  *   singularity  a black hole: a dark core, a lensing ring and an accretion swirl pulling stars in
  *   naga         a giant cobra rising behind the hero, hood spread
- *   garuda       the golden eagle, wings spread, diving across the sky
- *   sudarshana   a vast golden chakra halo with radiant spokes behind the hero
- *   pashupata    the third eye opening in the clouds, a trident of lightning below it
- *   vaishnava    a lotus of light blooming at the hero's feet
- *   brahma       (team) a sun disc gathering over the field before the strike
+ *   shyen       the golden eagle, wings spread, diving across the sky
+ *   chakram   a vast golden chakra halo with radiant spokes behind the hero
+ *   vidyut    a storm eye opening in the clouds, a fork of lightning below it
+ *   tej    a lotus of light blooming at the hero's feet
+ *   param       (team) a sun disc gathering over the field before the strike
  *
  * Everything is drawn in world coordinates with additive light, fades by itself in about 1.6 s, and costs little
  * (paths and gradients, no images). Reduced motion: the sigil and apparition still appear, without the shake.
@@ -24,7 +24,7 @@ import type { PowerKind } from '@strikesquad/shared';
 type Ctx = CanvasRenderingContext2D;
 const TAU = Math.PI * 2;
 
-export type CineKind = PowerKind | 'brahma';
+export type CineKind = PowerKind | 'param';
 
 interface Cine {
   kind: CineKind;
@@ -39,28 +39,30 @@ interface Cine {
 /** Each astra's light: core, glow, and the tint the sky takes. */
 export const CINE_COLOR: Record<CineKind, { core: string; glow: string; sky: string }> = {
   agni: { core: '#fff3c4', glow: '#ff7a1a', sky: 'rgba(255,110,30,' },
-  varuna: { core: '#e0f7ff', glow: '#38bdf8', sky: 'rgba(30,120,220,' },
+  jal: { core: '#e0f7ff', glow: '#38bdf8', sky: 'rgba(30,120,220,' },
   vayu: { core: '#ffffff', glow: '#cbd5e1', sky: 'rgba(200,215,235,' },
   singularity: { core: '#f5e8ff', glow: '#8b5cf6', sky: 'rgba(40,10,80,' },
   naga: { core: '#ecfccb', glow: '#4ade80', sky: 'rgba(20,110,50,' },
-  garuda: { core: '#fff7d6', glow: '#f59e0b', sky: 'rgba(240,150,40,' },
-  sudarshana: { core: '#fffbe6', glow: '#facc15', sky: 'rgba(250,200,40,' },
-  pashupata: { core: '#e0fbff', glow: '#22d3ee', sky: 'rgba(20,80,110,' },
-  vaishnava: { core: '#fffbeb', glow: '#fbbf24', sky: 'rgba(250,190,60,' },
-  brahma: { core: '#ffffff', glow: '#fde047', sky: 'rgba(255,230,140,' },
+  shyen: { core: '#fff7d6', glow: '#f59e0b', sky: 'rgba(240,150,40,' },
+  chakram: { core: '#fffbe6', glow: '#facc15', sky: 'rgba(250,200,40,' },
+  vidyut: { core: '#e0fbff', glow: '#22d3ee', sky: 'rgba(20,80,110,' },
+  tej: { core: '#fffbeb', glow: '#fbbf24', sky: 'rgba(250,190,60,' },
+  maya: { core: '#fdf4ff', glow: '#c084fc', sky: 'rgba(150,80,220,' },
+  param: { core: '#ffffff', glow: '#fde047', sky: 'rgba(255,230,140,' },
 };
 
 const DUR: Record<CineKind, number> = {
   agni: 1.6,
-  varuna: 1.8,
+  jal: 1.8,
   vayu: 1.4,
   singularity: 1.8,
   naga: 1.7,
-  garuda: 1.6,
-  sudarshana: 1.8,
-  pashupata: 1.9,
-  vaishnava: 1.7,
-  brahma: 1.4,
+  shyen: 1.6,
+  chakram: 1.8,
+  vidyut: 1.9,
+  tej: 1.7,
+  maya: 1.6,
+  param: 1.4,
 };
 
 const ease = (t: number): number => 1 - (1 - t) ** 3;
@@ -103,19 +105,19 @@ export class AstraCinema {
         case 'naga':
           cobra(ctx, c, t, env, nowMs);
           break;
-        case 'sudarshana':
+        case 'chakram':
           chakraHalo(ctx, c, t, env, nowMs);
           break;
-        case 'pashupata':
+        case 'vidyut':
           thirdEye(ctx, c, t, env, nowMs, camX, camY, viewW);
           break;
         case 'singularity':
           blackHole(ctx, c, t, env, nowMs);
           break;
-        case 'brahma':
+        case 'param':
           sunDisc(ctx, c, t, env, nowMs, camY);
           break;
-        case 'varuna':
+        case 'jal':
           wave(ctx, c, t, env, nowMs);
           break;
       }
@@ -135,10 +137,10 @@ export class AstraCinema {
         case 'agni':
           phoenix(ctx, c, t, env, nowMs);
           break;
-        case 'garuda':
+        case 'shyen':
           eagle(ctx, c, t, env, nowMs);
           break;
-        case 'vaishnava':
+        case 'tej':
           lotus(ctx, c, t, env, nowMs);
           break;
       }
@@ -498,7 +500,7 @@ function chakraHalo(ctx: Ctx, c: Cine, t: number, env: number, nowMs: number): v
   ctx.restore();
 }
 
-/** The third eye opening in the sky, a trident of lightning striking below it. */
+/** A storm eye opening in the sky, a fork of lightning striking below it. */
 function thirdEye(
   ctx: Ctx,
   c: Cine,
@@ -594,7 +596,7 @@ function blackHole(ctx: Ctx, c: Cine, t: number, env: number, nowMs: number): vo
   ctx.restore();
 }
 
-/** Brahmastra gathering: a white-gold sun disc over the caster. */
+/** Paramastra gathering: a white-gold sun disc over the caster. */
 function sunDisc(ctx: Ctx, c: Cine, t: number, env: number, nowMs: number, camY: number): void {
   const y = camY + 100;
   const R = 60 + 40 * Math.sin(nowMs / 200);
@@ -617,7 +619,7 @@ function sunDisc(ctx: Ctx, c: Cine, t: number, env: number, nowMs: number, camY:
   void t;
 }
 
-/** Varuna's great wave: a curling crest moving across the field, light shafts through the spray. */
+/** Jal's great wave: a curling crest moving across the field, light shafts through the spray. */
 function wave(ctx: Ctx, c: Cine, t: number, env: number, nowMs: number): void {
   const k = ease(Math.min(1, t * 1.3));
   const front = c.x - c.f * 200 + c.f * 900 * k;

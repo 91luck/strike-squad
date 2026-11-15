@@ -26,7 +26,7 @@ const EXTRA_FIRE = new Set(['KeyJ', 'KeyX']);
 export const DASH_KEYS = new Set(['ShiftLeft', 'ShiftRight', 'KeyL', 'KeyC']);
 export const MELEE_KEYS = new Set(['KeyF', 'KeyV', 'KeyI']);
 export const ULT_KEYS = new Set(['KeyQ', 'KeyE', 'KeyO']);
-/** Fire the held power (astra), or the team brahmastra. */
+/** Fire the held power (astra), or the team paramastra. */
 export const ASTRA_KEYS = new Set(['KeyR', 'KeyG', 'KeyU']);
 /** Toggle auto-fire during a mission. */
 export const AUTOFIRE_KEY = 'KeyT';
@@ -71,7 +71,7 @@ export class InputController {
    * (or T) flips it.
    */
   autoFireOverride: boolean | null = null;
-  /** A narayanastra storm is on: auto-fire holds off (laying down your weapons is the way through it). */
+  /** A samarpanastra storm is on: auto-fire holds off (laying down your weapons is the way through it). */
   holdAutoFire = false;
   /** Called when the AUTO toggle flips (to refresh the button). */
   onAutoFireChange: (on: boolean) => void = () => undefined;

@@ -6,14 +6,14 @@ All numbers live in `shared/src/config.ts` and are the single source of truth fo
 
 Six missions, each harder than the last, each in its own world. Pick one in **Play with friends** (the host can change it in the lobby), in **Solo training**, or press **Next mission** after a win. A ✓ in the menu marks missions you have completed on this device.
 
-| #   | Mission              | Place           | Length    | Arenas (ambush · boss)                                                                                                     | Toughness (troop health · fire rate · damage · boss health · boss pace) |
-| --- | -------------------- | --------------- | --------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| 1   | Operation Lifeline   | Jungle          | 276 tiles | AMBUSH · WARHOUND · VULTURE · IRON FORTRESS                                                                                | base rules                                                              |
-| 2   | Curse of the Pharaoh | Desert tombs    | 378 tiles | THE CURSE WAKES (4 waves) · **TWIN SCORPIONS** (two walkers) · SEALED CHAMBER (4) · SUN FALCON + escorts · ANUBIS COLOSSUS | ×1.15 · ×1.1 · ×1.1 · ×1.1 · ×1.1                                       |
-| 3   | Thunder of the North | Frozen north    | 408 tiles | DRAUGR WAKE (4) · THOR, THUNDER GOD + escorts · SHIELD WALL (4) · FENRIR + escorts · FROST GIANT                           | ×1.25 · ×1.15 · ×1.15 · ×1.15 · ×1.12                                   |
-| 4   | Storm over Olympus   | Mount Olympus   | 396 tiles | STORM GATE (5) · **MINOTAUR AND HARPY** (walker + gunship) · LAST STAND (5) · MINOTAUR KING · ZEUS, STORM KING             | ×1.35 · ×1.2 · ×1.2 · ×1.2 · ×1.15                                      |
-| 5   | Operation Astra      | Burning citadel | 372 tiles | DEMON HORDE (4) · INFERNO BEAST + escorts · FIRE DRAGON + escorts · BLOOD MOON (5) · DEMON KING                            | ×1.25 · ×1.15 · ×1.15 · ×1.15 · ×1.12 · **advanced**                    |
-| 6   | Alien Invasion       | Deep space      | 394 tiles | ALIEN SWARM (4) · XENO CRAWLER (low gravity) · UFO MOTHERSHIP + escorts · EVENT HORIZON (5) · HIVE QUEEN (low gravity)     | ×1.35 · ×1.2 · ×1.2 · ×1.2 · ×1.15 · **advanced**                       |
+| #   | Mission                    | Place           | Length    | Arenas (ambush · boss)                                                                                                     | Toughness (troop health · fire rate · damage · boss health · boss pace) |
+| --- | -------------------------- | --------------- | --------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| 1   | Operation Lifeline         | Jungle          | 276 tiles | AMBUSH · WARHOUND · VULTURE · IRON FORTRESS                                                                                | base rules                                                              |
+| 2   | Curse of the Pharaoh       | Desert tombs    | 378 tiles | THE CURSE WAKES (4 waves) · **TWIN SCORPIONS** (two walkers) · SEALED CHAMBER (4) · SUN FALCON + escorts · JACKAL COLOSSUS | ×1.15 · ×1.1 · ×1.1 · ×1.1 · ×1.1                                       |
+| 3   | Thunder of the North       | Frozen north    | 408 tiles | DRAUGR WAKE (4) · THUNDER WARDEN + escorts · SHIELD WALL (4) · DIRE WOLF + escorts · FROST GIANT                           | ×1.25 · ×1.15 · ×1.15 · ×1.15 · ×1.12                                   |
+| 4   | Storm over the Marble Peak | The marble peak | 396 tiles | STORM GATE (5) · **BULL TITAN AND HARPY** (walker + gunship) · LAST STAND (5) · BULL TITAN KING · SKY TYRANT, STORM KING   | ×1.35 · ×1.2 · ×1.2 · ×1.2 · ×1.15                                      |
+| 5   | Operation Astra            | Burning citadel | 372 tiles | DEMON HORDE (4) · INFERNO BEAST + escorts · FIRE DRAGON + escorts · BLOOD MOON (5) · DEMON KING                            | ×1.25 · ×1.15 · ×1.15 · ×1.15 · ×1.12 · **advanced**                    |
+| 6   | Alien Invasion             | Deep space      | 394 tiles | ALIEN SWARM (4) · XENO CRAWLER (low gravity) · UFO MOTHERSHIP + escorts · EVENT HORIZON (5) · HIVE QUEEN (low gravity)     | ×1.35 · ×1.2 · ×1.2 · ×1.2 · ×1.15 · **advanced**                       |
 
 - **Escorts:** in a boss arena with escorts, the first wave arrives with the boss and each next wave 3 s after the previous one is down, while a boss stands.
 - **Twin bosses** share one health bar (each has 60–62% of a lone boss's health).
@@ -29,13 +29,13 @@ Auto-fire starts **off** in advanced missions. Tap **AUTO FIRE** (top right) or 
 | Power      | Charges | What it does                                                                                                                                                                                                 |
 | ---------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Agni       | 3       | A rolling wave of fire (8 damage, passes through), then the ground ahead burns for 4 s (16 dps). Troopers it touches are set alight: 7 dps for 3 s, passed on to those they brush (twice at most)            |
-| Varuna     | 2       | Rain over the next 15 tiles: puts out **walls of fire**, 6 damage to everyone caught in it                                                                                                                   |
+| Jal        | 2       | Rain over the next 15 tiles: puts out **walls of fire**, 6 damage to everyone caught in it                                                                                                                   |
 | Vayu       | 3       | A whirlwind that walks ahead for 3.2 s: lifts up to 8 troopers (riot shields torn off), sweeps up enemy shots, 5 dps, then hurls them (12 damage). Over burning ground it catches light and sets them alight |
 | Black hole | 2       | A singularity 7 tiles ahead for 3.2 s: pulls troopers in (contained radius 240 px), swallows enemy shots, 22 dps at the core, then collapses with a burst                                                    |
 
-**Walls of fire** (mission 5) block the way until Varuna's rain puts them out. A rain **altar** stands before each wall and comes back 8 s after it is taken, so the squad can never be locked out.
+**Walls of fire** (mission 5) block the way until Jal's rain puts them out. A rain **altar** stands before each wall and comes back 8 s after it is taken, so the squad can never be locked out.
 
-**Brahmastra** (mission 5): a shared squad meter that fills from everybody's kills (+3) and damage. When it is full, a soldier with no power held presses ASTRA: the sky darkens, a pillar of light comes down 1.1 s later and hits every enemy within 1,150 px (90 damage; bosses lose 12% of their health). The whole squad is protected through the strike.
+**Paramastra** (mission 5): a shared squad meter that fills from everybody's kills (+3) and damage. When it is full, a soldier with no power held presses ASTRA: the sky darkens, a pillar of light comes down 1.1 s later and hits every enemy within 1,150 px (90 damage; bosses lose 12% of their health). The whole squad is protected through the strike.
 
 **Space physics** (mission 6), the same on the server and in your phone's prediction:
 
@@ -48,8 +48,8 @@ Auto-fire starts **off** in advanced missions. Tap **AUTO FIRE** (top right) or 
 
 ## Astra Saga
 
-Ten stages built around one astra each, plus bosses that call astras of their own (serpents, the Narayanastra storm,
-the vaishnava orb, the brahmashirsha). Every astra, every boss astra and its counter, the stages and the progress
+Ten stages built around one astra each, plus bosses that call astras of their own (serpents, the Samarpanastra storm,
+the tej orb, the pralay). Every astra, every boss astra and its counter, the stages and the progress
 rules are in [ASTRA_SAGA.md](ASTRA_SAGA.md).
 
 ## Worlds
@@ -59,9 +59,9 @@ Every mission after the first has its own enemies, bosses, ground, props, gates,
 | #   | Faction | Troops                                                           | Beast          | Flyer          | Final boss      | World                                     |
 | --- | ------- | ---------------------------------------------------------------- | -------------- | -------------- | --------------- | ----------------------------------------- |
 | 1   | army    | soldiers, riot shields, jetpacks, drones, turrets                | WARHOUND       | VULTURE        | IRON FORTRESS   | jungle, river, watchtowers, iron fortress |
-| 2   | pharaoh | mummies, jackal guards, winged mummies, scarabs, cobra idols     | Giant Scorpion | Sun Falcon     | Anubis Colossus | desert, pyramids, sandstone tombs         |
-| 3   | norse   | draugr with round shields, ravens, rune totems                   | Fenrir         | Thor           | Frost Giant     | snow, pines, aurora, ice halls            |
-| 4   | olympus | skeleton hoplites, harpies, bronze owls, stone lions             | Minotaur       | Storm Harpy    | Zeus            | marble ruins in a lightning storm, temple |
+| 2   | pharaoh | mummies, jackal guards, winged mummies, scarabs, cobra idols     | Giant Scorpion | Sun Falcon     | Jackal Colossus | desert, pyramids, sandstone tombs         |
+| 3   | norse   | draugr with round shields, ravens, rune totems                   | Dire wolf      | Thunder Warden | Frost Giant     | snow, pines, aurora, ice halls            |
+| 4   | marble  | skeleton hoplites, harpies, bronze owls, stone lions             | Bull titan     | Storm Harpy    | the Sky Tyrant  | marble ruins in a lightning storm, temple |
 | 5   | demon   | demons, bat-winged imps, fire wisps, skull totems                | Inferno Beast  | Fire Dragon    | Demon King      | burning citadel, obsidian, bone gates     |
 | 6   | void    | aliens with ray guns and hover discs, probe saucers, plasma pods | Xeno Crawler   | UFO Mothership | Hive Queen      | deep space, the inside of a hive ship     |
 

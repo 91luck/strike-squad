@@ -221,7 +221,7 @@ export const ASURA_LOOKS: Record<string, AsuraLook> = {
     throne: 'chariot',
   },
   // 8 Chakra Durg
-  chakravyuh: {
+  bhanwarvyuh: {
     skin: '#9a3412',
     shade: '#431407',
     cloth: '#1f2937',
@@ -336,7 +336,7 @@ export const BOSS_TITLES: Record<string, string> = {
   'kaal-pret': 'The three-skulled lord of the dead',
   'ran-bhairav': 'The tusked war giant of the battlefield',
   'ran-guru': 'The archer king on his golden chariot',
-  chakravyuh: 'The blade-wheel warriors of the fort',
+  bhanwarvyuh: 'The blade-wheel warriors of the fort',
   'chakra-vimana': 'The sky chariot of spinning wheels',
   'vyuh-senani': 'Six-armed keeper of the chakra fort',
   'dwand-yodha': 'The champion who has never lost a duel',

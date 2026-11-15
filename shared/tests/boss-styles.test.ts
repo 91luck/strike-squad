@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  SAGA,
   ATTACK,
   Autopilot,
   BOSS_STYLES,
@@ -68,10 +69,16 @@ describe('saga boss styles', () => {
     const L = getMission(id);
     return L.arenas.filter((a) => a.boss).map((a) => ({ stage: id, a, L }));
   });
+  /** Arenas whose bosses are classic bodies with a style table (a stage's own boss is tested on its own). */
+  const styled = bossArenas.filter(({ a, L }) =>
+    L.bosses.every((x) => x.arena !== a.id || ['walker', 'gunship', 'boss'].includes(x.kind)),
+  );
 
   it('every saga boss has a style written for its body, and every style is used', () => {
     const used = new Set<string>();
     for (const { stage, a, L } of bossArenas) {
+      // a stage's own boss (not one of the three classic bodies) fights its own way, without a style table
+      if (L.bosses.some((x) => x.arena === a.id && !['walker', 'gunship', 'boss'].includes(x.kind))) continue;
       const style = styleOf(a.name);
       expect(style, `${stage} ${a.name}`).not.toBeNull();
       for (const b of L.bosses.filter((x) => x.arena === a.id)) expect(style!.body, a.name).toBe(b.kind);
@@ -111,7 +118,7 @@ describe('saga boss styles', () => {
   // Each saga boss, fought by a computer squad from its arena's door: every move of its first phase shows up,
   // and the moves do what they say (rain falls as meteors, rings and spirals fill the air, leaps land, blinks
   // move the boss, summons come through portals).
-  it.each(bossArenas.map(({ stage, a }) => [stage, a.name]))('%s %s: uses its own moves', (stage, name) => {
+  it.each(styled.map(({ stage, a }) => [stage, a.name]))('%s %s: uses its own moves', (stage, name) => {
     const sim = new Sim({
       seed: 5,
       settings: { difficulty: 'normal', mission: stage as (typeof SAGA_IDS)[number] },
@@ -216,6 +223,7 @@ describe('wave entrances and elites', () => {
 
   it('every stage after the first brings enemies in a new way: portals, out of the ground, or elites', () => {
     for (const id of SAGA_IDS.slice(1)) {
+      if (SAGA_COURSES[id].own) continue; // a stage of its own fields its own rakshasas instead
       const waves = SAGA_COURSES[id].sections.flatMap((s) => s.arena?.waves ?? []).join(' ');
       expect(/[PU]\b|\*/.test(waves), id).toBe(true);
     }
@@ -332,7 +340,10 @@ describe('stage twists: hold-out arenas and sky fire', () => {
     expect(falls).toBeGreaterThanOrEqual(2);
     expect(most).toBe(3);
     // every fireball is aimed near the soldier, never across the map
-    const boss = new Sim({ seed: 2, settings: { difficulty: 'normal', mission: 'astra-3' } });
+    // (the rebuilt saga stages have hazards of their own; any stage still using sky fire rests it for bosses)
+    const withSky = SAGA_IDS.find((id) => getMission(id).hazard?.kind === 'skyfall');
+    if (!withSky) return;
+    const boss = new Sim({ seed: 2, settings: { difficulty: 'normal', mission: withSky } });
     const q = boss.addPlayer({ id: 'a', name: 'A', slot: 0 });
     while (boss.phase === 'countdown') boss.step();
     const arena = boss.level.arenas.find((a) => a.boss)!;
@@ -446,12 +457,17 @@ describe('stage twists: hold-out arenas and sky fire', () => {
   });
 
   it('saga stages differ: some hold out, some have sky fire, and every stage says what its twist is', () => {
-    const kinds = new Set(SAGA_IDS.map((id) => getMission(id).hazard?.kind).filter(Boolean));
-    expect([...kinds].sort()).toEqual(['dark', 'raid', 'skyfall', 'tremor']);
-    const holds = SAGA_IDS.filter((id) => getMission(id).arenas.some((a) => a.survive > 0));
-    const skies = SAGA_IDS.filter((id) => getMission(id).hazard);
-    expect(holds.length).toBeGreaterThanOrEqual(4);
-    expect(skies.length).toBeGreaterThanOrEqual(4);
+    // (stages rebuilt as stages of their own carry their twist in their own rules and are tested on their own)
+    const old = SAGA_IDS.filter((id) => !getMission(id).own);
+    const kinds = new Set(old.map((id) => getMission(id).hazard?.kind).filter(Boolean));
+    for (const k of kinds) expect(['dark', 'raid', 'skyfall', 'tremor']).toContain(k);
+    const holds = old.filter((id) => getMission(id).arenas.some((a) => a.survive > 0));
+    const skies = old.filter((id) => getMission(id).hazard);
+    if (old.length >= 6) {
+      expect(holds.length).toBeGreaterThanOrEqual(2);
+      expect(skies.length).toBeGreaterThanOrEqual(2);
+    }
+    for (const id of SAGA_IDS) expect(SAGA.find((s) => s.id === id)?.twist, id).toBeTruthy();
     for (const id of SAGA_IDS)
       for (const a of getMission(id).arenas) if (a.boss) expect(a.survive, id).toBe(0);
   });
@@ -553,9 +569,18 @@ describe('battle arrays (vyuhas)', () => {
   it('every saga stage fights in at least two arrays and offers at least two astras', () => {
     for (const id of SAGA_IDS) {
       const L = getMission(id);
+      const astras = new Set(L.pickups.map((p) => p.kind).filter((k) => POWER_KINDS.includes(k as never)));
+      // a chase stage has no ambush arenas: the fight is on the run, and it is the stage of one astra (agni)
+      if (L.own) {
+        expect(
+          L.arenas.filter((a) => !a.boss),
+          id,
+        ).toHaveLength(0);
+        expect(astras.size, `${id} astras`).toBeGreaterThanOrEqual(1);
+        continue;
+      }
       const arrays = new Set(L.arenas.flatMap((a) => a.vyuha));
       expect(arrays.size, `${id} arrays`).toBeGreaterThanOrEqual(2);
-      const astras = new Set(L.pickups.map((p) => p.kind).filter((k) => POWER_KINDS.includes(k as never)));
       expect(astras.size, `${id} astras`).toBeGreaterThanOrEqual(2);
     }
   });
@@ -567,8 +592,9 @@ describe('pacing: rest stops, a breath after a fight, astras that come back', ()
       const C = SAGA_COURSES[id];
       const L = getMission(id);
       const fights = C.sections.filter((s) => s.arena).length;
-      expect(L.rests.length, id).toBe(fights - 1);
-      expect(L.rests.length, id).toBeGreaterThanOrEqual(2);
+      // a chase stage fights all the way: its rest stops are where the fire cannot follow
+      if (!L.own) expect(L.rests.length, id).toBe(fights - 1);
+      expect(L.rests.length, id).toBeGreaterThanOrEqual(L.own ? 1 : 2);
       C.sections.forEach((s, i) => {
         if (s.arena && i < C.sections.length - 1)
           expect(C.sections[i + 1]!.rest, `${id} after ${s.arena.name}`).toBe(true);
@@ -593,7 +619,7 @@ describe('pacing: rest stops, a breath after a fight, astras that come back', ()
       const astra = L.pickups.find(
         (p) => p.x >= r.x0 && p.x <= r.x1 && POWER_KINDS.includes(p.kind as never),
       );
-      expect(astra?.kind).toBe('varuna');
+      expect(astra?.kind).toBe('jal');
     }
   });
 

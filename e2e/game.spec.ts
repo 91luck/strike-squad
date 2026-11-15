@@ -154,8 +154,7 @@ test('the first clear pays XP, opens a hero, names the next villain, and the dai
   const next = page.getByTestId('result-next');
   await expect(next).toBeVisible();
   await expect(next).toContainText('Stage 2 · Sagar Setu');
-  await expect(next).toContainText('MAKARA');
-  await expect(next).toContainText('SAMUDRA-RAKSHAS');
+  await expect(next).toContainText('CHHAYA');
 
   // The trophy is in the trophy case, and the new hero can be picked from the menu.
   await page.getByTestId('btn-results-stages').click();
@@ -835,7 +834,7 @@ test('Astra Saga: one click into stage 1; later stages stay locked until cleared
   await expect(page.getByTestId('saga-10')).toBeDisabled();
   await expect(page.getByTestId('saga-secret-1')).toHaveText('🗝 Secret: ?'); // every open stage hides one
   await page.getByTestId('btn-codex').click();
-  await expect(page.getByTestId('codex-list')).toContainText('Agneyastra');
+  await expect(page.getByTestId('codex-list')).toContainText('Agniastra');
   await expect(page.getByTestId('codex-list')).toContainText('Reach this stage');
   await page.keyboard.press('Escape');
   await page.locator('#screen-saga [data-nav="menu"]').click();

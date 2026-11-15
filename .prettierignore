@@ -7,3 +7,7 @@ test-results
 .wrangler
 dist-crazygames
 release
+art3d/out/
+client/src/assets/backdrops/
+client/src/assets/bosses3d/
+client/src/assets/terrain/

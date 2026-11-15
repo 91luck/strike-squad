@@ -19,16 +19,17 @@ export const DAILY_SHARDS = 2;
 
 type Store = Pick<Storage, 'getItem' | 'setItem'> | null;
 
-const ASTRA_NAME: Record<PowerKind, string> = {
-  agni: 'Agneyastra',
-  varuna: 'Varunastra',
-  vayu: 'Vayavyastra',
+export const ASTRA_NAME: Record<PowerKind, string> = {
+  agni: 'Agniastra',
+  jal: 'Jalastra',
+  vayu: 'Vayuastra',
   singularity: 'Sammohana',
-  naga: 'Nagastra',
-  garuda: 'Garudastra',
-  sudarshana: 'Sudarshana',
-  pashupata: 'Pashupatastra',
-  vaishnava: 'Vaishnavastra',
+  naga: 'Naagastra',
+  shyen: 'Shyenastra',
+  chakram: 'Chakram',
+  vidyut: 'Vidyutastra',
+  tej: 'Tejastra',
+  maya: 'Mayastra',
 };
 const HAZARD_NAME: Record<HazardDef['kind'], string> = {
   skyfall: 'Sky fire rains on the field',
@@ -42,7 +43,7 @@ const VYUHA_NAME: Record<Vyuha, string> = {
   makara: 'Makara vyuha (the crocodile)',
   suchi: 'Suchi vyuha (the needle)',
   vajra: 'Vajra vyuha (the thunderbolt)',
-  garuda: 'Garuda vyuha (the eagle)',
+  shyen: 'Shyen vyuha (the eagle)',
 };
 
 /** Today's hand in words, for the menu. */

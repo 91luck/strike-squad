@@ -413,9 +413,9 @@
               ❚❚
             </button>
           </div>
-          <div id="hud-brahma" class="brahma-bar" hidden data-testid="hud-brahma">
-            <div id="hud-brahma-fill" class="brahma-fill"></div>
-            <span id="hud-brahma-label">BRAHMASTRA</span>
+          <div id="hud-param" class="param-bar" hidden data-testid="hud-param">
+            <div id="hud-param-fill" class="param-fill"></div>
+            <span id="hud-param-label">PARAMASTRA</span>
           </div>
           <div
             id="hud-samarpan"
@@ -451,6 +451,17 @@
             <p id="boss-intro-tip" class="boss-tip"></p>
             <div class="warn-stripe"></div>
           </div>
+          <div id="goal" class="goal-chip" hidden data-testid="goal">
+            <b id="goal-title"></b>
+            <span id="goal-prog"></span>
+          </div>
+          <div id="comms" class="comms" hidden aria-live="polite" data-testid="comms">
+            <canvas id="comms-face" width="96" height="96" aria-hidden="true"></canvas>
+            <div class="comms-body">
+              <b id="comms-who"></b>
+              <p id="comms-text"></p>
+            </div>
+          </div>
           <div id="killfeed" class="killfeed" aria-live="polite"></div>
           <div id="banner" class="banner" aria-live="assertive"></div>
           <div id="down-panel" class="down-panel" hidden data-testid="down-panel">
@@ -478,7 +489,7 @@
               id="btn-touch-astra"
               class="touch-btn astra"
               type="button"
-              aria-label="Astra: fire your power, or the team brahmastra"
+              aria-label="Astra: fire your power, or the team paramastra"
               data-testid="touch-astra"
             >
               ASTRA
@@ -628,6 +639,12 @@
           <h2 id="h-results" class="result-title" data-testid="result-title">Mission over</h2>
           <div id="result-stars" class="stars" data-testid="result-stars"></div>
           <p id="result-sub" class="lead"></p>
+          <p id="result-goal" class="result-goal" hidden data-testid="result-goal"></p>
+          <section id="result-story" class="story-page" hidden data-testid="result-story">
+            <h3 id="story-title"></h3>
+            <p id="story-page"></p>
+            <p id="story-next" class="story-next"></p>
+          </section>
           <div id="result-reward" class="reward" data-testid="result-reward" hidden>
             <div class="reward-xp">
               <b id="reward-level" class="pc-level" data-testid="reward-level">LV 1</b>
@@ -816,7 +833,7 @@
               <th scope="row">Astra / power</th>
               <td>
                 <kbd>R</kbd> (also <kbd>G</kbd>/<kbd>U</kbd>) · missions 5–6: fire the astra you picked up;
-                with none, call down the squad BRAHMASTRA when its bar is full
+                with none, call down the squad PARAMASTRA when its bar is full
               </td>
             </tr>
             <tr>
@@ -869,9 +886,9 @@
           <p class="muted">
             Every mission has its own world and its own bosses, but they fight the same way: the beast charges
             and stomps like WARHOUND, the flyer bombs like VULTURE, the final boss fires low and high beams
-            like the IRON FORTRESS. Mission 2: Giant Scorpion, Sun Falcon, Anubis Colossus. Mission 3: Fenrir,
-            Thor, Frost Giant. Mission 4: Minotaur, Storm Harpy, Zeus. Mission 5: Inferno Beast, Fire Dragon,
-            Demon King. Mission 6: Xeno Crawler, UFO Mothership, Hive Queen.
+            like the IRON FORTRESS. Mission 2: Giant Scorpion, Sun Falcon, Jackal Colossus. Mission 3: Dire
+            wolf, Thunder Warden, Frost Giant. Mission 4: Bull titan, Storm Harpy, the Sky Tyrant. Mission 5:
+            Inferno Beast, Fire Dragon, Demon King. Mission 6: Xeno Crawler, UFO Mothership, Hive Queen.
           </p>
           <h3>Weapons</h3>
           <ul>
@@ -988,8 +1005,8 @@
         <div class="card scroll wide">
           <h2 id="h-codex">Astra codex</h2>
           <p class="lead">
-            The astras of the saga, the rule each one keeps, and how to use it. Inspired by the Indian epics;
-            every character and boss in the game is original.
+            The astras of the saga, the rule each one keeps, and how to use it. Inspired by Indian legends;
+            every character, place and astra name in the game is original.
           </p>
           <ul id="codex-list" class="codex" data-testid="codex-list"></ul>
           <button class="btn primary" type="button" data-close>Close</button>

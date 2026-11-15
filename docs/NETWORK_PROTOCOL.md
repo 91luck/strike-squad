@@ -1,6 +1,6 @@
 # Network protocol
 
-Current version: 10 (`PROTOCOL_VERSION` in `shared/src/protocol.ts`). It is bumped when the messages change or when
+Current version: 12 (`PROTOCOL_VERSION` in `shared/src/protocol.ts`). It is bumped when the messages change or when
 the missions change shape, since the server and the page build the same level from shared code.
 
 Transport: one WebSocket per player at `/ws`, UTF-8 JSON text frames. Binary frames are rejected. Max client→server message: **2048 bytes**. Types live in `shared/src/protocol.ts`; the server validates every inbound message with strict zod schemas in `shared/src/schemas.ts` (unknown keys are rejected).
@@ -36,9 +36,9 @@ Transport: one WebSocket per player at `/ws`, UTF-8 JSON text frames. Binary fra
 
 ### Snapshot
 
-`{tick, phase, result, cd, lives, cp, gates, taken, score, lx, arena, boss, players[], enemies[], bullets[]}`
+`{tick, phase, result, cd, lives, cp, gates, taken, score, lx, cx?, arena, boss, players[], enemies[], bullets[]}`
 
-- `gates`, `taken`: bitmasks (open gates, collected pick-ups). `lx`: bodies may not move right of this x (the fortress front).
+- `gates`, `taken`: bitmasks (open gates, collected pick-ups). `lx`: bodies may not move right of this x (the fortress front). `cx` (v11): the front of the wall of fire chasing the squad in Agnivan, absent when there is none. v11 also adds the enemy kinds `imp`, `bat`, `treant` and the boss `vriksha`. v12 (every saga stage a stage of its own): `pl` (moving surfaces: x shift, y, solid, three numbers each), `wy` (the sea's surface), `gu` (wind: ±1 blowing, ±2 warning), `ma` (MAYASTRA showing illusions), `lv` (the lava's surface), `vw` (the bhanwarvyuh's closing wall), `ij` (Meghbaan's mark: x, ground y); players' `nt` (caught in a net); the shot kind `net`; each stage's own enemy kinds and bosses (see docs/ASTRA_SAGA.md).
 - `arena`: `{id, w (wave), n (waves), left (enemies left)}` while an arena is locked, else null.
 - `players[]`: `{id, n, s (seat), hr (hero), x, y, vx, vy, g (on ground), f (facing), c (crouch), ax, ay (aim), hp (0..100), st (0 alive / 1 KO), dl (respawn seconds, -1 = no lives), w (weapon), iv (protected), fi (firing), k (kills), ul (super meter), od (overdrive), cb (combo), rk (rank), ml (knife swing), co, dr, pj, aj, dsh, sld, dcd, dd, ad, pd}`. The last ten are movement state for client prediction.
 - `enemies[]` (only near some player; bosses included): `{id, k (kind), x, y, hp (%), f, h (hit flash), a (aim ×100), sh (shield up), at (boss attack), tt (ticks into it), p (attack parameter), ph (phase)}`.

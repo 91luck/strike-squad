@@ -1,0 +1,98 @@
+[
+  {
+    "id": 0,
+    "name": "Blaze",
+    "color": "#e5383b",
+    "shade": "#a4161a",
+    "skin": "#e8b48a",
+    "hair": "#1b1b1f",
+    "pants": "#3d4a3a",
+    "headgear": "bandana",
+    "accent": "#e5383b",
+    "beard": false
+  },
+  {
+    "id": 1,
+    "name": "Nova",
+    "color": "#3a86ff",
+    "shade": "#1d4ed8",
+    "skin": "#f1c9a5",
+    "hair": "#f4a261",
+    "pants": "#2b3445",
+    "headgear": "visor",
+    "accent": "#ffb703",
+    "beard": false
+  },
+  {
+    "id": 2,
+    "name": "Tusk",
+    "color": "#38b000",
+    "shade": "#246b00",
+    "skin": "#c98b5f",
+    "hair": "#6b3e1f",
+    "pants": "#4a4033",
+    "headgear": "beret",
+    "accent": "#38b000",
+    "beard": true
+  },
+  {
+    "id": 3,
+    "name": "Viper",
+    "color": "#9d4edd",
+    "shade": "#5a189a",
+    "skin": "#d9a07a",
+    "hair": "#240046",
+    "pants": "#2a2438",
+    "headgear": "hood",
+    "accent": "#c77dff",
+    "beard": false
+  },
+  {
+    "id": 4,
+    "name": "Sparky",
+    "color": "#fb8500",
+    "shade": "#c45f00",
+    "skin": "#a8714d",
+    "hair": "#2d1b10",
+    "pants": "#3b3b3b",
+    "headgear": "hardhat",
+    "accent": "#8ecae6",
+    "beard": false
+  },
+  {
+    "id": 5,
+    "name": "Ghost",
+    "color": "#00b4d8",
+    "shade": "#0077b6",
+    "skin": "#e2b897",
+    "hair": "#444",
+    "pants": "#33415c",
+    "headgear": "helmet",
+    "accent": "#90e0ef",
+    "beard": false
+  },
+  {
+    "id": 6,
+    "name": "Kiki",
+    "color": "#ff4d9d",
+    "shade": "#c9184a",
+    "skin": "#f3d0b5",
+    "hair": "#3a1f14",
+    "pants": "#3d2b3a",
+    "headgear": "headset",
+    "accent": "#ffd6e8",
+    "beard": false
+  },
+  {
+    "id": 7,
+    "name": "Sarge",
+    "color": "#ffbe0b",
+    "shade": "#c99700",
+    "skin": "#8a5636",
+    "hair": "#d6d3d1",
+    "pants": "#4b4a3a",
+    "headgear": "cap",
+    "accent": "#ffbe0b",
+    "beard": true
+  }
+]

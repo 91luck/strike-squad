@@ -18,12 +18,12 @@ const G = 14;
 const PW = GAME_CONFIG.powers;
 
 /** A flat test level (60 columns), optionally with fields, a fire wall and an altar, plus a final arena far away. */
-function level(setup: (b: Builder) => void = () => undefined, brahma = false): LevelDef {
+function level(setup: (b: Builder) => void = () => undefined, param = false): LevelDef {
   const b = new Builder(120, 18);
   b.ground(0, 119, G);
   setup(b);
   b.arena('END', { trigger: 110, left: 100, right: 115, floor: G, gate: -1 }, []);
-  return b.build({ id: 'test', name: 'Test', start: { x: 3 * T, y: G * T }, brahma });
+  return b.build({ id: 'test', name: 'Test', start: { x: 3 * T, y: G * T }, param });
 }
 
 function playing(L: LevelDef): { sim: Sim; p: Player } {
@@ -77,7 +77,7 @@ describe('power pickups', () => {
   });
 
   it('an altar comes back after a few seconds', () => {
-    const L = level((b) => b.pickup('varuna', 5, G, true));
+    const L = level((b) => b.pickup('jal', 5, G, true));
     const { sim, p } = playing(L);
     p.x = 5 * T + T / 2;
     sim.step();
@@ -102,7 +102,7 @@ describe('astras', () => {
     expect(sim.enemies.has(e.id) ? e.hp : 0).toBeLessThan(hp0);
   });
 
-  it('only varuna puts out a wall of fire, and only one within its reach', () => {
+  it('only jal puts out a wall of fire, and only one within its reach', () => {
     const L = level((b) => {
       b.gate(12, G - 1, true);
       b.gate(60, G - 1, true);
@@ -111,7 +111,7 @@ describe('astras', () => {
     give(p, 'agni');
     press(sim);
     expect(sim.gateOpen).toEqual([false, false]);
-    give(p, 'varuna');
+    give(p, 'jal');
     press(sim);
     expect(sim.gateOpen).toEqual([true, false]);
     expect(p.power).toBeNull();
@@ -285,29 +285,29 @@ describe('astras', () => {
   });
 });
 
-describe('team brahmastra', () => {
+describe('team paramastra', () => {
   it('does not exist outside its mission', () => {
     const { sim } = playing(level());
-    expect(sim.brahma).toBe(-1);
+    expect(sim.param).toBe(-1);
     expect(sim.snapshot().bm).toBe(-1);
   });
 
   it('charges from the squad’s kills, then strikes everything nearby after a wind-up, shielding the squad', () => {
     const { sim, p } = playing(level(() => undefined, true));
-    expect(sim.brahma).toBe(0);
-    sim.brahma = PW.brahma.max - 0.5;
+    expect(sim.param).toBe(0);
+    sim.param = PW.param.max - 0.5;
     const e = soldierAt(sim, 20);
     const sim2 = sim as unknown as {
       damageEnemy(e: unknown, d: number, by: string, x: number, y: number, src: string): void;
     };
     sim2.damageEnemy(e, 100, 'a', 0, 0, 'gun'); // a kill tops the meter up
-    expect(sim.brahma).toBe(PW.brahma.max);
+    expect(sim.param).toBe(PW.param.max);
     const far = soldierAt(sim, 30);
     press(sim);
-    expect(sim.brahma).toBe(0);
+    expect(sim.param).toBe(0);
     expect(sim.enemies.has(far.id)).toBe(true); // wind-up first
     expect(p.invulnUntil).toBeGreaterThan(sim.tick);
-    for (let i = 0; i < sim.ticks(PW.brahma.windupSec) + 1; i++) sim.step();
+    for (let i = 0; i < sim.ticks(PW.param.windupSec) + 1; i++) sim.step();
     expect(sim.enemies.has(far.id)).toBe(false);
   });
 });
@@ -367,13 +367,12 @@ describe('fields (shared physics: server and client prediction agree)', () => {
 });
 
 describe('advanced missions', () => {
-  it('mission 5 is the demon army with astras, walls of fire and a brahmastra; mission 6 is deep space', () => {
+  it('mission 5 is the demon army with astras, walls of fire and a paramastra; mission 6 is deep space', () => {
     const m5 = getMission('mission-5');
     expect(m5.faction).toBe('demon');
-    expect(m5.brahma).toBe(true);
+    expect(m5.param).toBe(true);
     expect(m5.gates.filter((g) => g.fire).length).toBeGreaterThanOrEqual(3);
-    for (const k of ['agni', 'varuna', 'vayu'] as const)
-      expect(m5.pickups.some((p) => p.kind === k)).toBe(true);
+    for (const k of ['agni', 'jal', 'vayu'] as const) expect(m5.pickups.some((p) => p.kind === k)).toBe(true);
     const m6 = getMission('mission-6');
     expect(m6.faction).toBe('void');
     for (const k of ['lowg', 'lift', 'well', 'magnet'] as const)

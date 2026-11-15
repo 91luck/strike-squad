@@ -64,28 +64,35 @@ busy, the paid Workers plan is the next step (check the price on Cloudflare's pr
      screen (mission and difficulty, then Create): a private squad that friends can join right away.
    - **Usernames**: a signed-in player's CrazyGames name is their callsign.
    - **Mute**: `settings.muteAudio` (and its change listener) silences the game over its own sound setting.
-6. Covers (all three are required): `release/covers/` (1920x1080, 800x1200, 800x800). Key art drawn by the game's
-   own renderer (real level, heroes and asura sprites) with the title only: no borders, no "Play now", no store logos.
+6. Covers (all three are required): `release/covers/` (1920x1080, 800x1200, 800x800). Key art rendered in Blender
+   (`art3d/keyart.py`, `art3d/cover.py`) with the title only: no borders, no "Play now", no store logos.
    To redraw them, run `npm run dev -w client` and open `/tools/keyart.html?w=1920&h=1080&layout=landscape`
    (`layout=portrait|square`), then take a screenshot at that size (`client/src/tools/keyart.ts`; dev-only, not in
    any build).
-7. Preview videos: `release/videos/preview-landscape-1920x1080.mp4` and `preview-portrait-1080x1620.mp4` (16.4 s,
-   30 fps, H.264, no audio, first frame = the cover, no black bars, no cursor). Five real gameplay scenes, re-recorded
-   with the HD art (stage 3: the Vayavyastra whirlwind lifting a crowd; stage 1: Agneyastra, then a whirlwind over the
-   burning ground turning to fire; stage 4: Garudastra against the serpent boss; stage 8: the Chakravyuh walker;
-   stage 10: an Agni super in the last war) at **real speed** (CrazyGames forbids
-   fast-forward and speeds videos up slightly itself), joined with short fades. They were recorded frame by frame in a
-   headless browser with the computer squad playing (`window.__strikesquad.autoplay(true)`), at 912x513 CSS px with 2x
-   pixel density so the game uses its close-up camera, with the banners, kill feed and tips hidden. When recording
-   with Playwright's fake clock, call `clock.pauseAt()` right after `clock.install()`: an installed clock keeps
-   running in real time, so slow screenshots would otherwise leak time into the game and speed it up about 7x. The
-   portrait version crops the middle of the screen over a blurred fill, so the HUD edges are cut.
+7. Preview videos: `release/videos/preview-landscape-1920x1080.mp4` and `preview-portrait-1080x1620.mp4` (17.6 s,
+   30 fps, H.264, no audio, first frame = the cover, no black bars, no cursor). Eighteen one-second scenes, one or two
+   from every rebuilt stage in order (the burning forest and its banyan, the boat and Chhaya, Aandhi, Vishdhar,
+   Darpan-asur, the lava climb and Raakhasur, the chariot and Maniyodha, the bhanwarvyuh and Suryakavach, the akhada
+   and Jodasur, Nidrasur, Hansvimaan and Saptashir) at **real speed** (CrazyGames forbids fast-forward and speeds videos
+   up slightly itself). `trailer-all-stages-1920x1080.mp4` (43 s) is the full recording, for social media. They were
+   recorded frame by frame in a headless browser with the computer squad playing
+   (`window.__strikesquad.autoplay(true)`), at 960x540 CSS px with 2x pixel density, with the banners, kill feed and
+   tips hidden. When recording with Playwright's fake clock, call `clock.pauseAt()` right after `clock.install()`: an
+   installed clock keeps running in real time, so slow screenshots would otherwise leak time into the game and speed
+   it up about 7x. The portrait version shows the middle of the screen over a blurred fill, so the HUD edges are cut.
 8. Description and controls (paste and adjust):
 
-> **STRIKE SQUAD: Astra Saga** is a side-scrolling run-and-gun adventure through ten stages, each built around one
-> divine astra inspired by the Indian epics. Rain out walls of fire with Varunastra, loose serpents that never miss,
-> throw the Sudarshana chakra that returns to your hand, and lay down your weapons when a boss calls the
-> Narayanastra: fight it and the storm grows. Play solo with a computer buddy, or with up to 8 friends online.
+> **STRIKE SQUAD: Astra Saga** is a co-op run-and-gun adventure through ten stages of Indian-flavoured fantasy.
+> Vani, the last flame of a stolen lamp, pulls your squad into the realm of Akshaya: win back ten astras from the
+> generals of the seven-headed Saptashir and bring back the dawn, before her light runs out.
+>
+> No two stages play alike: outrun a forest fire, cross the sea on sinking stones, climb into a storm, dance on a
+> serpent's heads, see through a hall of illusions, race the lava up an ash mountain, ride a chariot across a
+> battlefield, break into a spinning fortress, wrestle a king who splits in two and storm a burning golden city.
+> Every stage has its own astra, its own rakshasas, its own boss and its own goal (free the captives, break the
+> totems, hold the line, beat the tide), and every run brings surprises: ambushes, elite hunters, fire from the sky,
+> a stampede. Unleash your super for a full-screen finisher, earn three stars, unlock heroes, and keep your daily
+> streak. Play solo with computer buddies, or with up to 8 friends online.
 
 > **Controls (keyboard):** A/D or arrows move, W/S aim, Space jump (twice: double jump), J fire, Shift dash (Down +
 > Shift: slide), F knife, Q super move, R astra, Esc or P pause. **Touch:** left thumb moves and aims; buttons for
@@ -96,7 +103,8 @@ busy, the paid Workers plan is the next step (check the price on Cloudflare's pr
 - Touch controls follow the portal's device type (`SDK.user.systemInfo.device.type`), not touch APIs: a laptop with
   a touch screen gets keyboard controls (`Platform.device`, tested in `e2e/crazygames.spec.ts`).
 - Text selection is off on `body`; the audio context is resumed on every tap, click and key (iOS).
-- Relative paths only; 296 KB zipped (limit 50 MB, 20 MB for the mobile homepage); one click to gameplay.
+- Relative paths only; about 5 MB zipped (limit 50 MB, 20 MB for the mobile homepage), stage art loading per stage;
+  one click to gameplay.
 - In the smallest game frames (821x462, 800x450) the HD art is used and the menu fits (907x510 too).
 - P pauses as well as Escape (Escape leaves the portal's fullscreen first).
 - Covers: three sizes, title only, no borders or badges. Videos: both orientations, 15-20 s, under 50 MB.

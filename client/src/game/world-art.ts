@@ -291,7 +291,7 @@ export const ZONES: Record<ZoneId, ZoneStyle> = {
     lights: false,
     moon: true,
   },
-  olympus: {
+  marble: {
     sky: ['#0b1020', '#26304d', '#59607e'],
     sun: '#e0e7ff',
     far: '#3b4260',
@@ -522,7 +522,7 @@ export const ZONES: Record<ZoneId, ZoneStyle> = {
     moon: false,
   },
   /** Samarpan Maidan: the great battlefield at dawn, banners and broken chariots. */
-  kurukshetra: {
+  ranbhoomi: {
     sky: ['#3b1d0f', '#b4532a', '#fcd9a0'],
     sun: '#fff1c2',
     far: '#8a5a3c',
@@ -932,7 +932,7 @@ export interface Prop {
     | 'runestone'
     | 'shields'
     | 'bones'
-    // Olympus
+    // the marble peak
     | 'column'
     | 'ruin'
     | 'amphora'

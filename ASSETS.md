@@ -1,7 +1,10 @@
 # Third-party art
 
 Everything not listed here (heroes, troopers, bosses, tiles, backgrounds, music, sound) is drawn or generated
-by the game's own code. The heroes' high-definition look (`client/src/game/hero-hd.ts`) took Warped City's
+by the game's own code. The heroes, the classic troopers, the hero portraits, the menu showcase, the saga stages'
+backdrops and the store covers are modelled and rendered by our own Blender scripts (`art3d/`, see its README): own work, no third-party models,
+textures or animation. Only the title font on the covers is third-party: Russo One (SIL Open Font License), the
+same font the game's own UI uses (`@fontsource/russo-one`). The heroes' high-definition look (`client/src/game/hero-hd.ts`) took Warped City's
 hero as a quality reference only (proportions, three-tone shading, eight-frame run); no pixels were copied.
 
 ## High definition

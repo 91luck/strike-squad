@@ -21,12 +21,13 @@ import {
  *   { zone: 'Dune Sea', art: 'desert', land: 'pits', len: 38, holes: [9, 22],
  *     foes: 'S6 T16^ G20 D24', loot: '+34' }
  *
- * Foes   `<kind><col>[^]`      S soldier · H shield · G grenadier · J jetpack · T turret · D drone.
+ * Foes   `<kind><col>[^]`      S soldier · H shield · G grenadier · J jetpack · T turret · D drone ·
+ *                              I fire imp · B burning bat · W tree demon (Agnivan's own).
  *                              `^` stands it on the highest surface (a ledge or platform) instead of the ground;
  *                              `_` on the lowest (the floor of a passage under a wall, a trench bottom).
  * Loot   `<kind><col>[^][*]`   s spread · m machine gun · l laser · + med-kit;
- *                              powers: a agni (fire) · w varuna (rain) · v vayu (wind) · b black hole ·
- *                              n naga · g garuda · c sudarshana chakra · p pashupata · x vaishnava.
+ *                              powers: a agni (fire) · w jal (rain) · v vayu (wind) · b black hole ·
+ *                              n naga · g shyen · c chakram chakra · p vidyut · x tej.
  *                              `*` makes it an altar that comes back after it is taken.
  * Waves  `<count><kind><side>` side L / R (arena edges) or ^ (dropping from the sky), e.g. '3SR 2SL J^'.
  *
@@ -55,7 +56,19 @@ export type Land =
   | 'tunnel'
   | 'trench'
   | 'rampart'
-  | 'pillars';
+  | 'pillars'
+  | 'treefall'
+  | 'fork'
+  | 'river'
+  | 'dive'
+  | 'stones'
+  | 'shoals'
+  | 'sea'
+  | 'cliff'
+  | 'illusion'
+  | 'warpath'
+  | 'rings'
+  | 'skyway';
 
 export const LANDS: readonly Land[] = [
   'flat',
@@ -70,6 +83,18 @@ export const LANDS: readonly Land[] = [
   'trench',
   'rampart',
   'pillars',
+  'treefall',
+  'fork',
+  'river',
+  'dive',
+  'stones',
+  'shoals',
+  'sea',
+  'cliff',
+  'illusion',
+  'warpath',
+  'rings',
+  'skyway',
 ];
 
 /**
@@ -81,7 +106,8 @@ export const LANDS: readonly Land[] = [
  *   open      one small platform: a straight duel on open ground
  *   high      only high perches: hop between them, or fight on the floor
  */
-export type Room = 'classic' | 'tiers' | 'twin' | 'open' | 'high';
+export type Room =
+  'classic' | 'tiers' | 'twin' | 'open' | 'high' | 'grove' | 'isle' | 'summit' | 'lake' | 'hall';
 
 export interface ArenaSpec {
   name: string;
@@ -96,7 +122,7 @@ export interface ArenaSpec {
   final?: boolean;
   /** Astras the bosses call (Astra Saga). */
   rules?: BossRule[];
-  /** Astra altars inside the arena (respawning pickups), e.g. 'x10' for a vaishnava altar 10 tiles in. */
+  /** Astra altars inside the arena (respawning pickups), e.g. 'x10' for a tej altar 10 tiles in. */
   altars?: string;
   /** Hold-out arena: survive this many seconds while the waves keep coming (ambush arenas only). */
   survive?: number;
@@ -115,7 +141,9 @@ export interface Section {
   /** Pit columns for `pits`, and their width in tiles (default 3; low gravity sections use wider ones). */
   holes?: number[];
   holeW?: number;
-  /** Walls of fire at these columns: only the rain astra (varuna) puts them out. */
+  /** Pools of poison (3 wide, a row deep) at these columns (Naag Lok). */
+  pools?: number[];
+  /** Walls of fire at these columns: only the rain astra (jal) puts them out. */
   fire?: number[];
   /** A physics field over the whole section (rows 0-17), e.g. low gravity. */
   field?: { kind: FieldKind; power: number };
@@ -132,6 +160,11 @@ export interface Section {
   loot?: string;
   /** Checkpoint flag at the start of the section. */
   cp?: boolean;
+  /**
+   * Rows this stretch sits above the one before (negative: below). A stage that climbs or descends is built from
+   * stretches at different heights; climbing needs a `cliff` (ledges up the face), going down is a drop.
+   */
+  rise?: number;
   /** A rest stop (ashram): see LevelDef.rests. It may hold loot but no foes. */
   rest?: boolean;
   arena?: ArenaSpec;
@@ -143,11 +176,27 @@ export interface CourseDef {
   mods: MissionMods;
   sections: Section[];
   faction?: Faction;
-  brahma?: boolean;
+  param?: boolean;
   /** Enemy/boss hue shift in degrees (cosmetic). */
   tint?: number;
   /** A stage-wide hazard (see HazardDef). */
   hazard?: HazardDef;
+  /** A wall of fire chases the squad from behind (see GAME_CONFIG.chase). */
+  chase?: boolean;
+  /** A stage of its own (see LevelDef.own). */
+  own?: boolean;
+  /** Gusts of wind (see LevelDef.gusts). */
+  gusts?: boolean;
+  /** Underground and unlit (see LevelDef.dark). */
+  dark?: boolean;
+  /** Lava rising from below (see LevelDef.lava). */
+  lava?: boolean;
+  /** The formation closes behind the squad (see LevelDef.vyuh). */
+  vyuh?: boolean;
+  /** Meghbaan's arrows from the clouds (see LevelDef.megh). */
+  megh?: boolean;
+  /** The sea rising and falling, in tiles: surface row `base` ± `amp` every `periodSec` (Sagar Setu). */
+  tide?: { base: number; amp: number; periodSec: number };
 }
 
 const T = GAME_CONFIG.tile;
@@ -163,23 +212,57 @@ const FOE: Record<string, TrooperKind> = {
   J: 'jetpack',
   T: 'turret',
   D: 'drone',
+  I: 'imp',
+  B: 'bat',
+  W: 'treant',
+  M: 'makar',
+  K: 'crab',
+  N: 'conch',
+  Y: 'harpy',
+  R: 'roller',
+  L: 'lancer',
+  Z: 'serpent',
+  C: 'spitter',
+  E: 'egg',
+  X: 'mirror',
+  A: 'dancer',
+  Q: 'painting',
+  F: 'pret',
+  O: 'golem',
+  U: 'lantern',
+  // two-letter codes (an upper case letter and a lower case one) for the later stages' own rakshasas
+  Ar: 'archer',
+  Ga: 'elephant',
+  Dr: 'drummer',
+  Ck: 'chakri',
+  Rt: 'rathi',
+  Jl: 'netter',
+  Pw: 'pehlwan',
+  Gd: 'gadadhar',
+  Sl: 'slinger',
+  Ms: 'mashaal',
+  My: 'mayavi',
+  Kb: 'nidrasur',
 };
+/** Foes that fly or float: over a drop they keep the height of the path. */
+const FLIERS = new Set<TrooperKind>(['harpy', 'lancer', 'bat', 'drone', 'jetpack', 'pret', 'mayavi']);
 const LOOT: Record<string, PickupKind> = {
   s: 'spread',
   m: 'rapid',
   l: 'laser',
   '+': 'medkit',
   a: 'agni',
-  w: 'varuna',
+  w: 'jal',
   v: 'vayu',
   b: 'singularity',
   n: 'naga',
-  g: 'garuda',
-  c: 'sudarshana',
-  p: 'pashupata',
-  x: 'vaishnava',
+  g: 'shyen',
+  c: 'chakram',
+  p: 'vidyut',
+  x: 'tej',
+  y: 'maya',
 };
-const LOOT_TOKEN = /^([sml+awvbngcpx])(\d+)([\^_]?)(\*?)$/;
+const LOOT_TOKEN = /^([sml+awvbngcpxy])(\d+)([\^_]?)(\*?)$/;
 const SIDE: Record<string, WaveSpawn['side']> = { L: 'L', R: 'R', '^': 'sky', P: 'P', U: 'U' };
 
 const tokens = (s: string | undefined): string[] => (s ? s.trim().split(/\s+/) : []);
@@ -188,8 +271,8 @@ const tokens = (s: string | undefined): string[] => (s ? s.trim().split(/\s+/) :
 export function parseWave(s: string): WaveSpawn[] {
   const out: WaveSpawn[] = [];
   for (const tok of tokens(s)) {
-    const m = /^(\d*)([SHGJTD])(\*?)([LR^PU])$/.exec(tok);
-    if (!m) throw new Error(`bad wave token "${tok}"`);
+    const m = /^(\d*)([A-Z][a-z]?)(\*?)([LR^PU])$/.exec(tok);
+    if (!m || !FOE[m[2] as string]) throw new Error(`bad wave token "${tok}"`);
     const kind = FOE[m[2] as string] as TrooperKind;
     const side = SIDE[m[4] as string] as WaveSpawn['side'];
     const elite = m[3] === '*';
@@ -325,7 +408,8 @@ const chasm: Template = (b, x, s) => {
 const tunnel: Template = (b, x, s) => {
   const n = s.len;
   b.ground(x, x + n - 1, G);
-  b.block(x, x + n - 1, 0, 6);
+  // dropped into from above: the first columns are an open shaft, so the squad falls in rather than meets the roof
+  b.block(x + ((s.rise ?? 0) < 0 ? 4 : 0), x + n - 1, 0, 6);
   for (let c = 6; c + 1 < n - 3; c += 9) {
     if (s.stash !== undefined && Math.abs(c - s.stash) < 6) continue; // keep the climb to the stash clear
     b.block(x + c, x + c + 1, 7, 9);
@@ -381,6 +465,166 @@ const pillars: Template = (b, x, s) => {
   }
 };
 
+/**
+ * A burning tree has fallen across a ravine: the only way over is along its trunk (a one-way log at row 12),
+ * with a stump to stand on at each end. The client draws the tree falling as the squad comes near.
+ */
+const treefall: Template = (b, x, s) => {
+  const n = s.len;
+  b.ground(x, x + 4, G);
+  b.ground(x + n - 5, x + n - 1, G);
+  b.block(x + 4, x + 4, 12, 13);
+  b.platform(x + 5, x + n - 6, 12);
+  b.block(x + n - 5, x + n - 5, 12, 13);
+};
+
+/**
+ * The path forks: burning branches overhead (a high road of one-way boughs, rows 9 and 7) or the hollow under the
+ * roots (the ground drops two rows for most of the section). Both come out at the far end.
+ */
+const fork: Template = (b, x, s) => {
+  const n = s.len;
+  b.ground(x, x + n - 1, G);
+  const a = x + 5;
+  const z = x + n - 6;
+  for (let c = a; c <= z; c++) for (let r = G; r <= G + 1; r++) b.set(c, r, 0);
+  b.block(a - 1, a - 1, 11, 13);
+  b.platform(a, a + 5, 10);
+  for (let c = a + 7; c + 4 < z - 2; c += 8) b.platform(c, c + 4, 8);
+  b.platform(z - 6, z - 1, 10);
+};
+
+/** A river bank: a shallow stream (one row lower) between two banks. A rest stop's ground in Agnivan. */
+const river: Template = (b, x, s) => {
+  const n = s.len;
+  b.ground(x, x + n - 1, G);
+  const a = x + Math.floor(n * 0.35);
+  const z = x + Math.floor(n * 0.65);
+  for (let c = a; c <= z; c++) b.set(c, G, 0);
+};
+
+/**
+ * A channel three rows deep running under the path (a stream bed). With a wall of fire on the path above it
+ * (`fire` at the middle column), the only way on is to drop into the water and come up on the far side.
+ */
+const dive: Template = (b, x, s) => {
+  const n = s.len;
+  b.ground(x, x + n - 1, G);
+  const a = x + 6;
+  const z = x + n - 7;
+  for (let c = a; c <= z; c++) for (let r = G; r <= G + 2; r++) b.set(c, r, 0);
+  b.block(a, a + 1, G + 2, G + 2);
+  b.block(z - 1, z, G + 2, G + 2);
+  b.platform(z - 4, z - 1, G);
+};
+
+/** The sea's resting surface row (Sagar Setu): makara riders wait under it. */
+const SEA_ROW = 15;
+
+/**
+ * An old sea bridge half sunk: open sea between two banks, crossed on floating stones (4 wide, one every 6 tiles, at rows
+ * 12 and 13 in turn). Each stone sinks while it is stood on (GAME_CONFIG.sea): keep hopping.
+ */
+const stones: Template = (b, x, s) => {
+  const n = s.len;
+  b.ground(x, x + 2, G);
+  b.ground(x + n - 3, x + n - 1, G);
+  for (let c = x + 4, i = 0; c + 3 < x + n - 4; c += 6, i++) b.plat('stone', c, c + 3, i % 2 ? 13 : 12);
+};
+
+/**
+ * Shoals: sandbars a row below the path that the high tide covers (wading is slow), rocks to stand on, and a
+ * floating stone over each deep channel.
+ */
+const shoals: Template = (b, x, s) => {
+  const n = s.len;
+  b.ground(x, x + n - 1, G + 1);
+  b.ground(x, x + 3, G);
+  b.ground(x + n - 4, x + n - 1, G);
+  for (let c = x + 8; c + 2 < x + n - 6; c += 9) {
+    for (let cc = c; cc <= c + 2; cc++) for (let r = 0; r < ROWS; r++) b.set(cc, r, 0);
+    b.plat('stone', c, c + 2, 13);
+  }
+  for (let c = x + 6; c < x + n - 6; c += 9) b.block(c - 1, c, G - 1, G);
+};
+
+/** Open sea with a boat moored at the near bank: board it and it sails the squad to the far one. */
+const sea: Template = (b, x, s) => {
+  const n = s.len;
+  b.ground(x, x + 3, G);
+  b.ground(x + n - 2, x + n - 1, G);
+  b.plat('boat', x + 4, x + 9, G, x + n - 8);
+};
+
+/**
+ * Ranbhoomi's war path: open ground cut by wide trenches (5 tiles, too far to jump in one go) with strips of
+ * field between them, and a chariot waiting at the start. Board it and it rolls the squad over every trench to
+ * the far side; it comes back for anyone left behind.
+ */
+const warpath: Template = (b, x, s) => {
+  const n = s.len;
+  b.ground(x, x + 9, G);
+  b.ground(x + n - 4, x + n - 1, G);
+  for (let c = x + 15; c + 5 < x + n - 9; c += 11) b.ground(c, c + 5, G);
+  b.plat('chariot', x + 3, x + 8, G, x + n - 9);
+};
+
+/**
+ * The rings of the bhanwarvyuh: a low rampart every 9 tiles, two and three rows high in turn, to jump over while the
+ * ground turns under you.
+ */
+const rings: Template = (b, x, s) => {
+  const n = s.len;
+  b.ground(x, x + n - 1, G);
+  for (let c = x + 6, k = 0; c + 2 < x + n - 4; c += 9, k++) {
+    b.block(c, c + 1, k % 2 ? G - 3 : G - 2, G - 1);
+  }
+};
+
+/**
+ * Over the burning city by air: a long drop with only a landing at each end, and Hansvimaan, Saptashir's flying chariot,
+ * waiting at the near one. Board it and it flies the squad across (and comes back for anyone left behind).
+ */
+const skyway: Template = (b, x, s) => {
+  const n = s.len;
+  b.ground(x, x + 3, G);
+  b.ground(x + n - 3, x + n - 1, G);
+  b.plat('vimana', x + 4, x + 10, G, x + n - 11);
+};
+
+/**
+ * A cliff face `rise` rows high: the first eight columns stay at the height of the stretch before, with ledges
+ * zig-zagging up beside the face (one every three rows), then the ground of this (higher) stretch.
+ */
+const cliff: Template = (b, x, s) => {
+  const n = s.len;
+  const R = Math.max(0, s.rise ?? 0);
+  b.ground(x, x + 7, G + R);
+  b.ground(x + 8, x + n - 1, G);
+  for (let r = G + R - 3, k = 0; r > G; r -= 3, k++) {
+    const c = k % 2 ? x + 1 : x + 4;
+    b.platform(c, c + 3, r);
+  }
+};
+
+/**
+ * the hall of illusions's illusions: the floor gives out into a drop, and across it run stretches of floor that are not all
+ * they seem: false floors (look solid, give way under you) and hidden floors (look like nothing, hold you).
+ * A few solid pillars to catch your breath on.
+ */
+const illusion: Template = (b, x, s) => {
+  const n = s.len;
+  b.ground(x, x + 3, G);
+  b.ground(x + n - 4, x + n - 1, G);
+  const kinds: ('fake' | 'hidden')[] = ['fake', 'hidden', 'hidden', 'fake', 'hidden', 'fake', 'hidden'];
+  let k = 0;
+  for (let c = x + 4; c + 3 < x + n - 4; c += 4) {
+    if (k % 3 === 2) b.block(c, c + 3, G, G + 3);
+    else b.plat(kinds[k % kinds.length] as 'fake' | 'hidden', c, c + 3, G);
+    k++;
+  }
+};
+
 const LAND: Record<Land, Template> = {
   flat,
   pits,
@@ -394,6 +638,18 @@ const LAND: Record<Land, Template> = {
   trench,
   rampart,
   pillars,
+  treefall,
+  fork,
+  river,
+  dive,
+  stones,
+  shoals,
+  sea,
+  cliff,
+  illusion,
+  warpath,
+  rings,
+  skyway,
 };
 
 /**
@@ -463,6 +719,45 @@ function arenaRoom(b: Builder, x: number, s: Section, a: ArenaSpec): void {
       at(0.3, 4, 8);
       at(0.5, 4, 6);
       break;
+    case 'hall':
+      // the mirror hall: two galleries and a balcony to dodge the beam from
+      at(0.2, 5, 11);
+      at(0.42, 4, 8);
+      at(0.6, 5, 11);
+      break;
+    case 'lake':
+      // Vishdhar's poisoned lake: a bank to land on, then the lake (two rows down, poison) with his heads over it
+      for (let c = x + Math.round(n * 0.22); c < x + n - 2; c++)
+        for (let r = G; r <= G + 1; r++) b.set(c, r, 0);
+      b.field('poison', x + Math.round(n * 0.22), x + n - 3, G - 1, G + 2, GAME_CONFIG.poison.dps);
+      // his heads (moving surfaces), each over a loop of his coils showing above the poison (to stand on)
+      for (const [f, row] of [
+        [0.3, G - 3],
+        [0.46, G - 4],
+        [0.62, G - 3],
+      ] as const) {
+        const hc = x + Math.round(n * f);
+        b.plat('head', hc, hc + 3, row);
+        b.platform(hc - 1, hc + 4, G);
+      }
+      break;
+    case 'summit':
+      // the top of Meghgiri: one outcrop to stand on; the storm drives you toward the drop behind you
+      at(0.5, 4, 11);
+      break;
+    case 'isle':
+      // The far isle's shore: a rock shelf and two ledges; the sea comes in under Chhaya at the far end
+      at(0.2, 4, 11);
+      at(0.4, 5, 8);
+      at(0.6, 4, 11);
+      break;
+    case 'grove':
+      // the banyan's own boughs reach out over the floor: climb them to its heart
+      at(0.22, 4, 11);
+      at(0.42, 5, 9);
+      at(0.6, 5, 7);
+      at(0.75, 4, 5);
+      break;
     default:
       at(0.28, 5, 11);
       at(0.47, 4, 8);
@@ -491,6 +786,16 @@ function arenaRoom(b: Builder, x: number, s: Section, a: ArenaSpec): void {
   let walkers = 0;
   for (const kind of bosses) {
     if (kind === 'boss') b.boss('boss', x + n - 8, G * T, id, a.hp);
+    else if (kind === 'vriksha') b.boss('vriksha', x + n - 6, G * T, id, a.hp);
+    else if (kind === 'chhaya') b.boss('chhaya', x + n - 6, G * T, id, a.hp);
+    else if (kind === 'aandhi') b.boss('aandhi', x + n - 7, G * T, id, a.hp);
+    else if (kind === 'vishdhar') b.boss('vishdhar', x + n - 6, (G + 2) * T, id, a.hp);
+    else if (kind === 'darpan') b.boss('darpan', x + n - 6, G * T, id, a.hp);
+    else if (kind === 'raakhasur') b.boss('raakhasur', x + n - 8, G * T, id, a.hp);
+    else if (kind === 'maniyodha') b.boss('maniyodha', x + n - 9, G * T, id, a.hp);
+    else if (kind === 'suryakavach') b.boss('suryakavach', x + n - 7, G * T, id, a.hp);
+    else if (kind === 'jodasur') b.boss('jodasur', x + n - 10, G * T, id, a.hp);
+    else if (kind === 'saptashir') b.boss('saptashir', x + n - 7, G * T, id, a.hp);
     else if (kind === 'gunship') b.boss('gunship', right - 7, GAME_CONFIG.enemies.gunship.hoverY, id, a.hp);
     else b.boss('walker', right - 4 - 9 * walkers++, G * T, id, a.hp);
   }
@@ -513,10 +818,21 @@ function standOn(b: Builder, col: number, mark: string): number {
 
 export function buildCourse(def: CourseDef): LevelDef {
   const cols = def.sections.reduce((n, s) => n + s.len, 0);
-  const b = new Builder(cols, ROWS);
-  let x = 0;
+  // each stretch's row offset: climbing stretches sit higher (smaller offset), descending ones lower
+  const dys: number[] = [];
+  let d = 0;
   for (const s of def.sections) {
+    d -= s.rise ?? 0;
+    dys.push(d);
+  }
+  const lo = Math.min(0, ...dys);
+  const span = Math.max(0, ...dys) - lo;
+  const b = new Builder(cols, ROWS + span);
+  let x = 0;
+  for (const [i, s] of def.sections.entries()) {
     const where = `${def.id} @${x} ${s.zone ?? s.arena?.name ?? s.land}`;
+    b.dy = (dys[i] as number) - lo;
+    if ((s.rise ?? 0) > 0 && s.land !== 'cliff') throw new Error(`${where}: a climb needs a cliff`);
     if (s.zone) b.zone(x, s.zone);
     b.style(x, s.art);
     if (s.arena) {
@@ -534,6 +850,10 @@ export function buildCourse(def: CourseDef): LevelDef {
     }
     if (s.field) b.field(s.field.kind, x, x + s.len - 1, 0, ROWS - 1, s.field.power);
     for (const c of s.fire ?? []) b.gate(x + c, G - 1, true);
+    for (const c of s.pools ?? []) {
+      for (let cc = x + c; cc <= x + c + 2; cc++) b.set(cc, G, 0);
+      b.field('poison', x + c, x + c + 2, G - 1, G, GAME_CONFIG.poison.dps);
+    }
     for (const c of s.lifts ?? []) {
       // The beam ends at row 3; a walkway at row 5 leads off to the right of it.
       b.field('lift', x + c, x + c + 2, 4, ROWS - 1, 0.55);
@@ -546,10 +866,13 @@ export function buildCourse(def: CourseDef): LevelDef {
       b.rest(x, x + s.len - 1);
     }
     for (const tok of tokens(s.foes)) {
-      const m = /^([SHGJTD])(\d+)([\^_]?)$/.exec(tok);
-      if (!m) throw new Error(`${where}: bad foe "${tok}"`);
+      const m = /^([A-Z][a-z]?)(\d+)([\^_]?)$/.exec(tok);
+      if (!m || !FOE[m[1] as string]) throw new Error(`${where}: bad foe "${tok}"`);
       const col = x + Number(m[2]);
-      const row = standOn(b, col, m[3] as string);
+      // makara riders live in the sea: they wait under its surface, whatever is (or is not) below
+      let row = m[1] === 'M' ? SEA_ROW : standOn(b, col, m[3] as string);
+      // flyers need nothing under them: over a drop they keep the height of the path
+      if (row >= ROWS && FLIERS.has(FOE[m[1] as string] as TrooperKind)) row = G;
       if (Number(m[2]) >= s.len || row >= ROWS)
         throw new Error(`${where}: foe "${tok}" has nothing to stand on`);
       b.enemy(FOE[m[1] as string] as TrooperKind, col, row);
@@ -566,15 +889,28 @@ export function buildCourse(def: CourseDef): LevelDef {
     }
     x += s.len;
   }
+  b.dy = (dys[0] as number) - lo;
   return b.build({
     id: def.id,
     name: def.name,
-    start: { x: 3 * T, y: b.surface(3) * T },
+    start: { x: 3 * T, y: (b.surface(3) + b.dy) * T },
     mods: def.mods,
     faction: def.faction,
-    brahma: def.brahma,
+    param: def.param,
     tint: def.tint,
     hazard: def.hazard,
+    chase: def.chase,
+    own: def.own,
+    gusts: def.gusts,
+    dark: def.dark,
+    lava: def.lava,
+    vyuh: def.vyuh,
+    megh: def.megh,
+    tide: def.tide && {
+      base: def.tide.base * T,
+      amp: def.tide.amp * T,
+      periodSec: def.tide.periodSec,
+    },
   });
 }
 

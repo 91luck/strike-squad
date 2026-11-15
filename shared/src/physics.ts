@@ -19,7 +19,7 @@ export interface PlayerInput {
   melee: boolean;
   /** Hero super move, when the meter is full. */
   ult: boolean;
-  /** Fire the held power (astra), or the team brahmastra when it is charged. Optional on the wire. */
+  /** Fire the held power (astra), or the team paramastra when it is charged. Optional on the wire. */
   astra?: boolean;
 }
 
@@ -67,6 +67,25 @@ export interface World {
   isGateOpen(id: number): boolean;
   /** Bodies may not move right of this x (the boss's front while it lives). */
   limitX: number;
+  /** Moving one-way surfaces (sinking stones, a boat): where they are right now (see Plat). */
+  plats?: Plat[];
+}
+
+/** A one-way surface that is not a tile: it can sink, float back up, or sail (the sim moves it and its riders). */
+export interface Plat {
+  x0: number;
+  x1: number;
+  y: number;
+  /** Solid right now (a stone gone under water is not). */
+  on: boolean;
+}
+
+/** The moving surface a body stands on, if any. */
+export function platUnder(world: World, b: Mover): Plat | null {
+  if (!world.plats) return null;
+  for (const p of world.plats)
+    if (p.on && Math.abs(b.y - p.y) < 1.5 && b.x + b.w / 2 > p.x0 + 2 && b.x - b.w / 2 < p.x1 - 2) return p;
+  return null;
 }
 
 const T = GAME_CONFIG.tile;
@@ -92,6 +111,14 @@ function blocks(world: World, c: number, r: number): boolean {
   const t = tileAt(world.level, c, r);
   if (t === Tile.Solid) return true;
   if (t === Tile.Gate) return !world.isGateOpen(gateIdAt(world.level, c, r));
+  return false;
+}
+
+/** Ground (a tile) or a moving surface (a stone, a boat) right under (x, y): enemies walking on stones use it. */
+export function footingBelow(world: World, x: number, y: number): boolean {
+  if (groundBelow(world, x, y)) return true;
+  for (const p of world.plats ?? [])
+    if (p.on && x > p.x0 && x < p.x1 && y + 1 >= p.y - 1 && y + 1 < p.y + T / 2) return true;
   return false;
 }
 
@@ -165,6 +192,16 @@ export function moveBody(world: World, b: Mover, dt: number): void {
         }
       }
     }
+    if (!landed && world.plats && b.dropTicks <= 0)
+      for (const p of world.plats) {
+        if (!p.on || p.y < b.y - 0.001 || p.y > ny + 0.001) continue;
+        if (b.x + half <= p.x0 + 2 || b.x - half >= p.x1 - 2) continue;
+        b.y = p.y;
+        b.vy = 0;
+        b.onGround = true;
+        landed = true;
+        break;
+      }
     if (!landed) b.y = ny;
   } else {
     const headRow = Math.floor((ny - b.h) / T);
@@ -184,6 +221,7 @@ export function moveBody(world: World, b: Mover, dt: number): void {
 /** Is the body standing on a one-way platform (so Down + Jump drops through)? */
 export function onPlatform(world: World, b: Mover): boolean {
   if (!b.onGround) return false;
+  if (platUnder(world, b)) return true;
   const r = Math.floor((b.y + 1) / T);
   const half = b.w / 2;
   let platform = false;

@@ -20,6 +20,7 @@ export const CENTER_X = 20;
 export const RUN_FRAMES = 8;
 
 import { HD_POSES, drawHeroHD } from './hero-hd';
+import { frame3d, portrait3d } from './sprites3d';
 
 const OUTLINE = '#120f17';
 
@@ -207,7 +208,7 @@ export const FACTION_LOOKS: Record<Faction, Record<TrooperLook, Look>> = {
       beard: false,
     },
   },
-  olympus: {
+  marble: {
     soldier: HOPLITE_BASE,
     shield: { ...HOPLITE_BASE, color: '#7f1d1d', accent: '#fcd34d' },
     jet: {
@@ -559,6 +560,9 @@ export function aimFrom(ax: number, ay: number): Aim {
 
 /** A character frame, facing right. */
 export function charFrame(lookKey: string, look: Look, pose: Pose, frame: number, aim: Aim): CharFrame {
+  // heroes and troopers: the rendered 3D sprites once their atlas has loaded (sprites3d.ts)
+  const r = frame3d(lookKey, pose, frame, aim);
+  if (r) return r;
   const key = `${lookKey}|${pose}|${frame}|${aim}`;
   let f = cache.get(key);
   if (!f) {
@@ -1140,6 +1144,9 @@ export function medkitSprite(): HTMLCanvasElement {
 
 /** Hero head portrait (for the HUD, lobby and results), 20x20 with transparent background. */
 export function heroPortrait(id: number): HTMLCanvasElement {
+  // the rendered portrait once it has loaded (sprites3d.ts)
+  const r = portrait3d(id);
+  if (r) return r;
   return memo(`portrait-${id}`, () => {
     const p = new Px(22, 22);
     const L = heroLook(id);

@@ -23,7 +23,7 @@ export interface DailyTrial {
 
 /**
  * Stages the trial draws from. The last two are left out: their bosses' astras need the stage's own answers
- * (the vaishnava altars, the brahmastra), which a reshuffled hand could take away.
+ * (the tej altars, the paramastra), which a reshuffled hand could take away.
  */
 const STAGES: readonly SagaId[] = SAGA.slice(0, 8).map((s) => s.id);
 const HAZARDS: readonly HazardDef[] = [
@@ -32,9 +32,9 @@ const HAZARDS: readonly HazardDef[] = [
   { kind: 'tremor', every: 10, count: 1 },
   { kind: 'dark', every: 16, count: 5 },
 ];
-/** Astras a pedestal can be dealt. Varuna and vaishnava pedestals are never touched: stages need them where they stand. */
-const DEAL: readonly PowerKind[] = POWER_KINDS.filter((k) => k !== 'varuna' && k !== 'vaishnava');
-const KEEP: ReadonlySet<string> = new Set(['varuna', 'vaishnava']);
+/** Astras a pedestal can be dealt. Jal and tej pedestals are never touched: stages need them where they stand. */
+const DEAL: readonly PowerKind[] = POWER_KINDS.filter((k) => k !== 'jal' && k !== 'tej');
+const KEEP: ReadonlySet<string> = new Set(['jal', 'tej']);
 
 function hashDay(day: string): number {
   let h = 2166136261;

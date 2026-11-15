@@ -321,6 +321,7 @@ export class Room {
       score: sim.score,
       livesLeft: sim.lives,
       board,
+      ...(sim.goalState() ? { goal: sim.goalState() ?? undefined } : {}),
     };
     this.lastEnd = end;
     this.sim = null;

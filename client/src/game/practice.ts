@@ -171,6 +171,7 @@ export class SoloMatch {
         score: this.sim.score,
         livesLeft: this.sim.lives,
         board,
+        ...(this.sim.goalState() ? { goal: this.sim.goalState() ?? undefined } : {}),
       });
     }
   }

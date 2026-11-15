@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  isFixedBoss,
   Autopilot,
   CAMPAIGN_IDS,
   GAME_CONFIG,
@@ -56,36 +57,40 @@ describe('mission registry', () => {
 describe.each(MISSION_IDS.map((id) => [id]))('%s layout', (id: MissionId) => {
   const L = getMission(id);
 
-  it('is one screen tall and fits the snapshot bitmasks', () => {
-    expect(L.rows).toBe(18);
+  it('is one screen tall (a stage that climbs or descends: taller) and fits the snapshot bitmasks', () => {
+    if (L.own) expect(L.rows).toBeGreaterThanOrEqual(18);
+    else expect(L.rows).toBe(18);
     expect(L.gates.length).toBeLessThanOrEqual(MAX_GATES);
     expect(L.pickups.length).toBeLessThanOrEqual(MAX_PICKUPS);
     expect(L.tiles.byteLength).toBe(L.cols * L.rows); // one byte per tile
   });
 
-  it('starts on solid ground and ends in one final arena with the fortress boss', () => {
+  it('starts on solid ground and ends in one final arena with a fixed boss (the fortress or a stage of its own)', () => {
     expect(tileAt(L, Math.floor(L.start.x / T), L.start.y / T)).toBe(Tile.Solid);
     const fin = finalArena(L);
     expect(L.arenas.filter((a) => a.gate === -1)).toHaveLength(1);
-    expect(L.bosses.some((b) => b.arena === fin.id && b.kind === 'boss')).toBe(true);
+    expect(L.bosses.some((b) => b.arena === fin.id && (isFixedBoss(b.kind) || !!L.own))).toBe(true);
   });
 
   it('puts every boss in a boss arena, and every gate belongs to an arena', () => {
     for (const b of L.bosses) expect(L.arenas[b.arena]?.boss).not.toBeNull();
     for (const g of L.gates) {
       if (g.fire) {
-        // A wall of fire always has a rain altar (a respawning varuna) shortly before it: never a dead end.
+        // A wall of fire always has a rain altar (a respawning jal) shortly before it, or a way under it
+        // (a stream bed below the flames): never a dead end.
         const altar = L.pickups.find(
-          (p) => p.kind === 'varuna' && p.respawn && p.x < g.col * T && g.col * T - p.x < 16 * T,
+          (p) => p.kind === 'jal' && p.respawn && p.x < g.col * T && g.col * T - p.x < 16 * T,
         );
-        expect(altar, `fire wall at column ${g.col}`).toBeDefined();
+        const under = tileAt(L, g.col, g.rowBottom + 1) === Tile.Empty;
+        expect(altar ?? (under || undefined), `fire wall at column ${g.col}`).toBeDefined();
       } else expect(L.arenas.some((a) => a.gate === g.id)).toBe(true);
     }
   });
 
   it('stands every ground enemy and pickup on something', () => {
     for (const e of L.enemies) {
-      if (e.kind === 'drone' || e.kind === 'jetpack') continue;
+      if (['drone', 'jetpack', 'bat', 'makar', 'harpy', 'lancer', 'pret', 'mayavi'].includes(e.kind))
+        continue;
       const below = tileAt(L, Math.floor(e.x / T), e.y / T);
       expect([Tile.Solid, Tile.OneWay]).toContain(below);
     }
@@ -99,7 +104,7 @@ describe.each(MISSION_IDS.map((id) => [id]))('%s layout', (id: MissionId) => {
     for (let i = 1; i < L.checkpoints.length; i++)
       expect(L.checkpoints[i]!.x).toBeGreaterThan(L.checkpoints[i - 1]!.x);
     expect(L.art[0]?.x).toBe(0);
-    expect(L.zones.length).toBeGreaterThanOrEqual(8);
+    expect(L.zones.length).toBeGreaterThanOrEqual(L.own ? 6 : 8);
   });
 });
 
@@ -112,7 +117,7 @@ describe('course format', () => {
       { kind: 'jetpack', side: 'sky' },
       { kind: 'shield', side: 'L' },
     ]);
-    expect(() => parseWave('3XR')).toThrow(/bad wave token/);
+    expect(() => parseWave('3VR')).toThrow(/bad wave token/);
   });
 
   it('refuses bad placements and tokens when the mission is built, so a typo cannot ship', () => {
@@ -125,7 +130,7 @@ describe('course format', () => {
     const run = (foes: string) => () =>
       buildCourse({ ...base, sections: [{ art: 'jungle', land: 'flat', len: 20, foes }, fin] });
     expect(run('S25')).toThrow(/nothing to stand on/); // past the end of its section
-    expect(run('Q5')).toThrow(/bad foe/);
+    expect(run('V5')).toThrow(/bad foe/);
     expect(run('S5 T8^')).not.toThrow();
     expect(() => buildCourse({ ...base, sections: [{ art: 'jungle', land: 'flat', len: 20 }] })).toThrow(
       /no final arena/,

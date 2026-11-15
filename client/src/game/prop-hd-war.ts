@@ -3,7 +3,7 @@ import type { Prop } from './world-art';
 
 /**
  * Scenery in high definition for the war and myth worlds: the field camp and military base (crate, sandbags,
- * barbed wire, warning sign, lamp post), Olympus (column, ruin, amphora, statue), the demon citadel (skulls,
+ * barbed wire, warning sign, lamp post), the marble peak (column, ruin, amphora, statue), the demon citadel (skulls,
  * spikes, brazier) and the alien hive (crystal, pod, stalk).
  *
  * Same method as prop-hd.ts: shaded shapes painted with the heroes' Painter, one light from the front and above
@@ -155,7 +155,7 @@ function lamp(v: number): HTMLCanvasElement {
   return P.finish();
 }
 
-// ------------------------------------------------------------------ Olympus
+// ------------------------------------------------------------------ the marble peak
 
 const MARBLE = ramp('#e7e2d6', -0.22, 0.12);
 

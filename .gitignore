@@ -11,3 +11,4 @@ test-results/
 .wrangler/
 client/dist-crazygames/
 release/
+art3d/out/

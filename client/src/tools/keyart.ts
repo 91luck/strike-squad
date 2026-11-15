@@ -35,7 +35,7 @@ fx.height = H;
 
 const level = getMission(stage);
 const sim = new Sim({ seed: 7, settings: { mission: stage } });
-sim.addPlayer({ id: 'me', name: 'Arjun', slot: 0, hero: 0 });
+sim.addPlayer({ id: 'me', name: 'Ace', slot: 0, hero: 0 });
 while (sim.phase === 'countdown') sim.step();
 const arena = level.arenas.find((a) => a.boss === 'boss') ?? level.arenas[0];
 const renderer = new Renderer(bg, { maxDpr: 1 });
@@ -113,7 +113,7 @@ function radial(x: number, y: number, r0: number, color: string, alpha = 1): voi
 const u = H / 1080; // design unit
 const now = 4321;
 
-// The narayanastra halo: a ring of arrows in the sky behind the title.
+// The samarpanastra halo: a ring of arrows in the sky behind the title.
 {
   const cx = W / 2;
   const cy = H * (L.sub + 0.02);

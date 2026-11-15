@@ -49,7 +49,7 @@ export const MISSIONS: readonly MissionInfo[] = [
     brief: [
       'A cursed tomb army wakes: mummies, jackal guards with gold shields, flying scarabs.',
       'TWIN SCORPIONS: two giant scorpions at once. The SUN FALCON brings escorts.',
-      'Final: the ANUBIS COLOSSUS, a living statue on the great pyramid.',
+      'Final: the JACKAL COLOSSUS, a living statue on the great pyramid.',
     ],
   },
   {
@@ -61,21 +61,21 @@ export const MISSIONS: readonly MissionInfo[] = [
     advanced: false,
     brief: [
       'Undead viking warriors with round shields, ravens and rune totems. Two 4-wave ambushes.',
-      'THOR, the thunder god, strikes from the storm. FENRIR the giant wolf guards his den.',
+      'THUNDER WARDEN, the thunder warden, strikes from the storm. DIRE WOLF the giant wolf guards his den.',
       'Final: the FROST GIANT in his ice hall keeps calling reinforcements.',
     ],
   },
   {
     id: 'mission-4',
     num: 4,
-    name: 'Storm over Olympus',
-    place: 'Mount Olympus',
+    name: 'Storm over the Marble Peak',
+    place: 'The marble peak',
     stars: 4,
     advanced: false,
     brief: [
       'The hardest run: skeleton hoplites, harpies and 5-wave ambushes in a lightning storm.',
-      'MINOTAUR AND HARPY fight together, then the MINOTAUR KING alone.',
-      'Final: ZEUS on his temple throws lightning, faster and tougher, with escorts.',
+      'BULL TITAN AND HARPY fight together, then the BULL TITAN KING alone.',
+      'Final: SKY TYRANT on his temple throws lightning, faster and tougher, with escorts.',
     ],
   },
   {
@@ -88,8 +88,8 @@ export const MISSIONS: readonly MissionInfo[] = [
     brief: [
       'A demon army holds the citadel. Grab astras and fire them with the ASTRA button.',
       'Agni: a wave of fire that sets the ground ablaze. Vayu: a gust that blows demons away.',
-      'Walls of fire block the way: only the rain of Varuna puts them out (its altar returns).',
-      'Every kill charges the squad BRAHMASTRA: when it is full, anyone can call it down.',
+      'Walls of fire block the way: only the rain of Jal puts them out (its altar returns).',
+      'Every kill charges the squad PARAMASTRA: when it is full, anyone can call it down.',
       'Bosses: the INFERNO BEAST, a FIRE DRAGON and the DEMON KING on his throne.',
     ],
   },
@@ -323,7 +323,7 @@ const SANDSTORM: CourseDef = {
       len: 54,
       cp: true,
       loot: '+26^ m17^',
-      arena: { name: 'ANUBIS COLOSSUS', bosses: ['boss'], final: true, waves: ['2SL'] },
+      arena: { name: 'JACKAL COLOSSUS', bosses: ['boss'], final: true, waves: ['2SL'] },
     },
   ],
 };
@@ -376,7 +376,7 @@ const FROSTBITE: CourseDef = {
       len: 34,
       cp: true,
       loot: '+4',
-      arena: { name: 'THOR, THUNDER GOD', bosses: ['gunship'], waves: ['2J^', 'SL SR GR', '2J^ HL'] },
+      arena: { name: 'THUNDER WARDEN', bosses: ['gunship'], waves: ['2J^', 'SL SR GR', '2J^ HL'] },
     },
     {
       zone: 'Rune Stones',
@@ -407,7 +407,7 @@ const FROSTBITE: CourseDef = {
       len: 36,
       cp: true,
       loot: '+4',
-      arena: { name: 'FENRIR', bosses: ['walker'], waves: ['2SR', 'GR J^', '2SL HR'] },
+      arena: { name: 'DIRE WOLF', bosses: ['walker'], waves: ['2SR', 'GR J^', '2SL HR'] },
     },
     {
       zone: 'Hall of the Frost Giant',
@@ -422,13 +422,13 @@ const FROSTBITE: CourseDef = {
 
 const BLACKOUT: CourseDef = {
   id: 'mission-4',
-  name: 'Storm over Olympus',
-  faction: 'olympus',
+  name: 'Storm over the Marble Peak',
+  faction: 'marble',
   mods: { enemyHp: 1.35, enemyFire: 1.2, enemyDamage: 1.2, bossHp: 1.2, bossTempo: 1.15 },
   sections: [
     {
       zone: 'Mountain Path',
-      art: 'olympus',
+      art: 'marble',
       land: 'flat',
       len: 24,
       foes: 'S10 S14 D18 G20 J22',
@@ -436,7 +436,7 @@ const BLACKOUT: CourseDef = {
     },
     {
       zone: 'Broken Colonnade',
-      art: 'olympus',
+      art: 'marble',
       land: 'pits',
       len: 36,
       holes: [8, 20, 29],
@@ -445,7 +445,7 @@ const BLACKOUT: CourseDef = {
     },
     {
       zone: 'Storm Gate',
-      art: 'olympus',
+      art: 'marble',
       len: 30,
       cp: true,
       arena: {
@@ -455,7 +455,7 @@ const BLACKOUT: CourseDef = {
     },
     {
       zone: 'Labyrinth',
-      art: 'olympus',
+      art: 'marble',
       land: 'catwalks',
       len: 38,
       foes: 'S6 J9 G14 H18 T24^ D26 S29 G34',
@@ -463,15 +463,15 @@ const BLACKOUT: CourseDef = {
     },
     {
       zone: 'Arena of Heroes',
-      art: 'olympus',
+      art: 'marble',
       len: 40,
       cp: true,
       loot: '+4',
-      arena: { name: 'MINOTAUR AND HARPY', bosses: ['walker', 'gunship'], hp: 0.6 },
+      arena: { name: 'BULL TITAN AND HARPY', bosses: ['walker', 'gunship'], hp: 0.6 },
     },
     {
       zone: 'River Styx Bridge',
-      art: 'olympus',
+      art: 'marble',
       land: 'bridge',
       len: 34,
       foes: 'D8 S10 J12 H18 G24 D26 J30',
@@ -479,7 +479,7 @@ const BLACKOUT: CourseDef = {
     },
     {
       zone: 'Cloud Steps',
-      art: 'olympus',
+      art: 'marble',
       land: 'towers',
       len: 38,
       cp: true,
@@ -488,7 +488,7 @@ const BLACKOUT: CourseDef = {
     },
     {
       zone: 'Last Stand',
-      art: 'olympus',
+      art: 'marble',
       len: 32,
       cp: true,
       arena: {
@@ -510,16 +510,16 @@ const BLACKOUT: CourseDef = {
       len: 36,
       cp: true,
       loot: '+4',
-      arena: { name: 'MINOTAUR KING', bosses: ['walker'], hp: 1.15, waves: ['2SR', '2J^ HR'] },
+      arena: { name: 'BULL TITAN KING', bosses: ['walker'], hp: 1.15, waves: ['2SR', '2J^ HR'] },
     },
     {
-      zone: 'Temple of Zeus',
+      zone: 'Temple of the Sky Tyrant',
       art: 'temple',
       len: 56,
       cp: true,
       loot: '+26^ s17^ +40',
       arena: {
-        name: 'ZEUS, STORM KING',
+        name: 'SKY TYRANT, STORM KING',
         bosses: ['boss'],
         hp: 0.9,
         final: true,
@@ -533,7 +533,7 @@ const ASTRA: CourseDef = {
   id: 'mission-5',
   name: 'Operation Astra',
   faction: 'demon',
-  brahma: true,
+  param: true,
   mods: { enemyHp: 1.25, enemyFire: 1.15, enemyDamage: 1.15, bossHp: 1.15, bossTempo: 1.12 },
   sections: [
     { zone: 'Ember Gate', art: 'inferno', land: 'flat', len: 26, foes: 'S12 S17 D19 G22', loot: 'a9^' },

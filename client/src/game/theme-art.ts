@@ -5,7 +5,7 @@ import type { ZoneStyle } from './world-art';
 /**
  * Faction art that is not a body sprite: arena gates, shields, wings and jets, drones, turrets and enemy fire.
  * The simulation is identical for every faction; these functions only decide how things look, so each mission
- * (tomb guard, frost warriors, Olympus beasts, demons, aliens) reads as its own world.
+ * (tomb guard, frost warriors, the marble peak beasts, demons, aliens) reads as its own world.
  *
  * Everything draws straight onto the world canvas at world coordinates (the renderer has already applied the camera).
  */
@@ -58,7 +58,7 @@ export const SHOT_COLORS: Record<Faction, { core: string; shell: string; wave: [
   army: { core: '#ff5a5a', shell: '#ff9f1c', wave: ['255,160,60', '255,240,200'] },
   pharaoh: { core: '#a3e635', shell: '#fbbf24', wave: ['230,190,110', '255,240,190'] },
   norse: { core: '#7dd3fc', shell: '#e0f2fe', wave: ['150,210,255', '235,250,255'] },
-  olympus: { core: '#93c5fd', shell: '#fde047', wave: ['147,197,253', '240,245,255'] },
+  marble: { core: '#93c5fd', shell: '#fde047', wave: ['147,197,253', '240,245,255'] },
   demon: { core: '#f97316', shell: '#ef4444', wave: ['255,90,30', '255,220,120'] },
   void: { core: '#4ade80', shell: '#c084fc', wave: ['74,222,128', '220,255,230'] },
 };
@@ -85,7 +85,7 @@ export function drawOrdnance(
     ctx.save();
     ctx.translate(x, y);
     if (faction === 'norse') {
-      // the thunder god's hammer, spinning end over end
+      // the thunder warden's hammer, spinning end over end
       ctx.rotate(nowMs / 60);
       ctx.fillStyle = INK;
       ctx.fillRect(-2, -12, 5, 18);
@@ -101,7 +101,7 @@ export function drawOrdnance(
       return true;
     }
     ctx.rotate(a);
-    if (faction === 'pharaoh' || faction === 'olympus') {
+    if (faction === 'pharaoh' || faction === 'marble') {
       // a golden feather / a harpy's bronze spear
       const shaft = faction === 'pharaoh' ? '#fbbf24' : '#b7791f';
       ctx.fillStyle = INK;
@@ -157,9 +157,9 @@ export function drawOrdnance(
     return true;
   }
   const pulse = 0.7 + 0.3 * Math.sin(nowMs / 70);
-  glow(ctx, x, y, (r + 8) * pulse, faction === 'olympus' ? 'rgba(147,197,253,0.9)' : `${c.shell}cc`);
+  glow(ctx, x, y, (r + 8) * pulse, faction === 'marble' ? 'rgba(147,197,253,0.9)' : `${c.shell}cc`);
   glow(ctx, x, y, r * 0.7, '#ffffff');
-  if (faction === 'olympus' && Math.floor(nowMs / 50) % 2 === 0) {
+  if (faction === 'marble' && Math.floor(nowMs / 50) % 2 === 0) {
     ctx.strokeStyle = '#e0f2fe';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
@@ -327,7 +327,7 @@ function paintShield(ctx: Ctx, faction: Faction, x: number, top: number, flash: 
       ctx.fillRect(x - 1, top + 19, 2, 5);
       return;
     case 'norse':
-    case 'olympus': {
+    case 'marble': {
       // round painted wooden shield / bronze hoplite shield
       const cy = top + 20;
       ctx.beginPath();
@@ -674,7 +674,7 @@ function paintFlyer(ctx: Ctx, faction: Faction, x: number, y: number, f: number,
   const tones: Record<Exclude<Faction, 'army' | 'void'>, [string, string, string]> = {
     pharaoh: ['#0b4f49', '#0f766e', '#5eead4'], // scarab wings, iridescent
     norse: ['#0b0f17', '#1f2937', '#4b5563'], // raven feathers
-    olympus: ['#5b2a0b', '#92400e', '#e0a040'], // harpy feathers
+    marble: ['#5b2a0b', '#92400e', '#e0a040'], // harpy feathers
     demon: ['#2a0a0f', '#5b1018', '#9b2c2c'], // bat wings
   };
   const style: WingStyle = faction === 'demon' ? 'bat' : faction === 'pharaoh' ? 'scarab' : 'feather';
@@ -795,7 +795,7 @@ function paintCritter(
       ctx.restore();
       return;
     }
-    case 'olympus': {
+    case 'marble': {
       // a bronze owl automaton: round body, big glass eyes, riveted wings that beat stiffly
       const a = beat(t, 3);
       ctx.save();
@@ -921,7 +921,7 @@ function paintTotem(ctx: Ctx, faction: Faction, x: number, y: number, angle: num
   const body: Record<Exclude<Faction, 'army'>, [string, string, string]> = {
     pharaoh: ['#c9a46a', '#9a7444', '#a3e635'],
     norse: ['#6b7280', '#4b5563', '#38bdf8'],
-    olympus: ['#e2ddd0', '#b8b1a1', '#93c5fd'],
+    marble: ['#e2ddd0', '#b8b1a1', '#93c5fd'],
     demon: ['#3b1f1c', '#1c1416', '#f97316'],
     void: ['#355e3b', '#1a2e1d', '#4ade80'],
   };
