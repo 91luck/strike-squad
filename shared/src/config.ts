@@ -346,9 +346,9 @@ export const GAME_CONFIG = {
     /** Top speed an anti-gravity lift carries you up at. */
     liftSpeed: 240,
     /** Jump still works for a moment after running off a ledge. */
-    coyoteSec: 0.1,
+    coyoteSec: 0.14,
     /** Dash: a burst of speed that bullets pass through, with i-frames a moment longer (one air dash per jump). */
-    dash: { speed: 500, sec: 0.2, cooldownSec: 0.55, iframeSec: 0.12 },
+    dash: { speed: 500, sec: 0.2, cooldownSec: 0.55, iframeSec: 0.15 },
     /** Down + Dash on the ground: slide low under shots, knocking enemies over. */
     slide: { speed: 380, sec: 0.38, damage: 3 },
     hurtInvulnSec: 0.4,

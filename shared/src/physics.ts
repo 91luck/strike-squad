@@ -1,5 +1,6 @@
 import { GAME_CONFIG } from './config';
 import { Tile, fieldAt, gateIdAt, tileAt, type LevelDef } from './level';
+import { MOUNTS, MOUNT_KINDS, MOUNT_POWER } from './mounts';
 
 /**
  * Platformer movement, shared by the server simulation and the client's prediction of its own soldier, so both
@@ -60,6 +61,10 @@ export interface Mover {
   /** One air dash per jump. */
   airDashed: boolean;
   prevDash: boolean;
+  /** What this body rides (index into MOUNT_KINDS), -1 on foot. See mounts.ts. */
+  ride: number;
+  /** Ticks left of the ride's power move (nitro, charge, pounce, dive): it moves on its own meanwhile. */
+  rush: number;
 }
 
 export interface World {
@@ -243,6 +248,10 @@ const ticksOf = (sec: number, dt: number): number => Math.max(1, Math.round(sec 
  * (low profile), Down + Jump drop through platforms. Jump cancels a dash or a slide.
  */
 export function stepPlayerMovement(world: World, b: Mover, input: PlayerInput, dt: number): void {
+  if (b.ride >= 0) {
+    stepRide(world, b, input, dt);
+    return;
+  }
   const jumpPressed = input.jump && !b.prevJump;
   b.prevJump = input.jump;
   const dashPressed = input.dash && !b.prevDash;
@@ -351,8 +360,80 @@ export function stepPlayerMovement(world: World, b: Mover, input: PlayerInput, d
   }
 }
 
+/** Top of the world a flier may rise to (px). */
+export const RIDE_CEILING = 24;
+
+/**
+ * Riding (mounts.ts): the ride's own speed and jumps, or free flight. No dash, no slide, no crouch. While its power
+ * move runs (`rush`) it moves on its own: nitro and charge race straight ahead, a pounce flies the arc it was given,
+ * a dive drops like a stone.
+ */
+function stepRide(world: World, b: Mover, input: PlayerInput, dt: number): void {
+  const kind = MOUNT_KINDS[b.ride];
+  const m = kind ? MOUNTS[kind] : MOUNTS.horse;
+  const jumpPressed = input.jump && !b.prevJump;
+  b.prevJump = input.jump;
+  b.prevDash = input.dash;
+  b.dashTicks = 0;
+  b.slideTicks = 0;
+  b.crouch = false;
+  if (b.rush > 0) {
+    b.rush--;
+    if (m.power === 'nitro' || m.power === 'charge') {
+      const sp = m.power === 'nitro' ? MOUNT_POWER.nitro.speed : MOUNT_POWER.charge.speed;
+      b.vx = b.facing * sp;
+    } else if (m.power === 'dive') {
+      b.vx = b.facing * 140;
+      b.vy = MOUNT_POWER.dive.speed;
+    }
+    // a pounce keeps the arc it was given
+  } else {
+    if (input.mx !== 0) b.facing = input.mx > 0 ? 1 : -1;
+    b.vx = input.mx * m.speed;
+  }
+  if (m.fly) {
+    if (!(b.rush > 0 && m.power === 'dive')) {
+      const up = input.jump || input.my < 0;
+      const target = (up ? -1 : input.my > 0 ? 1 : 0) * m.speed * 0.85;
+      b.vy += (target - b.vy) * Math.min(1, dt * 9);
+    }
+    moveBody(world, b, dt);
+    if (b.y - b.h < RIDE_CEILING) {
+      b.y = RIDE_CEILING + b.h;
+      if (b.vy < 0) b.vy = 0;
+    }
+    if (b.vx === 0 && b.rush > 0 && m.power !== 'dive') b.rush = 0;
+    return;
+  }
+  if (jumpPressed) {
+    if (b.onGround || b.coyote > 0) {
+      b.vy = -m.jump;
+      b.onGround = false;
+      b.coyote = 0;
+    } else if (b.airJumps > 0) {
+      b.vy = -m.jump * 0.88;
+      b.airJumps--;
+    }
+  }
+  if (!input.jump && b.rush === 0 && b.vy < -m.jump * 0.45) b.vy = -m.jump * 0.45;
+  b.vy = Math.min(P.maxFallSpeed, b.vy + P.gravity * dt);
+  moveBody(world, b, dt);
+  if (b.vx === 0 && b.rush > 0 && m.power !== 'pounce') b.rush = 0; // ran into a wall
+  if (b.dropTicks > 0) b.dropTicks--;
+  if (b.onGround) {
+    b.coyote = ticksOf(P.coyoteSec, dt);
+    b.airJumps = m.airJumps;
+    if (m.power === 'pounce') b.rush = 0;
+  } else b.coyote = Math.max(0, b.coyote - 1);
+}
+
 /** Aim direction (unit-ish grid vector) for a body given its input. */
 export function aimOf(b: Mover, input: PlayerInput): { ax: number; ay: number } {
+  // in the saddle the gun points the way the ride faces (up/down steer a flier); a rider on the ground may aim up
+  if (b.ride >= 0)
+    return input.my < 0 && !MOUNTS[MOUNT_KINDS[b.ride] ?? 'horse'].fly
+      ? { ax: b.facing, ay: -1 }
+      : { ax: b.facing, ay: 0 };
   if (input.my < 0) return { ax: input.mx, ay: -1 };
   if (input.my > 0 && !b.onGround) return { ax: input.mx, ay: 1 };
   return { ax: b.facing, ay: 0 };
@@ -379,5 +460,7 @@ export function newMover(x: number, y: number, w: number, h: number): Mover {
     dashDir: 1,
     airDashed: false,
     prevDash: false,
+    ride: -1,
+    rush: 0,
   };
 }

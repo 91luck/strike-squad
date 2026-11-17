@@ -1,3 +1,4 @@
+import { MOUNTS, type MountKind } from './mounts';
 import { GAME_CONFIG, type BossKind, type PickupKind, type TrooperKind } from './config';
 import {
   Builder,
@@ -21,10 +22,12 @@ import {
  *   { zone: 'Dune Sea', art: 'desert', land: 'pits', len: 38, holes: [9, 22],
  *     foes: 'S6 T16^ G20 D24', loot: '+34' }
  *
- * Foes   `<kind><col>[^]`      S soldier · H shield · G grenadier · J jetpack · T turret · D drone ·
+ * Foes   `<kind><col>[^][?]`   S soldier · H shield · G grenadier · J jetpack · T turret · D drone ·
  *                              I fire imp · B burning bat · W tree demon (Agnivan's own).
  *                              `^` stands it on the highest surface (a ledge or platform) instead of the ground;
  *                              `_` on the lowest (the floor of a passage under a wall, a trench bottom).
+ *                              `?` is optional: left out where there is nothing to stand on; `~` (an escort)
+ *                              also only at the height of the foe before it.
  * Loot   `<kind><col>[^][*]`   s spread · m machine gun · l laser · + med-kit;
  *                              powers: a agni (fire) · w jal (rain) · v vayu (wind) · b black hole ·
  *                              n naga · g shyen · c chakram chakra · p vidyut · x tej.
@@ -68,7 +71,8 @@ export type Land =
   | 'illusion'
   | 'warpath'
   | 'rings'
-  | 'skyway';
+  | 'skyway'
+  | 'udaan';
 
 export const LANDS: readonly Land[] = [
   'flat',
@@ -95,6 +99,7 @@ export const LANDS: readonly Land[] = [
   'warpath',
   'rings',
   'skyway',
+  'udaan',
 ];
 
 /**
@@ -167,6 +172,11 @@ export interface Section {
   rise?: number;
   /** A rest stop (ashram): see LevelDef.rests. It may hold loot but no foes. */
   rest?: boolean;
+  /**
+   * A ride stand (mounts.ts) at column `at` (default 2): every soldier reaching it rides `kind` for `len` tiles
+   * (default: to three tiles before the end of the section).
+   */
+  ride?: { kind: MountKind; at?: number; len?: number };
   arena?: ArenaSpec;
 }
 
@@ -625,6 +635,23 @@ const illusion: Template = (b, x, s) => {
   }
 };
 
+/**
+ * Udaan, a flight: a launch ground with the ride stand, then open sky over a drop with stone spires rising out of it
+ * and rocks hanging from above, the gaps between them to fly through, and a landing on the far side. Only a flying ride
+ * crosses it (the section must have one); a soldier who loses theirs falls back to the stand and takes another.
+ */
+const udaan: Template = (b, x, s) => {
+  const n = s.len;
+  b.ground(x, x + 5, G);
+  b.ground(x + n - 5, x + n - 1, G);
+  let up = true;
+  for (let c = x + 11; c + 3 < x + n - 7; c += 9) {
+    if (up) b.block(c, c + 1, 9, ROWS - 1);
+    else b.block(c, c + 1, 0, 5);
+    up = !up;
+  }
+};
+
 const LAND: Record<Land, Template> = {
   flat,
   pits,
@@ -650,6 +677,7 @@ const LAND: Record<Land, Template> = {
   warpath,
   rings,
   skyway,
+  udaan,
 };
 
 /**
@@ -861,18 +889,33 @@ export function buildCourse(def: CourseDef): LevelDef {
     }
     for (const c of s.wells ?? []) b.field('well', x + c - 5, x + c + 4, 6, ROWS - 1, 90);
     if (s.cp) b.checkpoint(x + 2, b.surface(x + 2));
+    if (s.land === 'udaan' && !(s.ride && MOUNTS[s.ride.kind].fly))
+      throw new Error(`${where}: a flight needs a flying ride`);
+    if (s.ride) {
+      const at = s.ride.at ?? 2;
+      const len = s.ride.len ?? s.len - at - 3;
+      const row = b.surface(x + at);
+      if (row >= ROWS) throw new Error(`${where}: the ride stand needs ground`);
+      b.mount(s.ride.kind, x + at, row, x + at + len);
+    }
     if (s.rest) {
       if (s.arena || s.foes) throw new Error(`${where}: a rest stop holds no enemies`);
       b.rest(x, x + s.len - 1);
     }
+    let lastRow = -1;
     for (const tok of tokens(s.foes)) {
-      const m = /^([A-Z][a-z]?)(\d+)([\^_]?)$/.exec(tok);
+      const m = /^([A-Z][a-z]?)(\d+)([\^_]?)([?~]?)$/.exec(tok);
       if (!m || !FOE[m[1] as string]) throw new Error(`${where}: bad foe "${tok}"`);
       const col = x + Number(m[2]);
       // makara riders live in the sea: they wait under its surface, whatever is (or is not) below
       let row = m[1] === 'M' ? SEA_ROW : standOn(b, col, m[3] as string);
       // flyers need nothing under them: over a drop they keep the height of the path
       if (row >= ROWS && FLIERS.has(FOE[m[1] as string] as TrooperKind)) row = G;
+      // `?` is placed only where it has something to stand on; `~` (an escort, see saga.ts) only at the height of
+      // the foe it follows, too (never up on a wall or a ledge it would hold alone)
+      if (m[4] && (Number(m[2]) >= s.len || row >= ROWS)) continue;
+      if (m[4] === '~' && row !== lastRow) continue;
+      lastRow = row;
       if (Number(m[2]) >= s.len || row >= ROWS)
         throw new Error(`${where}: foe "${tok}" has nothing to stand on`);
       b.enemy(FOE[m[1] as string] as TrooperKind, col, row);

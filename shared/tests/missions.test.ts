@@ -149,10 +149,18 @@ describe('terrain shapes', () => {
     buildCourse({ ...base, sections: [{ art: 'jungle', land: 'flat', len: 6 }, section as never, fin] });
 
   it.each(LANDS.map((l) => [l]))('%s joins its neighbours on the ground line at both ends', (land) => {
-    const L = one({ art: 'jungle', land, len: 34 });
+    // a flight is built only with a flying ride on it
+    const L = one({ art: 'jungle', land, len: 34, ...(land === 'udaan' ? { ride: { kind: 'baaz' } } : {}) });
     for (const c of [6, 7, 6 + 33, 6 + 32]) expect(tileAt(L, c, 14), `${land} col ${c}`).toBe(Tile.Solid);
     expect(tileAt(L, 6, 13)).toBe(Tile.Empty);
     expect(tileAt(L, 6 + 33, 13)).toBe(Tile.Empty);
+  });
+
+  it('a flight without a flying ride is refused at build time', () => {
+    expect(() => one({ art: 'jungle', land: 'udaan', len: 34 })).toThrow(/flying ride/);
+    expect(() => one({ art: 'jungle', land: 'udaan', len: 34, ride: { kind: 'horse' } })).toThrow(
+      /flying ride/,
+    );
   });
 
   it('a rampart has a passage under it: `_` stands a foe on its floor, `^` on top of the wall', () => {

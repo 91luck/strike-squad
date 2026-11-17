@@ -34,6 +34,8 @@ interface Cine {
   f: 1 | -1;
   born: number;
   dur: number;
+  /** the yantra of the aahvaan (astra-aahvaan.ts) stands in for the sigil */
+  noSigil: boolean;
 }
 
 /** Each astra's light: core, glow, and the tint the sky takes. */
@@ -72,9 +74,9 @@ const envelope = (t: number, a = 0.18, b = 0.35): number => Math.max(0, Math.min
 export class AstraCinema {
   private list: Cine[] = [];
 
-  add(kind: CineKind, x: number, y: number, f: 1 | -1, nowMs: number): void {
+  add(kind: CineKind, x: number, y: number, f: 1 | -1, nowMs: number, noSigil = false): void {
     if (this.list.length > 6) this.list.shift();
-    this.list.push({ kind, x, y, f, born: nowMs, dur: DUR[kind] * 1000 });
+    this.list.push({ kind, x, y, f, born: nowMs, dur: DUR[kind] * 1000, noSigil });
   }
 
   clear(): void {
@@ -132,7 +134,7 @@ export class AstraCinema {
       const env = envelope(t);
       ctx.save();
       ctx.globalCompositeOperation = 'lighter';
-      sigil(ctx, c, t, env, nowMs);
+      if (!c.noSigil) sigil(ctx, c, t, env, nowMs);
       switch (c.kind) {
         case 'agni':
           phoenix(ctx, c, t, env, nowMs);

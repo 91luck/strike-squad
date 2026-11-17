@@ -8,6 +8,8 @@ import {
   BULLET_KINDS,
   GAME_CONFIG,
   POWER_KINDS,
+  MOUNTS,
+  mountOf,
   darknessAt,
   MISSION_1,
   Tile,
@@ -93,6 +95,8 @@ import {
 } from './astra-art';
 import { AstraCinema } from './astra-cine';
 import { CutIn } from './cutin';
+import { AstraShow, CLOSE } from './astra-aahvaan';
+import { drawRide, drawRideBar, drawStand, seatOf, warmRide } from './mount-art';
 import { drawSkyEvent } from './sky-events';
 import { drawGoal } from './goal-art';
 import { GOAL_TEXT } from '../story';
@@ -482,6 +486,8 @@ export class Renderer {
   private cine = new AstraCinema();
   /** Your own super moves and astras: the fighting-game cut-in over the screen (cutin.ts). */
   private readonly cutin = new CutIn();
+  /** How an astra is called (astra-aahvaan.ts): the yantra, the one arrow becoming a thousand, the strike. */
+  private readonly show = new AstraShow();
   /** The team paramastra's four movements (paramastra-art.ts). */
   private paramastra = new Paramastra();
   private trails: Trail[] = [];
@@ -519,6 +525,7 @@ export class Renderer {
 
   /** Switch to another mission's map (props are rebuilt; tile and backdrop art is shared and cached). */
   setLevel(level: LevelDef): void {
+    for (const st of level.mounts ?? []) warmRide(st.kind);
     if (level === this.lvl) return;
     this.lvl = level;
     this.agni = this.agnivanPieces(level);
@@ -556,6 +563,7 @@ export class Renderer {
     this.glowBurst = [];
     this.cine.clear();
     this.cutin.clear();
+    this.show.clear();
     this.trails = [];
     this.slashes = [];
     this.styleFloats = [];
@@ -1164,6 +1172,9 @@ export class Renderer {
     this.drawRests(o.nowMs);
     this.drawCheckpoints(s, o.nowMs);
     this.drawPickups(s, o.nowMs);
+    for (const st of this.lvl.mounts ?? [])
+      if (st.x > this.camX - 120 && st.x < this.camX + this.viewW + 120)
+        drawStand(ctx, st.kind, st.x, st.y, o.nowMs);
     if (s.gl && isSagaId(this.lvl.id)) drawGoal(ctx, s.gl, GOAL_TEXT[this.lvl.id].look, o.nowMs);
     this.drawPortals(o.nowMs);
     if (s.fx.some((f) => f.k === 0) || this.fireRuns.length)
@@ -1237,6 +1248,21 @@ export class Renderer {
     this.drawBossAstras(s, o.nowMs);
     this.drawAstraFx(dt, o.nowMs);
     if (this.cine.active) this.pixelated(() => this.cine.drawFront(this.ctx, o.nowMs));
+    if (this.show.active) {
+      this.pixelated(() =>
+        this.show.drawWorld(
+          this.ctx,
+          o.nowMs,
+          this.camX,
+          this.camY,
+          this.viewW,
+          this.viewH,
+          this.quality > 0,
+        ),
+      );
+      const k = this.show.takeShake(o.nowMs);
+      if (k && !o.reduceMotion) this.shake(k);
+    }
     if (this.paramastra.active)
       this.paramastra.drawFront(this.ctx, o.nowMs, this.camX, this.camY, this.viewW, this.viewH);
     this.drawBows(players, o.nowMs, false); // over the astra's own flash, so the bow is seen loosing it
@@ -1257,6 +1283,8 @@ export class Renderer {
       ctx.fillStyle = `rgba(12, 6, 24, ${0.6 * this.dark})`;
       ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
     }
+    if (this.show.active)
+      this.show.drawScreen(ctx, o.nowMs, this.canvas.width, this.canvas.height, o.reduceMotion);
     if (this.cutin.active)
       this.cutin.draw(ctx, o.nowMs, this.canvas.width, this.canvas.height, this.dpr, o.reduceMotion);
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
@@ -1309,8 +1337,15 @@ export class Renderer {
     let tx: number;
     let ty: number;
     if (me) {
-      tx = me.x - this.viewW * 0.4 + (me.st === 0 ? me.f * 60 : 0);
-      ty = me.y - this.viewH * 0.78;
+      // Phones: the jump and fire buttons cover the right third, so the soldier runs further left and the next
+      // ledge (and the gap before it) lands in the open middle of the screen.
+      const phone = this.viewH < FULL_H;
+      tx = me.x - this.viewW * (phone ? 0.3 : 0.4) + (me.st === 0 ? me.f * (phone ? 50 : 60) : 0);
+      // Phones show less of the world (and thumbs cover its bottom corners): the soldier sits a little higher.
+      ty = me.y - this.viewH * (this.viewH < FULL_H ? 0.68 : 0.78);
+      // Over the sea, always show the water under the soldier: the next stone, the gap and the tide are what a
+      // jump is judged by. (Never at the cost of the soldier: keep at least 110 px of sky above them.)
+      if (s?.wy !== undefined) ty = Math.max(ty, Math.min(s.wy + 56 - this.viewH, me.y - 110));
     } else if (players.length) {
       const lead = players.reduce((a, b) => (b.x > a.x ? b : a));
       tx = lead.x - this.viewW * 0.5;
@@ -2044,6 +2079,39 @@ export class Renderer {
       this.drawKo(p, nowMs);
       return;
     }
+    // In the saddle (mount-art.ts): the ride first, then the soldier at its seat, sitting still (a flier's rider
+    // keeps their flying pose); the ride's health over them.
+    const ride = mountOf(p.rd ?? -1);
+    if (ride) {
+      const fly = MOUNTS[ride].fly;
+      if (p.g === 1) this.shadow(p.x, p.y, ride === 'elephant' ? 34 : 24);
+      const blinkR = p.iv === 1 && Math.floor(nowMs / 80) % 2 === 0;
+      if (blinkR) ctx.globalAlpha = 0.6;
+      this.pixelated(() =>
+        drawRide(ctx, {
+          kind: ride,
+          x: p.x,
+          y: p.y,
+          f: p.f,
+          vx: p.vx,
+          vy: p.vy,
+          ground: p.g === 1,
+          rush: (p.ru ?? 0) > 0,
+          nowMs,
+          color: hero.color,
+        }),
+      );
+      ctx.globalAlpha = 1;
+      const seat = seatOf(ride);
+      const bar = p.y - seat.y - 58;
+      drawRideBar(ctx, p.x, bar, (p.rh ?? 0) / 100);
+      p = {
+        ...p,
+        x: p.x + seat.x * p.f,
+        y: p.y - seat.y,
+        ...(fly && ride !== 'baaz' ? {} : { g: 1, vx: 0 }),
+      };
+    }
     const { pose, frame } = this.poseOf(p, nowMs);
     const aim = p.ax === 0 && p.ay === 0 ? 'f' : aimFrom(p.ax, p.ay);
     const f = charFrame(`h${hero.id}`, look, pose, frame, aim);
@@ -2057,12 +2125,12 @@ export class Renderer {
     }
     // Double jump: a burst ring under the feet the moment it happens.
     const aj = this.airJumpsSeen.get(p.id) ?? 1;
-    if (p.g === 0 && p.aj < aj) {
+    if (p.g === 0 && p.aj < aj && !ride) {
       this.rings.push({ x: p.x, y: p.y, r: 4, life: 0.3, max: 0.3, color: hero.color });
       this.spark(p.x, p.y, '#ffffff', 6, this.reduce, 90);
     }
     this.airJumpsSeen.set(p.id, p.aj);
-    if (p.g === 1) this.shadow(p.x, p.y, pose === 'slide' ? 16 : 11);
+    if (p.g === 1 && !ride) this.shadow(p.x, p.y, pose === 'slide' ? 16 : 11);
     // Super ready: a pulsing ring at the feet. Overdrive: flames.
     if (p.ul >= GAME_CONFIG.ult.max) {
       const k = 0.5 + 0.5 * Math.sin(nowMs / 140);
@@ -3800,13 +3868,85 @@ export class Renderer {
     }
   }
 
+  /** Getting on a ride, or losing it (mounts.ts). */
+  rideEffect(ev: Extract<SimEvent, { e: 'ride' }>, reduce: boolean): void {
+    if (ev.on === 1) {
+      this.rings.push({ x: ev.x, y: ev.y - 20, r: 8, life: 0.45, max: 0.45, color: '#fde68a' });
+      this.spark(ev.x, ev.y - 20, '#fde68a', 14, reduce, 200);
+    } else if (ev.lost === 1) {
+      this.explosion(ev.x, ev.y - 20, false, reduce);
+      this.spark(ev.x, ev.y - 20, '#a8a29e', 16, reduce, 260);
+    }
+  }
+
+  /** A ride's power (mounts.ts): what it looks like when it goes off. */
+  ridePowerEffect(ev: Extract<SimEvent, { e: 'rpow' }>, reduce: boolean): void {
+    const y = ev.y - 20;
+    switch (ev.k) {
+      case 'bike':
+        this.flash('#7dd3fc', 0.12);
+        this.spark(ev.x - ev.f * 30, y + 6, '#7dd3fc', 16, reduce, 260);
+        if (!reduce) this.shake(4);
+        break;
+      case 'jeep':
+        this.spark(ev.x + ev.f * 20, y - 20, '#fde68a', 14, reduce, 220);
+        if (!reduce) this.shake(6);
+        break;
+      case 'jetsuit':
+        this.rings.push({ x: ev.x, y: y - 10, r: 6, life: 0.35, max: 0.35, color: '#7dd3fc' });
+        this.spark(ev.x, y - 10, '#bae6fd', 18, reduce, 240);
+        break;
+      case 'horse':
+        this.spark(ev.x - ev.f * 20, ev.y, '#a8865c', 20, reduce, 180);
+        if (!reduce) this.shake(4);
+        break;
+      case 'tiger':
+        if (ev.tx !== undefined && ev.ty !== undefined) {
+          // three claw marks across the target
+          for (let i = -1; i <= 1; i++)
+            this.slashes.push({
+              x0: ev.tx - 18 * ev.f,
+              y0: ev.ty - 40 + i * 9,
+              x1: ev.tx + 18 * ev.f,
+              y1: ev.ty - 22 + i * 9,
+              life: 0.3,
+              color: '#fb923c',
+            });
+          this.spark(ev.tx, ev.ty - 20, '#f97316', 18, reduce, 240);
+        }
+        break;
+      case 'elephant':
+        for (let i = 0; i < 3; i++)
+          this.rings.push({
+            x: ev.x,
+            y: ev.y - 4,
+            r: 20 + i * 50,
+            life: 0.45 + i * 0.1,
+            max: 0.7,
+            color: '#d6b98c',
+          });
+        this.spark(ev.x, ev.y - 4, '#a8865c', 26, reduce, 300);
+        if (!reduce) this.shake(12);
+        break;
+      case 'baaz':
+        this.rings.push({ x: ev.x, y, r: 10, life: 0.3, max: 0.3, color: '#fde68a' });
+        break;
+    }
+  }
+
   /** A power was used: start its effect. */
-  astraEffect(ev: Extract<SimEvent, { e: 'astra' }>, reduce: boolean): void {
+  astraEffect(ev: Extract<SimEvent, { e: 'astra' }>, reduce: boolean, mine = false, hero = 0): void {
     const [hi, lo] = POWER_COLOR[ev.kind];
     const cy = ev.y - 24;
     // The tej orb turning back is not a new call: it keeps the first apparition.
-    if (!(ev.kind === 'tej' && ev.v === 1)) this.cine.add(ev.kind, ev.x, ev.y, ev.f, performance.now());
-    this.bows.set(ev.id, { born: performance.now(), kind: ev.kind });
+    if (!(ev.kind === 'tej' && ev.v === 1)) {
+      const now = performance.now();
+      this.show.play(ev.kind, ev.x, ev.y, ev.f, now, mine, hero);
+      // the astra's creature (phoenix, cobra, eagle…) rises as the one arrow becomes a thousand (your own call
+      // after its close shot)
+      this.cine.add(ev.kind, ev.x, ev.y, ev.f, now + 550 + (mine ? CLOSE * 1000 : 0), true);
+    }
+    this.bows.set(ev.id, { born: performance.now() + (mine ? CLOSE * 1000 : 0), kind: ev.kind });
     this.rings.push({ x: ev.x, y: cy, r: 6, life: 0.4, max: 0.4, color: hi });
     this.spark(ev.x + ev.f * 16, cy, lo, 12, reduce, 220);
     if (ev.kind === 'naga' || ev.kind === 'chakram') {

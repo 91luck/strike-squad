@@ -2,6 +2,7 @@ import { ATTACK, GAME_CONFIG, isBoss, isFixedBoss } from './config';
 import { Tile, fieldAt, levelWidth, tileAt } from './level';
 import { NEUTRAL_INPUT, footingBelow, onPlatform, solidAtPoint, type PlayerInput } from './physics';
 import { ATTACK_WINDUP, type Enemy, type Player, type Sim } from './sim';
+import { MOUNTS, mountOf } from './mounts';
 
 /**
  * A computer player that plays the mission like a decent human would: pushes right, fights arena waves from a
@@ -35,6 +36,12 @@ interface Memory {
   goalAim: number;
   goalSince: number;
   goalSkip: Set<number>;
+  /** A foe overhead we are shooting straight up at: which, its health then, and since when (to give up on it). */
+  upFoe: number;
+  upHp: number;
+  upSince: number;
+  /** The ride's power button, held last tick (presses are edges). */
+  rideHeld: boolean;
 }
 
 interface Foe {
@@ -68,6 +75,10 @@ export class Autopilot {
         goalAim: -1,
         goalSince: 0,
         goalSkip: new Set<number>(),
+        upFoe: -1,
+        upHp: 0,
+        upSince: 0,
+        rideHeld: false,
       };
       this.mem.set(p.id, m);
     }
@@ -223,6 +234,20 @@ export class Autopilot {
         my = -1;
         if (Math.abs(fdx) < 50) mx = 0;
         else if (mx === 0) mx = Math.sign(fdx);
+        // Shooting up at one standing on something (a wall top) that does not get hurt, just out of line: climb
+        // up to it instead. (A flyer is shot down where it is.)
+        if (m.upFoe !== foe.e.id || foe.e.hp < m.upHp) {
+          m.upFoe = foe.e.id;
+          m.upHp = foe.e.hp;
+          m.upSince = sim.tick;
+        } else if (
+          sim.tick - m.upSince > sim.ticks(3) &&
+          footingBelow(sim.world, foe.e.body.x, foe.e.body.y)
+        ) {
+          mx = Math.sign(fdx) || 1;
+          wantJump = true;
+          if (!p.onGround && p.vy > -60) wantAirJump = true;
+        }
       } else if (!p.onGround && fdy > 60 && Math.abs(fdx) < fdy * 1.2) {
         my = 1; // in the air over it: shoot down
       } else if (mx === 0 && Math.abs(fdx) > 8 && Math.sign(fdx) !== p.facing) mx = Math.sign(fdx); // turn round
@@ -397,7 +422,83 @@ export class Autopilot {
       }
     }
     m.astraHeld = astra;
+    if (p.ride >= 0)
+      return this.rideInput(sim, p, m, foe, { mx, my, jump, fire, dash, melee: false, ult, astra });
     return { mx, my, jump, fire, dash, melee: false, ult, astra };
+  }
+
+  /**
+   * In the saddle (mounts.ts): a flier picks a height with a clear way ahead (over the spires, under the hanging
+   * rocks, a little above the ground and the foes); every ride uses its power when foes are close, and nobody
+   * dashes. Ground rides keep the walking plan (their jumps are at least as good as a soldier's).
+   */
+  private rideInput(sim: Sim, p: Player, m: Memory, foe: Foe | null, base: PlayerInput): PlayerInput {
+    const kind = mountOf(p.ride);
+    const def = MOUNTS[kind ?? 'horse'];
+    const out: PlayerInput = { ...base, dash: false, melee: false };
+    // the power, when it pays
+    let want = false;
+    if (foe && p.mountReady <= sim.tick) {
+      const fdx = (foe.x - p.x) * p.facing;
+      const fdy = foe.y - p.y;
+      if (def.power === 'dive') want = fdy > 40 && Math.abs(foe.x - p.x) < 140;
+      else if (def.power === 'pounce' || def.power === 'stomp') want = Math.abs(foe.x - p.x) < 220;
+      else want = fdx > -40 && fdx < 420;
+    }
+    out.melee = want && !m.rideHeld;
+    m.rideHeld = out.melee;
+    if (!def.fly) {
+      if (out.my > 0) out.my = 0;
+      return out;
+    }
+    // ---- flight: forward, at a height with a clear way
+    // the walking plan may hold still for things a flier passes over (a boat or a vimana to wait for, a footing to
+    // land on): a flier only waits for a friend far behind, or holds its spot in a locked arena
+    let rear = p.x;
+    for (const q of sim.players.values()) if (q.state === 'alive') rear = Math.min(rear, q.x);
+    if (base.mx === 0 && sim.activeArena() < 0 && p.x - rear <= 12 * T) out.mx = 1;
+    else out.mx = base.mx;
+    const dir = out.mx !== 0 ? out.mx : p.facing;
+    out.jump = false;
+    const lvlH = sim.level.rows * T;
+    // the lowest ground over the next stretch (ignoring drops): fly a little above the highest of it
+    let top = Infinity;
+    for (let k = 0; k <= 10; k++) {
+      const x = p.x + dir * k * T;
+      for (let y = 0; y < lvlH; y += T / 2)
+        if (solidAtPoint(sim.world, x, y)) {
+          if (y > 2 * T) top = Math.min(top, y);
+          break;
+        }
+    }
+    let want_y = Number.isFinite(top) ? top - 70 : p.y;
+    if (foe && Math.abs(foe.x - p.x) < 400) want_y = Math.min(want_y, foe.y - 10);
+    want_y = Math.max(80, Math.min(lvlH - 60, want_y));
+    // a clear way ahead at that height? if not, the nearest height that has one
+    const clear = (y: number): boolean => {
+      for (let k = 1; k <= 5; k++) {
+        const x = p.x + dir * k * 24;
+        if (solidAtPoint(sim.world, x, y) || solidAtPoint(sim.world, x, y - P.height)) return false;
+        if (solidAtPoint(sim.world, x, y - P.height / 2)) return false;
+      }
+      return true;
+    };
+    let best = want_y;
+    if (!clear(want_y)) {
+      let found = false;
+      for (let d = 16; d < lvlH && !found; d += 16)
+        for (const y of [want_y - d, want_y + d])
+          if (y > 60 && y < lvlH - 40 && clear(y)) {
+            best = y;
+            found = true;
+            break;
+          }
+      // boxed in: hold still on this axis and climb
+      if (!found) best = p.y - 40;
+    }
+    if (!clear(p.y) && Math.abs(best - p.y) > 12) out.mx = 0; // rise or sink first, then go on
+    out.my = Math.abs(best - p.y) < 10 ? 0 : best < p.y ? -1 : 1;
+    return out;
   }
 
   /** Ground at about our height a few tiles ahead (the far side of a gap, the top of the next tower)? */

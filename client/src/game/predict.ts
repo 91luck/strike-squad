@@ -94,6 +94,8 @@ export class Predictor {
     b.dashDir = server.dd;
     b.airDashed = server.ad === 1;
     b.prevDash = server.pd === 1;
+    b.ride = server.rd ?? -1;
+    b.rush = server.ru ?? 0;
     this.pending = this.pending.filter((p) => p.seq > ack);
     if (!this.synced || !this.alive) {
       this.synced = true;

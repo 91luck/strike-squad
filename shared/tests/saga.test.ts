@@ -553,3 +553,52 @@ describe('every saga stage can be finished', () => {
     120_000,
   );
 });
+
+// ---------------------------------------------------------------- full strength (saga.ts fullStrength)
+
+describe('saga stages at full strength', () => {
+  it('every stage but the lava climb ends in a gauntlet of a terrain it has not used, right before the boss', () => {
+    for (const id of SAGA_IDS) {
+      const secs = SAGA_COURSES[id].sections;
+      const last = secs.length - 1;
+      const g = secs[last - 1]!;
+      if (id === 'astra-6') continue;
+      expect(g.foes?.split(' ').length, id).toBeGreaterThanOrEqual(5);
+      const before = secs.slice(0, last - 1).map((s) => s.land ?? 'flat');
+      expect(before, `${id}: ${g.land}`).not.toContain(g.land);
+    }
+  });
+
+  it('a crowd on every stage: 22 or more foes (the lava climb, which keeps its pace, 14)', () => {
+    for (const id of SAGA_IDS) {
+      const L = getMission(id);
+      expect(L.enemies.length, id).toBeGreaterThanOrEqual(id === 'astra-6' ? 14 : 22);
+    }
+  });
+});
+
+describe('a trial halfway and a climbing curve', () => {
+  it('every stage but the chase and the lava climb has a trial right after its rest stop, on a shape new to it', () => {
+    for (const id of SAGA_IDS) {
+      if (id === 'astra-1' || id === 'astra-6') continue;
+      const secs = SAGA_COURSES[id].sections;
+      const r = secs.findIndex((s) => s.rest);
+      const t = secs[r + 1]!;
+      expect(t.foes?.split(' ').length, id).toBeGreaterThanOrEqual(4);
+      const others = secs.filter((s) => s !== t).map((s) => s.land ?? 'flat');
+      expect(others, `${id}: ${t.land}`).not.toContain(t.land);
+    }
+  });
+
+  it('each stage hits at least as hard as the one before (host and boss)', () => {
+    for (let i = 1; i < SAGA_IDS.length; i++) {
+      const a = SAGA_COURSES[SAGA_IDS[i - 1]!].mods;
+      const b = SAGA_COURSES[SAGA_IDS[i]!].mods;
+      expect(b.enemyDamage / a.enemyDamage, SAGA_IDS[i]).toBeGreaterThan(0.9);
+    }
+    const first = SAGA_COURSES['astra-1'].mods;
+    const last = SAGA_COURSES['astra-10'].mods;
+    expect(last.enemyDamage).toBeGreaterThan(first.enemyDamage);
+    expect(last.bossHp).toBeGreaterThan(first.bossHp);
+  });
+});

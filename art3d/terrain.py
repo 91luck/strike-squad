@@ -262,7 +262,7 @@ def top_strip(kind, seed, c):
                 d.ellipse([x - 5, base - hgt, x + 5, base], fill=col + (255,))
             else:
                 d.polygon([(x - 1.6, base), (x + lean, base - hgt), (x + 1.6, base)], fill=col + (255,))
-                if kind == 'grass' and r.random() < 0.18:  # burnt tips (the forest is on fire)
+                if kind == 'grass' and c.get('burnt', True) and r.random() < 0.18:  # burnt tips (the forest is on fire)
                     d.line([(x + lean * 0.8, base - hgt * 0.8), (x + lean, base - hgt)], fill=(255, 140, 40, 255), width=2)
         for _ in range(40 if kind != 'drygrass' else 70):
             x = r.uniform(W, W * 2)
@@ -284,7 +284,7 @@ def top_strip(kind, seed, c):
         # a cut edge: a rounded lip moulding with a bright top face (or a crust of cooling lava)
         for x in range(0, W * 3):
             d0.line([(x, top - 4), (x, top + 10)], fill=c['cap'] + (255,))
-        if kind == 'crust':
+        if kind == 'crust' and c.get('lava', True):
             for _ in range(60):
                 x = r.uniform(W, W * 2)
                 d.line([(x, top - 2), (x + r.uniform(-4, 4), top + r.uniform(6, 14))], fill=(255, 120, 30, 255), width=2)
@@ -359,6 +359,59 @@ def recipes():
         'mahayuddh': (
             lambda: fill_rock(111, ['#160a0c', '#2a1418', '#3b1f1c'], glow='#fbbf24', glow_k=0.8),
             ('crust', {'cap': rgb8('#3b1f1c')}),
+        ),
+        # the classic missions
+        'jungle': (
+            lambda: fill_earth(121, ['#2e2414', '#4a3820', '#5e4a2a'], roots='#3a2a14'),
+            ('grass', {'turf': rgb8('#24501a'), 'blade': [rgb8('#3f8a2a'), rgb8('#4d9a2f'), rgb8('#2f6b1f'), rgb8('#65b13a')], 'flower': rgb8('#f472b6'), 'burnt': False}),
+        ),
+        'river': (
+            lambda: fill_strata(131, ['#3a3426', '#4e4632', '#625a40', '#76704e']),
+            ('grass', {'turf': rgb8('#2f5a1a'), 'blade': [rgb8('#4d8a2a'), rgb8('#5a9a32'), rgb8('#3a7020')], 'flower': rgb8('#fde047'), 'burnt': False}),
+        ),
+        'towers': (
+            lambda: fill_blocks(141, ['#2f2a36', '#3a3442', '#4a4252'], joint='#16121a', bw=128, bh=48),
+            ('crust', {'cap': rgb8('#5a5262'), 'lava': False}),
+        ),
+        'fortress': (
+            lambda: fill_blocks(151, ['#3a2228', '#4a2c32', '#5a363c'], joint='#1a0c10', bw=96, bh=48),
+            ('crust', {'cap': rgb8('#6a4048'), 'lava': False}),
+        ),
+        'desert': (
+            lambda: fill_strata(161, ['#a07a48', '#b88e58', '#c8a06a', '#d8b47e']),
+            ('sand', {'cap': rgb8('#ecd2a0')}),
+        ),
+        'tomb': (
+            lambda: fill_blocks(171, ['#7a5030', '#8a5e3a', '#a07048'], joint='#3a2214', vein='#e0b040'),
+            ('goldedge', {'cap': rgb8('#d8a850')}),
+        ),
+        'snow': (
+            lambda: fill_rock(181, ['#4a5468', '#5e6a80', '#76829a']),
+            ('snow', {'cap': rgb8('#f8fafc')}),
+        ),
+        'frosthall': (
+            lambda: fill_rock(191, ['#0e2230', '#16303e', '#1f4050'], glow='#67e8f9', glow_k=0.4),
+            ('snow', {'cap': rgb8('#bae6fd')}),
+        ),
+        'marble': (
+            lambda: fill_blocks(201, ['#a8a195', '#c4beb2', '#d8d4ca'], joint='#5a5448', vein='#8a8478'),
+            ('marble', {'cap': rgb8('#ece8de')}),
+        ),
+        'temple': (
+            lambda: fill_blocks(211, ['#3a2a5a', '#4a3a6a', '#5a4a7a'], joint='#1a1030', trim='#f5b82e'),
+            ('goldedge', {'cap': rgb8('#f5b82e')}),
+        ),
+        'hellgate': (
+            lambda: fill_rock(221, ['#160404', '#2a0808', '#3a0c0c'], glow='#ff3a1a', glow_k=0.9),
+            ('crust', {'cap': rgb8('#3a0c0c')}),
+        ),
+        'space': (
+            lambda: fill_rock(231, ['#16142a', '#22203a', '#2e2c4a'], glow='#22d3ee', glow_k=0.35),
+            ('ash', {'cap': rgb8('#4a4868')}),
+        ),
+        'hive': (
+            lambda: fill_rock(241, ['#061810', '#0c2418', '#123020'], moss='#4ade80'),
+            ('moss', {'turf': rgb8('#0b3b20'), 'blade': [rgb8('#16a34a'), rgb8('#22c55e'), rgb8('#4ade80')], 'flower': rgb8('#bbf7d0')}),
         ),
     }
 
@@ -477,6 +530,19 @@ PLATS = {
     'chakra': ('rail', ['#b8860b', '#fcd34d', '#5a3f12']),
     'dwand': ('beam', ['#cbd5e1', '#f1f5f9', '#94a3b8', '#b08d57']),
     'mahayuddh': ('beam', ['#7f1d1d', '#b91c1c', '#3b0a0a', '#fbbf24']),
+    'jungle': ('log', ['#3a2a14', '#5b4424', '#1a1208', '#4d7c0f']),
+    'river': ('planks', ['#6b5034', '#8a6a44', '#3e2c1a', '#a8916a']),
+    'towers': ('rail', ['#4a4452', '#7a7488', '#22202a']),
+    'fortress': ('beam', ['#4a2c32', '#6a4048', '#22121a', '#a3392a']),
+    'desert': ('planks', ['#8a6a40', '#a8845a', '#5a4428', '#d8b47e']),
+    'tomb': ('beam', ['#8a5e3a', '#a07048', '#4a2c18', '#e0b040']),
+    'snow': ('slab', ['#76829a', '#a8b4c8', '#4a5468']),
+    'frosthall': ('crystal', ['#7dd3fc', '#bae6fd', '#0e7490', '#e0f2fe']),
+    'marble': ('slab', ['#c4beb2', '#ece8de', '#8a8478']),
+    'temple': ('beam', ['#4a3a6a', '#6a5a8a', '#22183a', '#f5b82e']),
+    'hellgate': ('bone', ['#3a0c0c', '#5a1a18', '#160404', '#ff3a1a']),
+    'space': ('rail', ['#3a3a5a', '#6a6a8a', '#16162a']),
+    'hive': ('shelf', ['#123020', '#22c55e', '#061810', '#86efac']),
 }
 
 

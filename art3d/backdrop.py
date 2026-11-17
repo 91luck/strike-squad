@@ -102,6 +102,9 @@ class PNoise:
 
 def reset():
     bpy.ops.wm.read_factory_settings(use_empty=True)
+    # no undo history: every primitive added through an operator would otherwise keep a copy of the scene (gigabytes)
+    bpy.context.preferences.edit.use_global_undo = False
+    bpy.context.preferences.edit.undo_steps = 0
     sc = bpy.context.scene
     sc.render.engine = 'CYCLES'
     sc.cycles.device = 'CPU'
@@ -411,16 +414,17 @@ def prim(kind, loc, scale=(1, 1, 1), rot=(0, 0, 0), mat=None, **kw):
 def blob(loc, r, mat, seed, squash=(1, 0.8, 0.85), rough=None):
     """A lumpy round mass (canopy, boulder, cloud puff): a subdivided ico sphere displaced by noise."""
     rr = random.Random(seed)
-    ob = prim('ico_sphere', loc, (r * squash[0], r * squash[1], r * squash[2]), (rr.uniform(0, 6), rr.uniform(0, 6), rr.uniform(0, 6)), mat=mat, subdivisions=3)
-    tex = bpy.data.textures.new(f'bl{seed}', 'CLOUDS')
+    ob = prim('ico_sphere', loc, (r * squash[0], r * squash[1], r * squash[2]), (rr.uniform(0, 6), rr.uniform(0, 6), rr.uniform(0, 6)), mat=mat, subdivisions=4)
+    # one shared noise texture (one per blob costs megabytes each once evaluated); the random rotation above already
+    # makes every blob a different shape
+    tex = bpy.data.textures.get('blobtex') or bpy.data.textures.new('blobtex', 'CLOUDS')
     tex.noise_scale = 0.45
     md = ob.modifiers.new('d', 'DISPLACE')
     md.texture = tex
     md.strength = 0.35 if rough is None else rough
     md.texture_coords = 'LOCAL'
-    sm = ob.modifiers.new('s', 'SUBSURF')
-    sm.levels = 1
-    sm.render_levels = 1
+    # (a finer sphere instead of a subdivision modifier: each modifier keeps a subdivision cache of megabytes, and
+    # a forest of blobs ran out of memory)
     for p in ob.data.polygons:
         p.use_smooth = True
     return ob
@@ -1014,6 +1018,382 @@ def build_mahayuddh(layer):
             place(flame, rng.uniform(0, W), 0.6, -0.3, 0.95, rng.uniform(0.4, 0.7), fire_core, fire_glow)
 
 
+
+# ---------------------------------------------------------------- the classic missions' worlds
+#
+# The six missions before the saga (jungle rescue, the pharaoh's tomb, the frozen north, the marble peak, the demon
+# gate, the alien hive) get the same treatment: their own ranges, skylines and near worlds, in their own palettes
+# (client world-art.ts ZONES), so no stage of the game is left with the old flat silhouettes.
+
+
+def build_jungle(layer):
+    rng = R('jungle', layer)
+    n = PNoise(121 + ['far', 'far2', 'mid'].index(layer))
+    lights('#fff1c2', 2.6, '#ffd89a', 5.0, '#2f6db5', 0.7, key_rot=(60, 0, 40))
+    if layer == 'far':
+        relief('far', mat_rock('r', '#4d6f86', '#36566b', '#9cc6e0', 0.55, 0.2, mist_top=3.0), n, 0, 0, 2.6, 1.2, cells=4, depth=1.8)
+    elif layer == 'far2':
+        relief('hills', mat_rock('r', '#2f5a3a', '#1f4029', '#8ab7a0', 0.3, 0.3, mist_top=2.0), n, 0, 0, 1.8, 0.7, cells=6, ridged=False)
+        trunk = mat_flat('t', '#2a2216', '#8ab7a0', 0.3)
+        leaf = [mat_flat('l', '#2f6b34', '#8ab7a0', 0.3), mat_flat('l2', '#3d7a2a', '#8ab7a0', 0.3)]
+        # a canopy line: a trunk and two crowns each (whole trees here would not fit in memory)
+        for i in range(18):
+            x = i / 18 * W + rng.uniform(-0.1, 0.1)
+            h = rng.uniform(0.8, 1.2)
+            place(lambda xx, h=h, i=i: [prim('cylinder', (xx, 0.4, 1.6 + h * 0.35), (1, 1, 1), mat=trunk, radius=0.035, depth=h * 0.7, vertices=6), blob((xx, 0.35, 1.6 + h * 0.8), h * 0.32, leaf[i % 2], 500 + i), blob((xx + 0.15, 0.3, 1.6 + h * 0.65), h * 0.24, leaf[(i + 1) % 2], 700 + i)], x, 0.4)
+    else:
+        ground_strip('g', mat_rock('g', '#3a2a16', '#22180c', '#000', 0.0, scale=5), n, -0.2, 1.05)
+        trunk = mat_rock('bark', '#4a3420', '#2a1c10', '#000', 0.0, scale=10, bump=0.8)
+        leaf = [mat_rock('lf', '#3f8a2a', '#24561a', '#000', 0.0, scale=5, rough=0.7), mat_rock('lf2', '#5a9a2a', '#2f6018', '#000', 0.0, scale=5, rough=0.7), mat_rock('lf3', '#2f7a3a', '#1a4a24', '#000', 0.0, scale=5, rough=0.7)]
+        for i in range(7):
+            x = (i + 0.5) / 7 * W + rng.uniform(-0.3, 0.3)
+            back = i % 2
+            place(tree, x, 1.0, 0.6 if back else -0.1, 0.9, rng.uniform(1.4, 1.8) if back else rng.uniform(1.9, 2.5), (trunk, leaf, None), rng)
+
+
+def build_river(layer):
+    rng = R('river', layer)
+    n = PNoise(131 + ['far', 'far2', 'mid'].index(layer))
+    lights('#ffe2b0', 2.6, '#f4c48f', 5.0, '#2a5f9e', 0.7, key_rot=(55, 0, 40))
+    if layer == 'far':
+        relief('far', mat_rock('r', '#46677f', '#2f4d63', '#9cc0dc', 0.55, 0.2, snow='#eef2ff', mist_top=3.0), n, 0, 0, 2.9, 1.6, cells=3, depth=2.0)
+    elif layer == 'far2':
+        relief('cliffs', mat_rock('r', '#3a5a3a', '#243c26', '#9cc0dc', 0.3, 0.3), n, 0, 0, 1.6, 0.9, cells=5, flat_top=2.2)
+        fall = mat_glow('wf', '#dbeafe', 3)
+        for x in (W * 0.3, W * 0.74):
+            place(lambda xx: [prim('cube', (xx, -1.4, 1.0), (0.12, 0.01, 0.95), mat=fall), prim('plane', (xx, -1.5, 0.15), (0.9, 1, 0.25), (math.radians(90), 0, 0), mat=mat_fade('mist', '#e0f2fe', 1.5, 0.6), size=1)], x, 0.4)
+    else:
+        rock = mat_rock('rk', '#4a4a3a', '#2a2a20', '#000', 0.0, scale=4)
+        ground_strip('bank', rock, n, -0.2, 0.95)
+        trunk = mat_rock('bark', '#4a3420', '#2a1c10', '#000', 0.0, scale=10, bump=0.8)
+        leaf = [mat_rock('lf', '#4a8a2a', '#2a561a', '#000', 0.0, scale=5, rough=0.7), mat_rock('lf2', '#6a9a2a', '#3a6018', '#000', 0.0, scale=5, rough=0.7)]
+        for i in range(5):
+            place(tree, (i + 0.5) / 5 * W + rng.uniform(-0.3, 0.3), 1.0, 0.6, 0.9, rng.uniform(1.4, 2.0), (trunk, leaf, None), rng)
+        reed = mat_flat('rd', '#6a7a2a')
+        for i in range(40):
+            place(lambda x, h=rng.uniform(0.2, 0.45): [prim('cone', (x, -0.3, 0.95 + h / 2), (1, 1, 1), mat=reed, radius1=0.012, radius2=0, depth=h, vertices=4)], rng.uniform(0, W), 0.05)
+
+
+def build_towers(layer):
+    rng = R('towers', layer)
+    n = PNoise(141 + ['far', 'far2', 'mid'].index(layer))
+    lights('#ffb37a', 2.0, '#e0784c', 6.0, '#231b3b', 0.6, key_rot=(30, 0, 40))
+    win = mat_glow('w', '#ffcf7a', 26)
+    if layer == 'far':
+        relief('far', mat_rock('r', '#4a3e5e', '#2f2740', '#b08aa0', 0.55, 0.2, mist_top=3.0), n, 0, 0, 2.2, 1.0, cells=4)
+    elif layer == 'far2':
+        concrete = mat_flat('c', '#2f2740', '#b08aa0', 0.3)
+        for i in range(8):
+            x = (i + 0.5) / 8 * W + rng.uniform(-0.2, 0.2)
+            h = rng.uniform(1.6, 3.0)
+            place(lambda xx, h=h: [prim('cube', (xx, 0.5, h / 2), (0.3, 0.3, h / 2), mat=concrete)] + [prim('cube', (xx + dx, 0.19, 0.3 + k * 0.32), (0.04, 0.01, 0.06), mat=win) for k in range(int(h / 0.32)) for dx in (-0.15, 0, 0.15) if rng.random() < 0.4], x, 0.4)
+    else:
+        ground_strip('g', mat_rock('g', '#2a2230', '#16121c', '#000', 0.0, scale=5), n, -0.2, 1.0)
+        steel = mat_flat('st', '#3a3440', rough=0.5, metal=0.6)
+        for x in (W * 0.2, W * 0.7):
+            def watchtower(xx):
+                obs = [prim('cube', (xx + dx, 0.4, 1.6), (0.03, 0.03, 0.75), (0, dx * 0.2, 0), mat=steel) for dx in (-0.35, 0.35)]
+                obs.append(prim('cube', (xx, 0.4, 2.45), (0.5, 0.4, 0.06), mat=steel))
+                obs.append(prim('cube', (xx, 0.4, 2.8), (0.4, 0.35, 0.3), mat=steel))
+                obs.append(prim('cone', (xx, 0.4, 3.3), (1, 0.8, 1), mat=steel, radius1=0.6, radius2=0, depth=0.4, vertices=4))
+                obs.append(prim('cube', (xx, 0.04, 2.8), (0.25, 0.01, 0.08), mat=win))
+                return obs
+            place(watchtower, x, 0.6)
+        wire = mat_flat('wr', '#1a161e')
+        for i in range(12):
+            place(lambda x: [prim('cylinder', (x, -0.1, 1.3), (1, 1, 1), mat=wire, radius=0.02, depth=0.7, vertices=6)], i / 12 * W, 0.05)
+
+
+def build_fortress(layer):
+    rng = R('fortress', layer)
+    n = PNoise(151 + ['far', 'far2', 'mid'].index(layer))
+    lights('#ff7a59', 1.6, '#ff5a3a', 7.0, '#150e1c', 0.5, key_rot=(25, 0, 40))
+    if layer == 'far':
+        relief('far', mat_rock('r', '#3a2630', '#24161e', '#a3392a', 0.55, 0.2, mist_top=3.0), n, 0, 0, 2.4, 1.2, cells=4)
+    elif layer == 'far2':
+        stone = mat_rock('s', '#2a1a20', '#160c12', '#a3392a', 0.25, 0.3, scale=8)
+        relief('cliff', stone, n, 0.5, 0, 1.2, 0.4, cells=5, ridged=False)
+        for x in (W * 0.3, W * 0.75):
+            def keep(xx):
+                obs = [prim('cube', (xx, 0.4, 2.0), (0.9, 0.4, 0.8), mat=stone)]
+                for dx in (-0.9, 0.9):
+                    obs.append(prim('cylinder', (xx + dx, 0.4, 2.3), (1, 1, 1), mat=stone, radius=0.25, depth=2.2, vertices=16))
+                    obs.append(prim('cone', (xx + dx, 0.4, 3.6), (1, 1, 1), mat=stone, radius1=0.32, radius2=0, depth=0.5, vertices=16))
+                for k in range(6):
+                    obs.append(prim('cube', (xx - 0.75 + k * 0.3, 0.4, 2.9), (0.08, 0.4, 0.1), mat=stone))
+                obs.append(prim('cube', (xx, 0.0, 2.1), (0.08, 0.01, 0.14), mat=mat_glow('w', '#ff8a4a', 25)))
+                return obs
+            place(keep, x, 1.3)
+    else:
+        stone = mat_rock('st', '#3a2228', '#1e1014', '#000', 0.0, scale=4, bump=0.7)
+        ground_strip('g', stone, n, -0.2, 1.0)
+        for i in range(3):
+            place(lambda x: [prim('cube', (x, 0.5, 1.5), (0.8, 0.25, 0.6), mat=stone)] + [prim('cube', (x - 0.65 + k * 0.26, 0.5, 2.18), (0.07, 0.25, 0.08), mat=stone) for k in range(6)], (i + 0.3) / 3 * W, 0.9)
+        fire_core = mat_fade('fc', '#ffd27a', 6, 0.95)
+        fire_glow = mat_fade('fg', '#ff5a1a', 4, 0.6)
+        for i in range(4):
+            place(lambda x: [prim('cylinder', (x, 0.0, 1.3), (1, 1, 1), mat=stone, radius=0.06, depth=0.7)] + flame(x, -0.1, 1.65, 0.35, fire_core, fire_glow), rng.uniform(0, W), 0.3)
+
+
+def tube(points, radii, mat, name='tube'):
+    """A tube along a polyline, its radius following `radii` (a trunk, a frond)."""
+    curve = bpy.data.curves.new(name, 'CURVE')
+    curve.dimensions = '3D'
+    sp = curve.splines.new('POLY')
+    sp.points.add(len(points) - 1)
+    for i, (p, r) in enumerate(zip(points, radii)):
+        sp.points[i].co = (p[0], p[1], p[2], 1)
+        sp.points[i].radius = r
+    curve.bevel_depth = 1.0
+    curve.bevel_resolution = 2
+    ob = bpy.data.objects.new(name, curve)
+    link(ob)
+    ob.data.materials.append(mat)
+    return ob
+
+
+def palm(x, y, z, h, bend, trunk, frond, rng):
+    """A date palm: a curving ringed trunk and a crown of long drooping fronds."""
+    N = 12
+    pts = [(x + bend * (i / N) ** 2 * h * 0.5, y, z + i / N * h) for i in range(N + 1)]
+    obs = [tube(pts, [0.07 - 0.03 * i / N for i in range(N + 1)], trunk, 'palm')]
+    tx, ty, tz = pts[-1]
+    fr = frond if isinstance(frond, (list, tuple)) else [frond]
+    for k in range(11):
+        a = k / 11 * math.pi * 2 + rng.uniform(-0.2, 0.2)
+        L = h * rng.uniform(0.38, 0.5)
+        up = rng.uniform(0.1, 0.45)
+        fp = []
+        for j in range(9):
+            t = j / 8
+            fp.append((tx + math.cos(a) * L * t, ty + math.sin(a) * L * t * 0.4, tz + L * (up * t - 0.9 * t * t)))
+        obs.append(tube(fp, [0.045 * math.sin(max(0.15, t) * math.pi) for t in (j / 8 for j in range(9))], fr[k % len(fr)], 'frond'))
+    return obs
+
+
+def build_desert(layer):
+    rng = R('desert', layer)
+    n = PNoise(161 + ['far', 'far2', 'mid'].index(layer))
+    lights('#fff1c2', 3.0, '#ffd08a', 5.0, '#3a6fb0', 0.7, key_rot=(65, 0, 40))
+    if layer == 'far':
+        relief('mesa', mat_rock('r', '#b08a64', '#8a6a4a', '#e8d0b0', 0.55, 0.2), n, 0, 0, 2.2, 0.8, cells=3, flat_top=2.6)
+        sand = mat_flat('pyr', '#c49a6a', '#e8d0b0', 0.45)
+        for x, s in ((W * 0.3, 1.7), (W * 0.42, 1.1), (W * 0.8, 1.4)):
+            place(lambda xx, s=s: [prim('cone', (xx, 1, s * 0.5), (1, 1, 1), (0, 0, math.radians(45)), mat=sand, radius1=s, radius2=0, depth=s, vertices=4)], x, s)
+    elif layer == 'far2':
+        relief('dunes', mat_rock('r', '#c49a6a', '#9a7448', '#e8d0b0', 0.3, 0.3, scale=2), n, 0, 0, 1.3, 0.45, cells=4, ridged=False)
+    else:
+        ground_strip('g', mat_rock('g', '#c8a06a', '#a07a48', '#000', 0.0, scale=3), n, -0.2, 1.0)
+        trunk = mat_rock('pt', '#6b4a2a', '#3a2814', '#000', 0.0, scale=14)
+        frond = [mat_rock('fr', '#4a7a2a', '#2a4a14', '#000', 0.0, scale=8, rough=0.6), mat_rock('fr2', '#5a8a2a', '#3a5a18', '#000', 0.0, scale=8, rough=0.6)]
+        for i in range(7):
+            place(lambda x, h=rng.uniform(1.5, 2.3), b=rng.uniform(-0.35, 0.35): palm(x, rng.uniform(-0.2, 0.5), 0.95, h, b, trunk, frond, rng), (i + 0.4) / 7 * W + rng.uniform(-0.25, 0.25), 0.9)
+        rock = mat_rock('rk', '#a07a48', '#6a4e2a', '#000', 0.0, scale=4)
+        for i in range(6):
+            place(lambda x: [blob((x, 0.1, 0.95), rng.uniform(0.18, 0.35), rock, rng.randint(0, 9999), squash=(1.4, 0.8, 0.6), rough=0.15)], rng.uniform(0, W), 0.5)
+        stone = mat_rock('obl', '#b08a5a', '#8a6a40', '#000', 0.0, scale=6)
+        for x in (W * 0.35, W * 0.9):
+            place(lambda xx: [prim('cube', (xx, 0.4, 2.0), (0.14, 0.14, 1.1), mat=stone), prim('cone', (xx, 0.4, 3.2), (1, 1, 1), (0, 0, math.radians(45)), mat=stone, radius1=0.2, radius2=0, depth=0.25, vertices=4)], x, 0.3)
+
+
+def build_tomb(layer):
+    rng = R('tomb', layer)
+    n = PNoise(171 + ['far', 'far2', 'mid'].index(layer))
+    lights('#ffd27a', 2.2, '#f4c27a', 6.0, '#2a1640', 0.6, key_rot=(35, 0, 40))
+    if layer == 'far':
+        relief('far', mat_rock('r', '#8a5a3c', '#5a3a26', '#e0a070', 0.55, 0.2), n, 0, 0, 2.0, 0.8, cells=3, flat_top=2.4)
+        sand = mat_flat('pyr', '#a0704a', '#e0a070', 0.45)
+        place(lambda xx: [prim('cone', (xx, 1, 1.4), (1, 1, 1), (0, 0, math.radians(45)), mat=sand, radius1=2.6, radius2=0, depth=2.8, vertices=4)], W * 0.55, 2.6)
+    elif layer == 'far2':
+        stone = mat_rock('s', '#6a4228', '#3a2214', '#e0a070', 0.25, 0.3, scale=8)
+        relief('cliff', stone, n, 0.5, 0, 1.4, 0.4, cells=5, flat_top=1.7)
+        for x in (W * 0.2, W * 0.7):
+            place(lambda xx: [prim('cube', (xx, 0.1, 1.2), (1.0, 0.1, 0.9), mat=stone)] + [column(xx - 0.75 + k * 0.5, -0.05, 0.3, 1.5, 0.1, stone)[0] for k in range(4)] + [prim('cube', (xx, 0.0, 0.9), (0.18, 0.01, 0.4), mat=mat_glow('d', '#ffb347', 6))], x, 1.1)
+    else:
+        stone = mat_rock('st', '#7a5030', '#4a3018', '#000', 0.0, scale=5)
+        ground_strip('g', stone, n, -0.2, 1.0)
+        gold = mat_flat('gd', '#e0b040', rough=0.3, metal=1.0)
+        for x in (W * 0.15, W * 0.5, W * 0.85):
+            place(lambda xx: column(xx, 0.3, 0.9, 2.4, 0.2, stone, gold), x, 0.3)
+        # a great seated guardian statue
+        place(lambda xx: [prim('cube', (xx, 0.6, 1.4), (0.5, 0.4, 0.5), mat=stone), prim('cube', (xx, 0.6, 2.3), (0.35, 0.3, 0.45), mat=stone), prim('cube', (xx, 0.6, 3.0), (0.22, 0.22, 0.25), mat=stone), prim('cone', (xx, 0.6, 3.05), (1, 0.6, 1), mat=gold, radius1=0.34, radius2=0.18, depth=0.55, vertices=4)], W * 0.32, 0.6)
+        fire_core = mat_fade('fc', '#ffd27a', 6, 0.95)
+        fire_glow = mat_fade('fg', '#ff8a2a', 4, 0.6)
+        for x in (W * 0.68, W * 0.98):
+            place(lambda xx: [prim('cylinder', (xx, 0.0, 1.3), (1, 1, 1), mat=gold, radius=0.12, depth=0.1)] + flame(xx, -0.1, 1.35, 0.4, fire_core, fire_glow), x, 0.3)
+
+
+def build_snow(layer):
+    rng = R('snow', layer)
+    n = PNoise(181 + ['far', 'far2', 'mid'].index(layer))
+    lights('#fffaf0', 2.4, '#e0f2fe', 5.0, '#5d7fa8', 0.8, key_rot=(50, 0, 30))
+    snow = '#f8fafc'
+    if layer == 'far':
+        relief('peaks', mat_rock('r', '#9aaec4', '#6a7e98', '#dbe7f3', 0.45, 0.3, snow=snow, mist_top=3.0), n, 1.0, 0, 3.0, 2.0, cells=3, depth=2.2)
+    elif layer == 'far2':
+        relief('ridge', mat_rock('r', '#6a7e98', '#4a5c74', '#dbe7f3', 0.25, 0.35, snow=snow), n, 0, 0, 1.8, 1.0, cells=5, depth=1.6)
+        trunk = mat_flat('t', '#2a3040', '#dbe7f3', 0.3)
+        leaf = mat_rock('pn', '#2a4a4a', '#1a3030', '#dbe7f3', 0.3, snow=snow, scale=6)
+        for i in range(24):
+            place(tree, rng.uniform(0, W), 0.3, 0.2, 1.2 + rng.uniform(-0.1, 0.2), rng.uniform(0.6, 1.0), (trunk, leaf, None), rng, kind='conifer')
+    else:
+        ground_strip('g', mat_rock('g', '#e8eef5', '#b8c6d6', '#000', 0.0, scale=4, snow=snow), n, -0.2, 1.0)
+        trunk = mat_flat('t2', '#2a2420')
+        leaf = [mat_rock('pn', '#1f3a3a', '#132626', '#000', 0.0, snow=snow, scale=6), mat_rock('pn2', '#25403a', '#142a26', '#000', 0.0, snow=snow, scale=6)]
+        for i in range(14):
+            x = (i + 0.5) / 14 * W + rng.uniform(-0.2, 0.2)
+            place(tree, x, 0.5, -0.3 + (i % 2) * 0.4, 0.95 + (i % 2) * 0.1, rng.uniform(1.0, 1.9), (trunk, leaf, None), rng, kind='conifer')
+        ice = mat_flat('ice', '#bae6fd', rough=0.1, emit=('#bae6fd', 0.25))
+        for i in range(4):
+            place(lambda x: crystal(x, 0.2, 0.9, 0.8, ice, rng, 4), rng.uniform(0, W), 0.3)
+
+
+def build_frosthall(layer):
+    rng = R('frosthall', layer)
+    n = PNoise(191 + ['far', 'far2', 'mid'].index(layer))
+    lights('#e0f2fe', 1.4, '#67e8f9', 5.0, '#0c2638', 0.6)
+    ice = mat_flat('ice', '#7dd3fc', rough=0.1, emit=('#67e8f9', 0.5))
+    if layer == 'far':
+        relief('cave', mat_rock('r', '#29445a', '#1a3040', '#5fa0bf', 0.5, 0.2), n, 0, 0, 2.4, 1.0, cells=5)
+        for i in range(12):
+            place(lambda x, h=rng.uniform(0.8, 2.0): stalactite(x, 1, H + 0.1, h, ice), rng.uniform(0, W), 0.3)
+    elif layer == 'far2':
+        stone = mat_rock('s', '#1d3a4c', '#0e2230', '#5fa0bf', 0.3, 0.25, scale=6)
+        for x in (W * 0.1, W * 0.37, W * 0.63, W * 0.9):
+            place(lambda xx: column(xx, 0.5, 0, 3.6, 0.32, stone), x, 0.5)
+        relief('floor', stone, n, 1.0, 0, 0.6, 0.2, cells=5, ridged=False)
+    else:
+        stone = mat_rock('st', '#1d3a4c', '#0a1a24', '#000', 0.0, scale=5)
+        ground_strip('g', stone, n, -0.2, 1.0)
+        for i in range(7):
+            place(lambda x: crystal(x, -0.1, 0.95, rng.uniform(0.8, 1.6), ice, rng, 5), rng.uniform(0, W), 0.4)
+        # a frozen throne of a frost giant
+        place(lambda xx: [prim('cube', (xx, 0.5, 1.5), (0.6, 0.4, 0.6), mat=stone), prim('cube', (xx, 0.7, 2.7), (0.6, 0.15, 1.0), mat=stone)] + crystal(xx, 0.6, 3.6, 0.8, ice, rng, 5), W * 0.55, 0.8)
+        for i in range(10):
+            place(lambda x, h=rng.uniform(0.5, 1.3): stalactite(x, 0, H + 0.2, h, ice), rng.uniform(0, W), 0.3)
+
+
+def build_marble(layer):
+    rng = R('marble', layer)
+    n = PNoise(201 + ['far', 'far2', 'mid'].index(layer))
+    lights('#e0e7ff', 1.8, '#a5b4fc', 6.0, '#0b1020', 0.6, key_rot=(40, 0, 30))
+    if layer == 'far':
+        relief('far', mat_rock('r', '#3b4260', '#262b44', '#8890b8', 0.5, 0.2), n, 0, 0, 2.8, 1.4, cells=3, depth=2.0)
+    elif layer == 'far2':
+        marble = mat_rock('m', '#5a6080', '#3a4060', '#8890b8', 0.3, 0.25, scale=6, rough=0.4)
+        relief('peak', marble, n, 0.5, 0, 1.8, 0.8, cells=4)
+        place(lambda xx: [prim('cube', (xx, 0, 2.5), (0.9, 0.5, 0.06), mat=marble), prim('cone', (xx, 0, 2.85), (1, 0.55, 0.3), (0, 0, math.radians(45)), mat=marble, radius1=1.3, radius2=0, depth=0.7, vertices=4)] + [column(xx - 0.75 + k * 0.3, 0.0, 1.8, 0.7, 0.07, marble)[0] for k in range(6)], W * 0.5, 1.0)
+    else:
+        marble = mat_rock('mb', '#d8d4ca', '#a8a195', '#000', 0.0, scale=6, rough=0.4)
+        ground_strip('g', mat_rock('g', '#4a4e60', '#2a2e3c', '#000', 0.0, scale=5), n, -0.2, 1.0)
+        for x in (W * 0.1, W * 0.3, W * 0.62, W * 0.82):
+            place(lambda xx: column(xx, 0.3, 0.9, rng.uniform(1.6, 2.6), 0.17, marble, broken=rng.uniform(0, 0.5) if rng.random() < 0.5 else 0.0), x, 0.3)
+        place(lambda xx: arch(xx, 0.4, 0.9, 1.3, 1.6, marble), W * 0.46, 1.0)
+        bolt = mat_glow('b', '#c7d2fe', 12)
+        place(lambda xx: [prim('cube', (xx, -1.0, 4.0), (0.02, 0.01, 0.6), (0, 0.3, 0), mat=bolt), prim('cube', (xx + 0.18, -1.0, 3.3), (0.02, 0.01, 0.4), (0, -0.4, 0), mat=bolt)], W * 0.75, 0.3)
+
+
+def build_temple(layer):
+    rng = R('temple', layer)
+    n = PNoise(211 + ['far', 'far2', 'mid'].index(layer))
+    lights('#fde68a', 2.2, '#f59e0b', 6.0, '#4c1d95', 0.6, key_rot=(35, 0, 40))
+    gold = mat_flat('gd', '#f5b82e', rough=0.3, metal=1.0)
+    win = mat_glow('w', '#ffd27a', 25)
+    if layer == 'far':
+        relief('far', mat_rock('r', '#4b3b7a', '#2f2450', '#a08ad0', 0.5, 0.2), n, 0, 0, 2.4, 1.0, cells=4)
+    elif layer == 'far2':
+        stone = mat_flat('s', '#3a2a5a', '#a08ad0', 0.3)
+        for i, x in enumerate((W * 0.2, W * 0.5, W * 0.8)):
+            place(lambda xx, i=i: pagoda(xx, 0.5, 0.2, (0.9, 1.3, 0.8)[i], 5, stone, gold, win), x, 0.8)
+        relief('base', mat_rock('b', '#2a1e48', '#1a1230', '#a08ad0', 0.25, 0.3), n, 1.0, 0, 0.7, 0.2, cells=5, ridged=False)
+    else:
+        stone = mat_rock('st', '#4a3a6a', '#2a1e40', '#000', 0.0, scale=5)
+        ground_strip('g', stone, n, -0.2, 1.0)
+        for x in (W * 0.15, W * 0.45, W * 0.75):
+            place(lambda xx: column(xx, 0.3, 0.9, 2.4, 0.18, stone, gold), x, 0.3)
+        fire_core = mat_fade('fc', '#ffd27a', 6, 0.95)
+        fire_glow = mat_fade('fg', '#ff8a2a', 4, 0.6)
+        for x in (W * 0.3, W * 0.6, W * 0.9):
+            place(lambda xx: [prim('cylinder', (xx, 0.0, 1.2), (1, 1, 1), mat=gold, radius=0.14, depth=0.08), prim('cylinder', (xx, 0.0, 1.05), (1, 1, 1), mat=stone, radius=0.05, depth=0.3)] + flame(xx, -0.1, 1.25, 0.35, fire_core, fire_glow), x, 0.3)
+
+
+def build_hellgate(layer):
+    rng = R('hellgate', layer)
+    n = PNoise(221 + ['far', 'far2', 'mid'].index(layer))
+    lights('#ff7a59', 1.2, '#ef4444', 10.0, '#2a0606', 0.4)
+    if layer == 'far':
+        relief('far', mat_rock('r', '#2a0808', '#160404', '#7f1d1d', 0.5, 0.3, glow=('#ff3a1a', 5.0, 0.01)), n, 0, 0, 2.8, 1.6, cells=4, depth=2.0)
+    elif layer == 'far2':
+        rock = mat_rock('r', '#1e0606', '#0e0303', '#7f1d1d', 0.25, 0.3, glow=('#ff3a1a', 8.0, 0.015))
+        relief('spires', rock, n, 0, 0, 2.0, 1.6, cells=9, depth=1.2, gully=2.0)
+        # the gate: two horned towers and a burning arch
+        place(lambda xx: [prim('cone', (xx + dx, 0, 1.6), (1, 0.6, 1), mat=rock, radius1=0.45, radius2=0.04, depth=3.2, vertices=8) for dx in (-1.1, 1.1)] + arch(xx, 0, 0, 2.2, 2.2, rock) + [prim('plane', (xx, -0.3, 1.2), (1.8, 1, 2.2), (math.radians(90), 0, 0), mat=mat_fade('pg', '#ff3a1a', 4, 0.7), size=1)], W * 0.5, 1.6)
+    else:
+        rock = mat_rock('st', '#2a0a08', '#120404', '#000', 0.0, scale=4, glow=('#ff3a1a', 8.0, 0.015))
+        ground_strip('g', rock, n, -0.2, 1.05)
+        bone = mat_flat('bn', '#d6cbb0')
+        for i in range(5):
+            place(lambda x, h=rng.uniform(0.8, 1.6): [prim('cone', (x, 0.3, 0.9 + h / 2), (1, 1, 1), (0, rng.uniform(-0.3, 0.3), 0), mat=bone, radius1=0.08, radius2=0.01, depth=h, vertices=8)], rng.uniform(0, W), 0.3)
+        for i in range(5):
+            x = (i + 0.5) / 5 * W
+            place(lambda xx, i=i: [relief_pillar(xx, 0.6, rng.uniform(2.2, 3.4), rng.uniform(0.4, 0.7), rock, n, 50 + i)], x, 0.6)
+        fire_core = mat_fade('fc', '#ffd27a', 6, 0.95)
+        fire_glow = mat_fade('fg', '#ff3a1a', 4, 0.7)
+        for i in range(4):
+            place(flame, rng.uniform(0, W), 0.6, -0.3, 0.95, rng.uniform(0.4, 0.8), fire_core, fire_glow)
+
+
+def build_space(layer):
+    rng = R('space', layer)
+    n = PNoise(231 + ['far', 'far2', 'mid'].index(layer))
+    lights('#9be7ff', 1.8, '#a78bfa', 7.0, '#0b0f2a', 0.5, key_rot=(30, 0, 40))
+    if layer == 'far':
+        relief('far', mat_rock('r', '#2a2352', '#16123a', '#6a5ab0', 0.45, 0.2), n, 0, 0, 1.8, 1.0, cells=3, depth=1.6)
+        planet = mat_flat('pl', '#4a3a8a', rough=0.6, emit=('#6a5ab0', 0.2))
+        place(lambda xx: [prim('uv_sphere', (xx, 6, 4.4), (1, 1, 1), mat=planet, radius=1.1, segments=48, ring_count=24), prim('torus', (xx, 6, 4.4), (1, 1, 0.25), (0, 0.3, 0), mat=mat_flat('rg', '#9a8ad0', emit=('#9a8ad0', 0.3)), major_radius=1.8, minor_radius=0.06, major_segments=64)], W * 0.7, 2.0)
+    elif layer == 'far2':
+        rock = mat_rock('r', '#1e1a40', '#0e0c24', '#6a5ab0', 0.25, 0.3, scale=3)
+        relief('crater', rock, n, 0, 0, 1.4, 0.8, cells=6)
+        glow = mat_glow('g', '#9be7ff', 18)
+        metal = mat_flat('m', '#3a3a5a', '#6a5ab0', 0.3, metal=0.7, rough=0.4)
+        for x in (W * 0.25, W * 0.72):
+            place(lambda xx: [prim('uv_sphere', (xx, 0.5, 1.4), (1, 1, 0.55), mat=metal, radius=0.6), prim('cylinder', (xx, 0.5, 1.95), (1, 1, 1), mat=metal, radius=0.03, depth=0.8), prim('uv_sphere', (xx, 0.5, 2.4), (1, 1, 1), mat=glow, radius=0.05)], x, 0.7)
+    else:
+        rock = mat_rock('st', '#2a2a40', '#14141f', '#000', 0.0, scale=4)
+        ground_strip('g', rock, n, -0.2, 1.0)
+        crys = mat_flat('cr', '#22d3ee', rough=0.1, emit=('#22d3ee', 0.6))
+        for i in range(8):
+            place(lambda x: crystal(x, -0.1, 0.95, rng.uniform(0.6, 1.3), crys, rng, 4), rng.uniform(0, W), 0.4)
+        metal = mat_flat('m', '#4a4a6a', rough=0.35, metal=0.8)
+        place(lambda xx: [prim('cube', (xx, 0.5, 1.6), (0.6, 0.3, 0.7), (0, 0.25, 0), mat=metal), prim('cube', (xx + 0.5, 0.5, 2.3), (0.5, 0.25, 0.1), (0, -0.4, 0), mat=metal)], W * 0.45, 0.9)
+
+
+def build_hive(layer):
+    rng = R('hive', layer)
+    n = PNoise(241 + ['far', 'far2', 'mid'].index(layer))
+    lights('#86efac', 1.2, '#4ade80', 6.0, '#062016', 0.5)
+    goo = mat_glow('goo', '#86efac', 8)
+    if layer == 'far':
+        relief('far', mat_rock('r', '#0f2a1c', '#061810', '#2f8a5a', 0.5, 0.25), n, 0, 0, 2.6, 1.2, cells=5, depth=1.8)
+        for i in range(12):
+            place(lambda x, h=rng.uniform(0.8, 2.0): stalactite(x, 1, H + 0.1, h, mat_rock('rt', '#0a2216', '#041008', '#2f8a5a', 0.4)), rng.uniform(0, W), 0.3)
+    elif layer == 'far2':
+        shell = mat_rock('s', '#123a24', '#06180e', '#2f8a5a', 0.25, 0.3, scale=6, rough=0.4)
+        for i in range(7):
+            x = (i + 0.5) / 7 * W
+            place(lambda xx: [prim('cylinder', (xx, 0.5, 1.4), (1, 1, 1), mat=shell, radius=0.18, depth=2.8, vertices=6)] + [prim('cube', (xx, 0.31, 0.5 + k * 0.5), (0.05, 0.01, 0.08), mat=goo) for k in range(5)], x, 0.3)
+        relief('ribs', shell, n, 1.0, 0, 0.9, 0.3, cells=7, ridged=True)
+    else:
+        shell = mat_rock('st', '#16402a', '#061810', '#000', 0.0, scale=6, rough=0.4)
+        ground_strip('g', shell, n, -0.2, 1.0)
+        # ribbed arches of the hive ship and egg pods
+        for x in (W * 0.2, W * 0.7):
+            place(lambda xx: arch(xx, 0.5, 0.9, 1.6, 1.7, shell), x, 1.1)
+        pod = mat_flat('pod', '#2f6a3a', rough=0.3, emit=('#86efac', 0.25))
+        for i in range(8):
+            place(lambda x: [blob((x, -0.1, 1.1), rng.uniform(0.14, 0.22), pod, rng.randint(0, 9999), squash=(0.8, 0.8, 1.2), rough=0.08)], rng.uniform(0, W), 0.3)
+
+
 ZONES = {
     'vana': build_vana,
     'inferno': build_inferno,
@@ -1026,6 +1406,19 @@ ZONES = {
     'chakra': build_chakra,
     'dwand': build_dwand,
     'mahayuddh': build_mahayuddh,
+    'jungle': build_jungle,
+    'river': build_river,
+    'towers': build_towers,
+    'fortress': build_fortress,
+    'desert': build_desert,
+    'tomb': build_tomb,
+    'snow': build_snow,
+    'frosthall': build_frosthall,
+    'marble': build_marble,
+    'temple': build_temple,
+    'hellgate': build_hellgate,
+    'space': build_space,
+    'hive': build_hive,
 }
 LAYERS = ('far', 'far2', 'mid')
 

@@ -1,3 +1,4 @@
+import type { MountKind } from './mounts';
 import { GAME_CONFIG, type BossKind, type PickupKind, type TrooperKind } from './config';
 
 /**
@@ -290,6 +291,19 @@ export interface LevelDef {
   gusts: boolean;
   /** The sea rising and falling (Sagar Setu): water surface y = base + amp·sin(2πt/period). */
   tide: { base: number; amp: number; periodSec: number } | null;
+  /** Ride stands (mounts.ts): every soldier reaching one gets its ride, until `to`. */
+  mounts: MountStand[];
+}
+
+/** A stand where every soldier who reaches it gets a ride of its kind, which lasts until x = `to`. */
+export interface MountStand {
+  id: number;
+  kind: MountKind;
+  /** Centre of the stand, on the ground at y. */
+  x: number;
+  y: number;
+  /** The ride ends here (the soldier steps off on the far side). */
+  to: number;
 }
 
 /** A floating stone (sinks while stood on, floats back up) or a boat (sails to `to` once a soldier boards). */
@@ -320,6 +334,7 @@ export class Builder {
   zones: { x: number; name: string }[] = [];
   rests: { x0: number; x1: number }[] = [];
   plats: PlatDef[] = [];
+  mounts: MountStand[] = [];
   art: { x: number; style: ArtStyle }[] = [];
   fields: FieldDef[] = [];
 
@@ -416,6 +431,18 @@ export class Builder {
   /** A moving one-way surface over columns c0..c1 at row `row` (see PlatDef). */
   plat(kind: PlatDef['kind'], c0: number, c1: number, row: number, toCol = c0): this {
     this.plats.push({ kind, x0: c0 * T, x1: (c1 + 1) * T, y: (row + this.dy) * T, to: toCol * T });
+    return this;
+  }
+
+  /** A ride stand at column `col` on row `surface`; the ride lasts until column `toCol`. */
+  mount(kind: MountKind, col: number, surface: number, toCol: number): this {
+    this.mounts.push({
+      id: this.mounts.length,
+      kind,
+      x: col * T + T / 2,
+      y: (surface + this.dy) * T,
+      to: toCol * T,
+    });
     return this;
   }
 
@@ -532,6 +559,7 @@ export class Builder {
       megh: meta.megh ?? false,
       plats: this.plats,
       tide: meta.tide ?? null,
+      mounts: this.mounts,
     };
   }
 }

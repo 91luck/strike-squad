@@ -12,3 +12,4 @@ test-results/
 client/dist-crazygames/
 release/
 art3d/out/
+__pycache__/

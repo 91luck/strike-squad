@@ -29,6 +29,20 @@ export const SKIES: Record<string, SkyLook> = {
   chakra: { body: 'wheel', clouds: 0.28 },
   dwand: { body: 'moon', stars: 220, clouds: 0 },
   mahayuddh: { body: 'blood', stars: 40, clouds: 0.55, cloudTint: '#5a0a1e' },
+  // the classic missions
+  jungle: { body: 'giant', color: '#ffe8a3', clouds: 0.6 },
+  river: { body: 'giant', color: '#ffd89a', clouds: 0.55 },
+  towers: { body: 'giant', color: '#ff9a5a', clouds: 0.35, cloudTint: '#7a4a6a' },
+  fortress: { body: 'blood', stars: 30, clouds: 0.4, cloudTint: '#4a1a24' },
+  desert: { body: 'giant', color: '#fff1c2', clouds: 0.15, cloudTint: '#f0d8b0' },
+  tomb: { body: 'giant', color: '#ffb35a', stars: 20, clouds: 0.25, cloudTint: '#b4583a' },
+  snow: { body: 'giant', color: '#fffaf0', clouds: 0.6, cloudTint: '#c8d6e6' },
+  frosthall: { body: 'none', clouds: 0 },
+  marble: { body: 'moon', stars: 60, clouds: 0.6, cloudTint: '#3a4260' },
+  temple: { body: 'twin', stars: 90, clouds: 0.2, cloudTint: '#4c1d95' },
+  hellgate: { body: 'eclipse', clouds: 0.5, cloudTint: '#3a0808' },
+  space: { body: 'none', stars: 260, clouds: 0 },
+  hive: { body: 'none', clouds: 0 },
 };
 
 const TAU = Math.PI * 2;

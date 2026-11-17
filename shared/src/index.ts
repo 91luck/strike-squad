@@ -5,6 +5,7 @@ export * from './missions';
 export * from './saga';
 export * from './daily';
 export * from './physics';
+export * from './mounts';
 export * from './rng';
 export * from './sim';
 export * from './protocol';

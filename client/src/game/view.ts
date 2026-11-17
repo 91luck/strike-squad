@@ -19,16 +19,35 @@ import {
   type Snapshot,
   type StyleTag,
   type Vyuha,
+  type MountKind,
   styleOf,
 } from '@strikesquad/shared';
+
+/** What each ride is called, and what its power (on the KNIFE button) is called. */
+const RIDE_NAME: Record<MountKind, string> = {
+  bike: 'WAR BIKE',
+  jeep: 'ARMOURED JEEP',
+  jetsuit: 'JET SUIT',
+  horse: 'WAR HORSE',
+  tiger: 'BAGH, THE TIGER',
+  elephant: 'GAJ, THE WAR ELEPHANT',
+  baaz: 'BAAZ, THE GREAT HAWK',
+};
+const RIDE_POWER: Record<MountKind, string> = {
+  bike: 'Nitro',
+  jeep: 'Rockets',
+  jetsuit: 'Missiles',
+  horse: 'Charge',
+  tiger: 'Pounce',
+  elephant: 'Stomp',
+  baaz: 'Dive',
+};
 import { ASURA_LOOKS, BOSS_TITLES, sagaMoveTips, type AsuraLook } from './asura-art';
 import type { Music } from '../audio/music';
 import type { Sfx } from '../audio/sfx';
 import type { Settings } from '../settings';
 import { $, el } from '../ui/dom';
 import { Renderer, type DrawOptions } from './renderer';
-import { POWER_COLOR } from './power-fx';
-import { ASTRA_NAME } from '../daily';
 import { CHAPTERS, GOAL_TEXT, SURPRISE_LINES } from '../story';
 import { Comms, openingLines, type CommsCast } from './comms';
 import { hasBoss3d } from './boss3d';
@@ -258,6 +277,8 @@ export class MatchView {
   private introUntil = 0;
   private bannerShownAt = 0;
   private bannerUrgent = false;
+  /** Jwala's chase is announced once a run (view.ts 'chase'). */
+  private chaseWarned = false;
   private bannerQueue: { text: string; bad: boolean }[] = [];
   private pumpTimer = 0;
   private coachUntil = 0;
@@ -289,7 +310,9 @@ export class MatchView {
   begin(meId: string, first: Snapshot, level: LevelDef): void {
     this.renderer.setLevel(level);
     this.comms.clear();
+    this.rideLabel(null);
     this.holdSeen = false;
+    this.chaseWarned = false;
     this.meId = meId;
     this.stats = { kills: 0, ults: 0, bestCombo: 0, bossesDown: 0 };
     this.lastCountdown = -1;
@@ -392,7 +415,11 @@ export class MatchView {
         case 'chase':
           r.shake(reduce ? 0 : 6);
           this.sfx.play('explode');
-          this.showBanner('JWALA BURNS — the fire is behind you. Keep moving!', true);
+          // said once a run; after that the flames and the shake say it
+          if (!this.chaseWarned) {
+            this.chaseWarned = true;
+            this.showBanner('Jwala burns behind you — keep moving!', true);
+          }
           break;
         case 'regain':
           // the carried astra came back through fighting: a sound, and the chip's count goes up
@@ -513,14 +540,27 @@ export class MatchView {
           else this.showBanner(`${this.nameOf(ev.id)}: ${hero.ultName}!${ev.sync ? '  ⚡ SYNC ×1.5' : ''}`);
           break;
         }
+        case 'ride': {
+          r.rideEffect(ev, reduce);
+          if (ev.on === 1) this.sfx.play('powerup');
+          else if (ev.lost === 1) this.sfx.play('explode');
+          if (ev.id === this.meId) {
+            if (ev.on === 1) this.showBanner(`${RIDE_NAME[ev.k]}! KNIFE: ${RIDE_POWER[ev.k]}`);
+            else if (ev.lost === 1) this.showBanner('Sawari gayi! Back to your feet', true);
+            this.rideLabel(ev.on === 1 ? ev.k : null);
+          }
+          break;
+        }
+        case 'rpow': {
+          r.ridePowerEffect(ev, reduce);
+          this.sfx.play(ev.k === 'jeep' || ev.k === 'elephant' ? 'explode' : 'powerup');
+          break;
+        }
         case 'astra': {
           // No banner and no feed line, for anyone's astra: the astra shows itself (astra-cine.ts).
-          r.astraEffect(ev, reduce);
-          if (ev.id === this.meId && !(ev.kind === 'tej' && ev.v === 1)) {
-            const [hi, lo] = POWER_COLOR[ev.kind];
-            r.powerCutIn(this.heroOfPlayer(ev.id), ASTRA_NAME[ev.kind].toUpperCase(), '', lo, hi, true);
-          }
-          if (ev.id === this.meId && !reduce) r.shake(8);
+          // No name on screen either: the aahvaan (astra-aahvaan.ts) shows the call, and the release and the
+          // strike shake the screen in their own time.
+          r.astraEffect(ev, reduce, ev.id === this.meId, this.heroOfPlayer(ev.id));
           this.sfx.play(ev.kind === 'singularity' ? 'explode' : 'astra');
           break;
         }
@@ -738,10 +778,10 @@ export class MatchView {
     window.clearTimeout(this.introTimer);
     this.introTimer = window.setTimeout(() => {
       card.hidden = true;
-    }, 3200);
-    // the card owns the middle of the screen for its 3.2 s: banners wait, and it hides the controls card
+    }, 2600);
+    // the card owns the top of the screen for its 2.6 s: banners wait, and it hides the controls card
     const now = performance.now();
-    this.introUntil = now + 3200;
+    this.introUntil = now + 2600;
     // a banner the card cuts short (shown under 1.5 s ago) plays again after the card
     const b = $('banner');
     if (b.classList.contains('show') && now - this.bannerShownAt < 1500 && b.textContent)
@@ -903,6 +943,14 @@ export class MatchView {
     this.updateHud(latest, me, net, o.nowMs);
   }
 
+  /** The KNIFE button says what it does while you ride. */
+  private rideLabel(kind: MountKind | null): void {
+    const b = document.getElementById('btn-touch-melee');
+    if (!b) return;
+    b.textContent = kind ? RIDE_POWER[kind] : 'Knife';
+    b.classList.toggle('ride', kind !== null);
+  }
+
   private updateHud(
     s: Snapshot,
     me: PlayerSnapshot | undefined,
@@ -932,7 +980,7 @@ export class MatchView {
       $('btn-touch-ult').classList.toggle('ready', ready);
       if (ready && !this.ultReady) {
         this.sfx.play('powerup');
-        this.showBanner(`${heroOf(me.hr).ultName} READY — press Q`);
+        this.notice(`${heroOf(me.hr).ultName} ready!`);
       }
       this.ultReady = ready;
       const w = GAME_CONFIG.weapons[WEAPON_KINDS[me.w] ?? 'blaster'];

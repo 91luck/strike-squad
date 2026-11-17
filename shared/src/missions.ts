@@ -149,6 +149,9 @@ function buildMission1(): LevelDef {
   b.pickup('spread', 19, 8);
   b.enemy('soldier', 16, G).enemy('soldier', 25, G).enemy('soldier', 28, G);
 
+  // a jeep for everyone where the jungle starts: ride it over the pits to the ambush
+  b.mount('jeep', 35, G, 66);
+
   // ---- 2. Jungle: pits and platforms, a turret on a ledge, the first shield trooper.
   b.zone(31, 'Jungle');
   b.ground(34, 44, G); // pit at 31-33
@@ -250,7 +253,15 @@ const SANDSTORM: CourseDef = {
   faction: 'pharaoh',
   mods: { enemyHp: 1.15, enemyFire: 1.1, enemyDamage: 1.1, bossHp: 1.1, bossTempo: 1.1 },
   sections: [
-    { zone: 'Desert Gate', art: 'desert', land: 'flat', len: 26, foes: 'S12 S17 S22 D20', loot: 's9^' },
+    {
+      zone: 'Desert Gate',
+      ride: { kind: 'bike', at: 4, len: 58 },
+      art: 'desert',
+      land: 'flat',
+      len: 26,
+      foes: 'S12 S17 S22 D20',
+      loot: 's9^',
+    },
     {
       zone: 'Dune Sea',
       art: 'desert',
@@ -334,7 +345,15 @@ const FROSTBITE: CourseDef = {
   faction: 'norse',
   mods: { enemyHp: 1.25, enemyFire: 1.15, enemyDamage: 1.15, bossHp: 1.15, bossTempo: 1.12 },
   sections: [
-    { zone: 'Longship Shore', art: 'snow', land: 'flat', len: 24, foes: 'S11 S16 D18 H21', loot: 'm9^' },
+    {
+      zone: 'Longship Shore',
+      ride: { kind: 'horse', at: 3, len: 50 },
+      art: 'snow',
+      land: 'flat',
+      len: 24,
+      foes: 'S11 S16 D18 H21',
+      loot: 'm9^',
+    },
     {
       zone: 'Avalanche Run',
       art: 'snow',
@@ -428,6 +447,7 @@ const BLACKOUT: CourseDef = {
   sections: [
     {
       zone: 'Mountain Path',
+      ride: { kind: 'baaz', at: 3, len: 48 },
       art: 'marble',
       land: 'flat',
       len: 24,
@@ -536,7 +556,15 @@ const ASTRA: CourseDef = {
   param: true,
   mods: { enemyHp: 1.25, enemyFire: 1.15, enemyDamage: 1.15, bossHp: 1.15, bossTempo: 1.12 },
   sections: [
-    { zone: 'Ember Gate', art: 'inferno', land: 'flat', len: 26, foes: 'S12 S17 D19 G22', loot: 'a9^' },
+    {
+      zone: 'Ember Gate',
+      ride: { kind: 'tiger', at: 3, len: 46 },
+      art: 'inferno',
+      land: 'flat',
+      len: 26,
+      foes: 'S12 S17 D19 G22',
+      loot: 'a9^',
+    },
     { zone: 'Wall of Fire', art: 'inferno', land: 'flat', len: 24, fire: [18], foes: 'S6 S22', loot: 'w11*' },
     {
       zone: 'Demon Horde',
@@ -616,7 +644,15 @@ const EVENT_HORIZON: CourseDef = {
   faction: 'void',
   mods: { enemyHp: 1.35, enemyFire: 1.2, enemyDamage: 1.2, bossHp: 1.2, bossTempo: 1.15 },
   sections: [
-    { zone: 'Docking Bay', art: 'space', land: 'flat', len: 26, foes: 'S12 S16 D19 G22', loot: 'b9^' },
+    {
+      zone: 'Docking Bay',
+      ride: { kind: 'jetsuit', at: 3, len: 60 },
+      art: 'space',
+      land: 'flat',
+      len: 26,
+      foes: 'S12 S16 D19 G22',
+      loot: 'b9^',
+    },
     {
       zone: 'Low-G Craters',
       art: 'space',

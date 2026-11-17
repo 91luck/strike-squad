@@ -5,10 +5,12 @@ import {
   GAME_CONFIG,
   HEROES,
   MISSION_1,
+  MISSION_IDS,
+  MOUNT_KINDS,
   NEUTRAL_INPUT,
+  getMission,
   newMover,
   SAGA,
-  SAGA_COURSES,
   stepPlayerMovement,
   type BoardEntry,
   type PlayerSnapshot,
@@ -92,6 +94,10 @@ const player = (over: Partial<PlayerSnapshot> = {}): PlayerSnapshot => ({
   pw: -1,
   pn: 0,
   rs: 0,
+  rd: -1,
+  rh: 0,
+  ru: 0,
+  rr: 0,
   ...over,
 });
 const snap = (tick: number, players: PlayerSnapshot[]): Snapshot => ({
@@ -1052,16 +1058,22 @@ describe('the daily trial record', () => {
   });
 });
 
-describe('the saga stages’ rendered backdrops (art3d/backdrop.py → assets/backdrops)', () => {
+/** Every art style any mission uses, the classic six and the saga's ten. */
+const ALL_ARTS = (): Set<string> => {
+  const arts = new Set<string>();
+  for (const id of MISSION_IDS) for (const a of getMission(id).art) arts.add(a.style);
+  return arts;
+};
+
+describe('every stage’s rendered backdrops (art3d/backdrop.py → assets/backdrops)', () => {
   const dir = join(__dirname, '../src/assets/backdrops');
   const meta = JSON.parse(readFileSync(join(dir, 'backdrops.json'), 'utf8')) as Record<
     string,
     { top: number }
   >;
-  it('every art style a saga stage uses has all three layers, each a real image with its crop recorded', () => {
-    const arts = new Set<string>();
-    for (const c of Object.values(SAGA_COURSES)) for (const s of c.sections) if (s.art) arts.add(s.art);
-    expect(arts.size).toBeGreaterThanOrEqual(10);
+  it('every art style any mission uses has all three layers, each a real image with its crop recorded', () => {
+    const arts = ALL_ARTS();
+    expect(arts.size).toBeGreaterThanOrEqual(24);
     for (const art of arts)
       for (const layer of ['far', 'far2', 'mid']) {
         const key = `${art}-${layer}`;
@@ -1123,13 +1135,39 @@ describe('the saga story (story.ts)', () => {
   });
 });
 
-describe('the saga stages’ rendered ground (art3d/terrain.py → assets/terrain)', () => {
-  it('every art style a saga stage uses has its rock and its surface', () => {
+describe('every stage’s rendered ground (art3d/terrain.py → assets/terrain)', () => {
+  it('every art style any mission uses has its rock, its surface and its ledge', () => {
     const dir = join(__dirname, '../src/assets/terrain');
-    const arts = new Set<string>();
-    for (const c of Object.values(SAGA_COURSES)) for (const s of c.sections) arts.add(s.art);
+    const arts = ALL_ARTS();
+    expect(arts.size).toBeGreaterThanOrEqual(24);
     for (const art of arts)
-      for (const part of ['fill', 'top'])
+      for (const part of ['fill', 'top', 'plat'])
         expect(existsSync(join(dir, `${art}-${part}.webp`)), `${art}-${part}`).toBe(true);
+  });
+});
+
+describe('the rides’ rendered parts (art3d/mount_rig.py → assets/mounts3d)', () => {
+  const dir = join(__dirname, '../src/assets/mounts3d');
+  const NEEDS: Record<string, string[]> = {
+    horse: ['body', 'legf', 'legb'],
+    tiger: ['body', 'legf', 'legb'],
+    elephant: ['body', 'legf', 'legb'],
+    baaz: ['body', 'wing'],
+    bike: ['body', 'wheel'],
+    jeep: ['body', 'wheel'],
+    jetsuit: ['pack'],
+  };
+  it('every ride has its atlas with the parts its animation turns', () => {
+    for (const kind of MOUNT_KINDS) {
+      const f = join(dir, `${kind}.json`);
+      expect(existsSync(f), kind).toBe(true);
+      expect(existsSync(join(dir, `${kind}.webp`)), kind).toBe(true);
+      const m = JSON.parse(readFileSync(f, 'utf8')) as {
+        ss: number;
+        parts: Record<string, { w: number; h: number }>;
+      };
+      expect(m.ss).toBe(2);
+      for (const p of NEEDS[kind] ?? []) expect(m.parts[p]?.w ?? 0, `${kind} ${p}`).toBeGreaterThan(0);
+    }
   });
 });

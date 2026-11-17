@@ -1,3 +1,4 @@
+import { MOUNTS, MOUNT_KINDS, MOUNT_POWER, RIDE_RAM_COOLDOWN_SEC, mountOf, type MountKind } from './mounts';
 import {
   ATTACK,
   BULLET_KINDS,
@@ -227,6 +228,14 @@ export interface Player extends Mover {
   prevAstra: boolean;
   /** Caught in a net (Chakra Durg) until this tick: slowed. */
   netUntil: number;
+  /** Riding (mounts.ts; the kind is Mover.ride): the ride's health, where it ends, when its power is ready. */
+  mountHp: number;
+  mountTo: number;
+  mountReady: number;
+  /** A hawk's dive in progress: until this tick (or until it lands). */
+  diveUntil: number;
+  /** Troopers this ride last ran into, and when (a trample hurts each one once in a while, not every tick). */
+  rideHits: Map<number, number>;
 }
 
 /** Ground set on fire by the agni astra: hurts enemies standing in it. */
@@ -418,6 +427,10 @@ export type SimEvent =
   | { e: 'arena'; id: number; wave: number; of: number; secs?: number; vy?: Vyuha }
   | { e: 'clear'; id: number }
   | { e: 'life'; lives: number }
+  /** A soldier got on a ride (on 1) or off it (on 0; lost 1 when it was destroyed under them). */
+  | { e: 'ride'; id: string; k: MountKind; on: 0 | 1; lost: 0 | 1; x: number; y: number }
+  /** A ride's power (mounts.ts): where, which way; tx,ty the pounce's target. */
+  | { e: 'rpow'; id: string; k: MountKind; x: number; y: number; f: 1 | -1; tx?: number; ty?: number }
   | { e: 'bossWake'; kind: BossKind; arena: number }
   | { e: 'bossPhase'; kind: BossKind; phase: number }
   /** The wall of fire has started to chase the squad (Agnivan). */
@@ -512,6 +525,11 @@ export interface PlayerSnapshot {
   rs: number;
   /** 1 while caught in a net (Chakra Durg). */
   nt?: number;
+  /** The ride (index into MOUNT_KINDS, -1 on foot), its health 0..100, its power move's ticks left, power ready. */
+  rd: number;
+  rh: number;
+  ru: number;
+  rr: 0 | 1;
 }
 
 /**
@@ -880,6 +898,11 @@ export class Sim {
       powerN: 0,
       prevAstra: false,
       netUntil: 0,
+      mountHp: 0,
+      mountTo: 0,
+      mountReady: 0,
+      diveUntil: 0,
+      rideHits: new Map(),
       hp: P.maxHp,
       state: 'alive',
       respawnAt: 0,
@@ -4550,8 +4573,10 @@ export class Sim {
       const aim = aimOf(p, p.input);
       p.aimX = aim.ax;
       p.aimY = aim.ay;
+      this.stepRide(p);
       if (
         p.onGround &&
+        !(p.ride >= 0 && this.mountDef(p).fly) &&
         groundBelow(this.world, p.x - p.w / 2, p.y) &&
         groundBelow(this.world, p.x + p.w / 2, p.y)
       ) {
@@ -4583,6 +4608,15 @@ export class Sim {
       const astraPressed = p.input.astra === true && !p.prevAstra;
       p.prevAstra = p.input.astra === true;
       if (astraPressed) this.useAstra(p);
+      if (p.ride >= 0) {
+        // in the saddle: KNIFE is the ride's power; FIRE its own gun, or the soldier's from the saddle
+        if (meleePressed && this.tick >= p.mountReady) this.ridePower(p);
+        if (p.input.fire && this.tick >= p.nextFireTick) {
+          if (this.mountDef(p).gun) this.rideFire(p);
+          else this.fire(p);
+        }
+        continue;
+      }
       const canMelee = this.tick >= p.nextMelee && p.dashTicks === 0;
       if (canMelee && (meleePressed || (p.input.fire && this.enemyInReach(p)))) this.melee(p);
       else if (p.input.fire && this.tick >= p.nextFireTick && this.tick >= p.meleeUntil) this.fire(p);
@@ -4597,7 +4631,278 @@ export class Sim {
   }
 
   private dodging(p: Player): boolean {
+    if (p.ride >= 0 && p.rush > 0) return true; // nitro, charge, pounce, dive: through the shots
     return p.dashTicks > 0 || this.tick < p.dodgeUntil;
+  }
+
+  // ------------------------------------------------------------ rides (mounts.ts)
+
+  private mountDef(p: Player): (typeof MOUNTS)[MountKind] {
+    return MOUNTS[mountOf(p.ride) ?? 'horse'];
+  }
+
+  /** Boarding at a stand, the ride's end, the hawk's dive landing. */
+  private stepRide(p: Player): void {
+    if (p.ride < 0) {
+      for (const st of this.level.mounts) {
+        if (p.x > st.to - 40) continue;
+        if (Math.abs(p.x - st.x) > 30 || Math.abs(p.y - st.y) > 48) continue;
+        p.ride = MOUNT_KINDS.indexOf(st.kind);
+        p.mountHp = MOUNTS[st.kind].hp;
+        p.mountTo = st.to;
+        p.mountReady = this.tick + this.ticks(0.4);
+        p.rush = 0;
+        p.diveUntil = 0;
+        p.airJumps = MOUNTS[st.kind].airJumps;
+        p.rideHits.clear();
+        this.emit({ e: 'ride', id: p.id, k: st.kind, on: 1, lost: 0, x: r1(p.x), y: r1(p.y) });
+        return;
+      }
+      return;
+    }
+    const m = this.mountDef(p);
+    if (p.diveUntil > 0 && (p.onGround || this.tick >= p.diveUntil)) {
+      // the hawk's dive strikes where it lands
+      p.diveUntil = 0;
+      p.rush = 0;
+      p.vy = -m.speed * 0.6;
+      const D = MOUNT_POWER.dive;
+      this.rideBlast(p, p.x, p.y - 10, D.radius, D.damage);
+      this.emit({ e: 'boom', x: r1(p.x), y: r1(p.y - 10), r: D.radius });
+    }
+    if (p.x >= p.mountTo && (p.onGround || !m.fly || p.y < this.groundTopAt(p.x))) this.dismount(p, false);
+  }
+
+  /** Top of the ground under x (px), or the bottom of the level over a drop. */
+  private groundTopAt(x: number): number {
+    const L = this.level;
+    const c = Math.floor(x / GAME_CONFIG.tile);
+    for (let r = 1; r < L.rows; r++) {
+      const t = L.tiles[r * L.cols + c];
+      if ((t === Tile.Solid || t === Tile.OneWay) && L.tiles[(r - 1) * L.cols + c] === Tile.Empty)
+        return r * GAME_CONFIG.tile;
+    }
+    return levelHeight(L);
+  }
+
+  private dismount(p: Player, lost: boolean): void {
+    if (p.ride < 0) return;
+    const k = mountOf(p.ride) as MountKind;
+    p.ride = -1;
+    p.rush = 0;
+    p.diveUntil = 0;
+    p.mountHp = 0;
+    p.airJumps = P.airJumps;
+    if (lost) {
+      // thrown clear, with a moment of safety
+      p.vy = -360;
+      p.onGround = false;
+      p.invulnUntil = this.tick + this.ticks(1.2);
+    }
+    this.emit({ e: 'ride', id: p.id, k, on: 0, lost: lost ? 1 : 0, x: r1(p.x), y: r1(p.y) });
+  }
+
+  /** A player bullet from a ride (its gun, a rocket, a missile). */
+  private rideBullet(
+    p: Player,
+    x: number,
+    y: number,
+    vx: number,
+    vy: number,
+    dmg: number,
+    o: {
+      kind?: BulletKind;
+      blast?: number;
+      life: number;
+      pierce?: boolean;
+      grav?: number;
+      turn?: number;
+      size?: number;
+    },
+  ): void {
+    this.bullets.push({
+      oy: p.y,
+      id: this.nextBulletId++,
+      enemy: false,
+      owner: p.id,
+      kind: o.kind ?? 'shot',
+      x,
+      y,
+      vx,
+      vy,
+      dmg,
+      pierce: !!o.pierce,
+      expires: this.tick + this.ticks(o.life),
+      born: this.tick,
+      lag: p.viewLag,
+      weapon: o.kind && o.kind !== 'shot' ? null : 'laser',
+      power: o.kind === 'rocket',
+      hit: o.pierce ? new Set() : null,
+      grav: o.grav ?? 0,
+      blast: o.blast ?? 0,
+      size: o.size ?? 0,
+      turn: o.turn ?? 0,
+      hitsLeft: 0,
+      ret: false,
+      src: -1,
+    });
+  }
+
+  private rideFire(p: Player): void {
+    const g = this.mountDef(p).gun;
+    if (!g) return;
+    p.nextFireTick = this.tick + Math.max(1, this.ticks(g.cooldown));
+    const up = p.aimY < 0;
+    const x = p.x + p.facing * 26;
+    const y = p.y - this.mountDef(p).seat - (this.mountDef(p).fly ? 20 : 8);
+    for (let i = 0; i < g.pellets; i++) {
+      const a = up
+        ? -Math.PI / 2 + p.facing * 0.35
+        : (p.facing > 0 ? 0 : Math.PI) + (g.spread ? (i / Math.max(1, g.pellets - 1) - 0.5) * g.spread : 0);
+      const dy = g.spread || g.pellets === 1 ? 0 : (i - (g.pellets - 1) / 2) * 8;
+      this.rideBullet(p, x, y + dy, Math.cos(a) * g.speed, Math.sin(a) * g.speed, g.damage, {
+        kind: g.blast > 0 ? 'rocket' : 'shot',
+        blast: g.blast,
+        life: g.lifetime,
+        pierce: g.pierce,
+        size: g.blast > 0 ? 4 : 0,
+      });
+    }
+  }
+
+  private ridePower(p: Player): void {
+    const m = this.mountDef(p);
+    const k = mountOf(p.ride) as MountKind;
+    p.mountReady = this.tick + this.ticks(m.powerCd);
+    let tx: number | undefined;
+    let ty: number | undefined;
+    switch (m.power) {
+      case 'nitro':
+        p.rush = this.ticks(MOUNT_POWER.nitro.sec);
+        p.rideHits.clear();
+        break;
+      case 'charge':
+        p.rush = this.ticks(MOUNT_POWER.charge.sec);
+        p.rideHits.clear();
+        break;
+      case 'barrage': {
+        const B = MOUNT_POWER.barrage;
+        for (let i = 0; i < B.rockets; i++) {
+          const a = -0.55 - i * 0.12;
+          const vx = Math.cos(a) * B.speed * p.facing;
+          const vy = Math.sin(a) * B.speed;
+          this.rideBullet(p, p.x + p.facing * 20, p.y - 36, vx, vy, B.damage, {
+            kind: 'rocket',
+            blast: B.blast,
+            life: 2.4,
+            grav: 700,
+            size: 4,
+          });
+        }
+        break;
+      }
+      case 'missiles': {
+        const M = MOUNT_POWER.missiles;
+        for (let i = 0; i < M.count; i++) {
+          const a = (p.facing > 0 ? 0 : Math.PI) + (i / (M.count - 1) - 0.5) * 1.6;
+          this.rideBullet(p, p.x, p.y - 34, Math.cos(a) * M.speed, Math.sin(a) * M.speed, M.damage, {
+            kind: 'rocket',
+            blast: M.blast,
+            life: 2.2,
+            turn: M.turn,
+            size: 4,
+          });
+        }
+        break;
+      }
+      case 'pounce': {
+        const PO = MOUNT_POWER.pounce;
+        const e = this.nearestFoe(p.x + p.facing * 60, p.y - 20, PO.range);
+        if (e) {
+          tx = e.body.x;
+          ty = e.body.y;
+          const t = 0.45;
+          p.vx = (tx - p.x) / t;
+          p.vy = -420;
+          p.facing = tx >= p.x ? 1 : -1;
+          p.onGround = false;
+          p.rush = this.ticks(t + 0.2);
+          this.damageEnemy(e, PO.damage, p.id, tx, ty - e.body.h / 2, 'melee');
+        } else {
+          p.vx = p.facing * 420;
+          p.vy = -420;
+          p.onGround = false;
+          p.rush = this.ticks(0.5);
+        }
+        break;
+      }
+      case 'stomp': {
+        const S = MOUNT_POWER.stomp;
+        this.rideBlast(p, p.x, p.y - 10, S.radius, S.damage, true);
+        this.tremorFrom(p);
+        break;
+      }
+      case 'dive': {
+        p.rush = this.ticks(1.2);
+        p.diveUntil = this.tick + this.ticks(1.2);
+        break;
+      }
+    }
+    this.emit({
+      e: 'rpow',
+      id: p.id,
+      k,
+      x: r1(p.x),
+      y: r1(p.y),
+      f: p.facing,
+      ...(tx !== undefined && ty !== undefined ? { tx: r1(tx), ty: r1(ty) } : {}),
+    });
+  }
+
+  /** A burst from a ride's power: every foe in reach takes the damage (ground: only those on the ground near y). */
+  private rideBlast(p: Player, x: number, y: number, r: number, dmg: number, ground = false): void {
+    for (const e of [...this.enemies.values()]) {
+      if (!e.awake) continue;
+      const ex = e.body.x;
+      const ey = e.body.y - e.body.h / 2;
+      if (ground && Math.abs(e.body.y - p.y) > 90) continue;
+      if ((ex - x) ** 2 + (ey - y) ** 2 > (r + e.body.w / 2) ** 2) continue;
+      this.damageEnemy(e, dmg, p.id, ex, ey, 'blast');
+    }
+  }
+
+  /** The elephant's stamp also sends a wave along the ground both ways (shots of the squad's: they hurt foes). */
+  private tremorFrom(p: Player): void {
+    for (const dir of [1, -1]) {
+      this.rideBullet(p, p.x + dir * 30, p.y - 12, dir * 420, 0, MOUNT_POWER.stomp.damage * 0.5, {
+        kind: 'wave',
+        life: 0.7,
+        pierce: true,
+        size: 12,
+      });
+    }
+  }
+
+  /** Riders run troopers down: a ride at speed (or in its power move) tramples what it meets. */
+  private rideTrample(p: Player, e: Enemy): boolean {
+    if (p.ride < 0) return false;
+    const m = this.mountDef(p);
+    const k = mountOf(p.ride);
+    const rushing = p.rush > 0 && (m.power === 'nitro' || m.power === 'charge');
+    const fast = Math.abs(p.vx) > m.speed * 0.6;
+    const dmg = rushing
+      ? m.power === 'nitro'
+        ? MOUNT_POWER.nitro.damage
+        : MOUNT_POWER.charge.damage
+      : fast || k === 'elephant' || k === 'tiger'
+        ? m.ram
+        : 0;
+    if (dmg <= 0 || isBoss(e.kind)) return false;
+    const last = p.rideHits.get(e.id) ?? -1e9;
+    if (this.tick - last < this.ticks(RIDE_RAM_COOLDOWN_SEC)) return true;
+    p.rideHits.set(e.id, this.tick);
+    this.damageEnemy(e, dmg, p.id, e.body.x, e.body.y - e.body.h / 2, 'slide');
+    return true;
   }
 
   private overdrive(p: Player): boolean {
@@ -4617,7 +4922,8 @@ export class Sim {
     const base = Math.atan2(p.aimY, p.aimX);
     const crouch = p.crouch && p.aimY === 0;
     const mx = p.x + (p.aimY === 0 ? p.facing * 16 : p.aimX * 10);
-    const my = p.y - (crouch ? 12 : p.aimY < 0 ? P.height + 2 : p.aimY > 0 ? 8 : 22);
+    const seat = p.ride >= 0 ? this.mountDef(p).seat : 0; // from the saddle
+    const my = p.y - seat - (crouch ? 12 : p.aimY < 0 ? P.height + 2 : p.aimY > 0 ? 8 : 22);
     const dmg = w.damage * (od ? U.overdrive.damage : 1) * (p.onGround ? 1 : perk.airGunDamage);
     for (let i = 0; i < w.pellets; i++) {
       const a = w.pellets === 1 ? base : base + (i / (w.pellets - 1) - 0.5) * w.spreadRad;
@@ -5860,6 +6166,15 @@ export class Sim {
     if (p.state !== 'alive' || this.phase !== 'playing') return;
     if (this.tick < p.invulnUntil || this.dodging(p)) return;
     let d = dmg * GAME_CONFIG.mission.enemyDamage[this.settings.difficulty] * this.mods.enemyDamage;
+    if (p.ride >= 0) {
+      // the ride takes the hits while it lasts
+      p.mountHp -= d * this.mountDef(p).armor;
+      p.lastHurt = this.tick;
+      p.invulnUntil = this.tick + this.ticks(P.hurtInvulnSec * 0.6);
+      this.emit({ e: 'hurt', id: p.id, dmg: Math.round(d) });
+      if (p.mountHp <= 0) this.dismount(p, true);
+      return;
+    }
     if (this.overdrive(p)) d *= U.overdrive.damageTaken;
     d *= heroPerk(p.hero).damageTaken;
     p.hp -= d;
@@ -5873,6 +6188,7 @@ export class Sim {
 
   private koPlayer(p: Player): void {
     if (p.state === 'dead') return;
+    this.dismount(p, false);
     p.state = 'dead';
     p.hp = 0;
     p.vx = 0;
@@ -5903,9 +6219,10 @@ export class Sim {
         if (p.state !== 'alive') continue;
         if (p.slideTicks > 0 && !boss) continue; // sliding knocks troopers over instead
         const h = p.crouch ? P.crouchHeight : P.height;
-        const overlapX = Math.abs(p.x - b.x) < (p.w + b.w) / 2 - 2;
+        const reach = p.ride >= 0 ? 18 : 0; // a ride is bigger than its rider
+        const overlapX = Math.abs(p.x - b.x) < (p.w + b.w) / 2 - 2 + reach;
         const overlapY = p.y - h < b.y && p.y > b.y - b.h;
-        if (overlapX && overlapY) this.hurtPlayer(p, dmg);
+        if (overlapX && overlapY && !this.rideTrample(p, e)) this.hurtPlayer(p, dmg);
       }
     }
   }
@@ -6077,6 +6394,12 @@ export class Sim {
       // never in a rest stop or on an arena's doorstep
       for (const r of this.level.rests) if (x > r.x0 - 250 && x < r.x1 + 250) x = r.x1 + 260;
       for (const a of this.level.arenas) if (x > a.trigger - 300 && x < a.right + 200) x = a.right + 220;
+      // a surprise pushed past a rest stop must not land on (or behind) the next one's spot
+      const prev = out[out.length - 1];
+      if (prev && x < prev.x + 400) {
+        x = prev.x + 400;
+        for (const r of this.level.rests) if (x > r.x0 - 250 && x < r.x1 + 250) x = r.x1 + 260;
+      }
       if (x > x1) continue;
       // nothing twice in one run while the stage has others left
       const fresh = pool.filter((k) => !out.some((o) => o.kind === k));
@@ -6740,6 +7063,10 @@ export class Sim {
       pn: p.powerN,
       rs: storm ? this.arrowsFor(p) : 0,
       ...(this.tick < p.netUntil ? { nt: 1 } : {}),
+      rd: p.ride,
+      rh: p.ride >= 0 ? Math.max(0, Math.ceil((p.mountHp / this.mountDef(p).hp) * 100)) : 0,
+      ru: p.rush,
+      rr: p.ride >= 0 && this.tick >= p.mountReady ? 1 : 0,
     }));
     // Only enemies near somebody are sent: a long level would otherwise bloat every packet.
     const near = (x: number, w: number): boolean => {

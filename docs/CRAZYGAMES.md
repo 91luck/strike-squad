@@ -91,11 +91,14 @@ busy, the paid Workers plan is the next step (check the price on Cloudflare's pr
 > battlefield, break into a spinning fortress, wrestle a king who splits in two and storm a burning golden city.
 > Every stage has its own astra, its own rakshasas, its own boss and its own goal (free the captives, break the
 > totems, hold the line, beat the tide), and every run brings surprises: ambushes, elite hunters, fire from the sky,
-> a stampede. Unleash your super for a full-screen finisher, earn three stars, unlock heroes, and keep your daily
-> streak. Play solo with computer buddies, or with up to 8 friends online.
+> a stampede. Ride into battle: a war bike, an armoured jeep, a jet suit, a war horse, a tiger, a war elephant and a
+> great hawk, each with its own power (nitro, rockets, missiles, charge, pounce, stomp, dive). Call your astra and
+> watch the hero draw a blazing bow as the one arrow becomes a thousand. Unleash your super for a full-screen
+> finisher, earn three stars, unlock heroes, and keep your daily streak. Play solo with computer buddies, or with up
+> to 8 friends online.
 
 > **Controls (keyboard):** A/D or arrows move, W/S aim, Space jump (twice: double jump), J fire, Shift dash (Down +
-> Shift: slide), F knife, Q super move, R astra, Esc or P pause. **Touch:** left thumb moves and aims; buttons for
+> Shift: slide), F knife (riding: the ride's power), Q super move, R astra, Esc or P pause. **Touch:** left thumb moves and aims; buttons for
 > Jump, Fire, Dash, Knife, Super and Astra.
 
 ## Checked against the CrazyGames requirements (Nov 2026)
@@ -103,7 +106,7 @@ busy, the paid Workers plan is the next step (check the price on Cloudflare's pr
 - Touch controls follow the portal's device type (`SDK.user.systemInfo.device.type`), not touch APIs: a laptop with
   a touch screen gets keyboard controls (`Platform.device`, tested in `e2e/crazygames.spec.ts`).
 - Text selection is off on `body`; the audio context is resumed on every tap, click and key (iOS).
-- Relative paths only; about 5 MB zipped (limit 50 MB, 20 MB for the mobile homepage), stage art loading per stage;
+- Relative paths only; about 6 MB zipped (limit 50 MB, 20 MB for the mobile homepage), stage art loading per stage;
   one click to gameplay.
 - In the smallest game frames (821x462, 800x450) the HD art is used and the menu fits (907x510 too).
 - P pauses as well as Escape (Escape leaves the portal's fullscreen first).

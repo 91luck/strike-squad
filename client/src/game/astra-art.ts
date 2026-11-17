@@ -287,7 +287,7 @@ export const BOW_MS = 800;
 /** The share of that time spent drawing the string, before the arrow goes. */
 const DRAW_PART = 0.25;
 
-function bowShape(ctx: Ctx, pull: number, glow: string, arrow: number): void {
+export function bowShape(ctx: Ctx, pull: number, glow: string, arrow: number): void {
   // limbs: a recurve, belly forward (+x), tips curling back out
   const limb = (w: number, col: string): void => {
     ctx.strokeStyle = col;

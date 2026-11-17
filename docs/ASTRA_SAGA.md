@@ -195,6 +195,55 @@ Not built yet from the design: the stage's hidden collectible, its three challen
   he takes full damage. Fire from his mouths (one tongue per head), Moonblade' blade along the ground, burning
   stones. PRALAY is the arena's rule; the squad's PARAMASTRA cuts every head and strikes his heart.
 
+## Full strength: longer, harder stages
+
+A computer squad used to reach every boss in about a minute and never lose a life, so every stage now runs at full
+strength (`saga.ts` `fullStrength`):
+
+- **Escorts.** Every second and third foe of a section brings an escort three tiles behind it (`~` in the foe list:
+  placed only where it has ground at the height of the foe it follows, never alone on a wall top).
+- **A gauntlet before the boss.** Each stage gets one more section right before the boss, in a terrain it has not
+  used yet, with six of its own host: Angaar Tila (ember hill), Toote Khambe (broken pillars over the sea), Megh
+  Stambh, Saanpon ki Khaai, Sheesh Burj, Senapati ka Kot, Chakra Burj, Kushti ke Gaddhe, Jalta Setu.
+- **The host hits harder:** enemy health and fire rate ×1.15, damage ×1.25, boss health ×1.3, boss tempo ×1.05.
+- **A trial halfway (pariksha).** Right after each stage's rest stop comes a stretch of a shape the stage has not used
+  yet, crowded with its own host, so the second half opens with a fight before the gauntlet and the boss:
+  Machhuaron ka Ghaat, Toofan ki Ghati, Naag Mandap, Sheesh Mahal, Rann ka Dwaar, Surya Dwaar, Bada Akhada, Sena ka
+  Ghera. Not on Agnivan (the chase) or Bhasm Parvat (the lava): their clocks set the pace. No gates (several stages
+  are built to have none).
+- **A climbing curve.** Stage n's host hits 2% harder than the first's per stage (up to stage 7) and its boss has 2%
+  more health per stage, on top of the full-strength multipliers, so stage 10 is felt to be the last.
+- **Bhasm Parvat** keeps its length and its foes (the rising lava sets its pace) and only hits harder.
+
+Measured with the computer squad (1 and 2 bots, 3 seeds each): about twice the enemies of the first version, the boss
+reached after 1-2.5 minutes, 2.5-4.5 minutes a stage (Bhasm Parvat about 1.5), and lives lost from stage 4 on. The
+bots aim perfectly, so a person takes longer. The tests still require every stage to be finishable and good bots to win
+most runs.
+
+## Rides (sawari)
+
+Some stretches of a stage have a ride stand: every soldier who walks onto it gets that ride until the stretch ends
+(`mounts.ts`, `LevelDef.mounts`, course `ride`). The ride has its own health (hits go to it first; destroyed, it
+throws the soldier clear with a moment of safety, and the stand gives another), its own speed and jumps or free
+flight, and its own power on the KNIFE button. Bike, jeep and jet suit carry a gun of their own; on the animals the
+soldier shoots their own gun from the saddle. Rides at speed trample troopers.
+
+| Ride                 | Moves                        | Gun                  | Power (KNIFE)                      | Where                                      |
+| -------------------- | ---------------------------- | -------------------- | ---------------------------------- | ------------------------------------------ |
+| War bike             | 330 px/s, double jump        | twin guns            | Nitro: a burst that runs foes down | Maya Nagri, Dwand Bhoomi, Curse of Pharaoh |
+| Armoured jeep        | 250 px/s, heavy armour       | rocket cannon        | Rockets lobbed in a fan            | Chakra Durg, Operation Lifeline            |
+| Jet suit             | flight                       | twin piercing lasers | Six homing missiles                | Vayu Shikhar (a flight), Alien Invasion    |
+| War horse            | 310 px/s, triple jump        | the soldier's own    | Charge: a gallop that tramples     | Agnivan, Samarpan Maidan, North            |
+| Bagh, the tiger      | 285 px/s, double jump        | the soldier's own    | Pounce onto the nearest foe        | Naag Lok, Operation Astra                  |
+| Gaj, the elephant    | 175 px/s, 220 health, armour | the soldier's own    | Stomp: a shockwave both ways       | Samarpan Maidan                            |
+| Baaz, the great hawk | flight                       | the soldier's own    | Dive: strikes where it lands       | Sagar Setu, Suvarna, Marble Peak           |
+
+A **flight** (`udaan` terrain) is open sky over a drop, stone spires rising and rocks hanging, with the stand on the
+near side: only a flying ride crosses it, and a soldier who loses theirs falls back to the stand for another. The
+computer squad rides too (fliers pick a height with a clear way ahead and use the power when foes are close). Art:
+`art3d/mount_rig.py` renders each ride in parts (body, legs, wheels, wing, pack) that `client/game/mount-art.ts`
+animates.
+
 ## Stages
 
 Every stage is a stage of its own (`LevelDef.own`): its own terrain and rule, three rakshasas nobody else fields,

@@ -1,5 +1,5 @@
-import type { PowerKind, SagaId } from './config';
-import { buildCourse, withRests, type CourseDef } from './course';
+import { SAGA_IDS, type PowerKind, type SagaId } from './config';
+import { buildCourse, withRests, type CourseDef, type Section } from './course';
 import type { LevelDef } from './level';
 
 /**
@@ -253,7 +253,14 @@ const AGNIVAN: CourseDef = {
   chase: true,
   mods: { enemyHp: 0.9, enemyFire: 0.9, enemyDamage: 0.9, bossHp: 0.85, bossTempo: 0.95 },
   sections: [
-    { zone: 'Van ka Kinara', art: 'vana', land: 'flat', len: 26, loot: 'a9' },
+    {
+      zone: 'Van ka Kinara',
+      ride: { kind: 'horse', at: 14, len: 66 },
+      art: 'vana',
+      land: 'flat',
+      len: 26,
+      loot: 'a9',
+    },
     { zone: 'Jalta Jungle', art: 'vana', land: 'catwalks', len: 32, foes: 'I10 I15 B20^ I26', loot: '+24^' },
     { zone: 'Girta Ped', art: 'vana', land: 'treefall', len: 26, foes: 'B9^ B18^' },
     {
@@ -321,7 +328,16 @@ const SAGAR_SETU: CourseDef = {
     },
     { zone: 'Tairte Patthar', art: 'sagar', land: 'stones', len: 34, foes: 'M12 M24' },
     { zone: 'Adhoora Pul', art: 'sagar', land: 'bridge', len: 32, foes: 'K8 N16 K22 M27', loot: '+12' },
-    { zone: 'Majhi ki Naav', art: 'sagar', land: 'flat', len: 22, cp: true, rest: true, loot: '+4 w17*' },
+    {
+      zone: 'Majhi ki Naav',
+      ride: { kind: 'baaz', at: 16, len: 69 },
+      art: 'sagar',
+      land: 'flat',
+      len: 22,
+      cp: true,
+      rest: true,
+      loot: '+4 w17*',
+    },
     {
       zone: 'Jwar-Bhata',
       art: 'sagar',
@@ -379,6 +395,14 @@ const VAYU_SHIKHAR: CourseDef = {
       loot: '+4 v16*',
     },
     { zone: 'Tooti Chattan', art: 'shikhar', land: 'cliff', rise: 9, len: 24, foes: 'L13 R20' },
+    {
+      zone: 'Badal ke Paar',
+      art: 'shikhar',
+      land: 'udaan',
+      len: 46,
+      ride: { kind: 'jetsuit' },
+      foes: 'L14 Y22 L30 Y38',
+    },
     { zone: 'Bijli ke Megh', art: 'shikhar', land: 'chasm', len: 30, foes: 'L9 Y17 L24' },
     { zone: 'Shikhar ka Dwar', art: 'shikhar', land: 'cliff', rise: 8, len: 13, cp: true, loot: '+11' },
     {
@@ -408,7 +432,15 @@ const NAAG_LOK: CourseDef = {
   sections: [
     { zone: 'Nadi ka Tal', art: 'naglok', land: 'flat', len: 24, loot: 'n9' },
     { zone: 'Pehli Gufa', art: 'naglok', land: 'tunnel', rise: -6, len: 30, foes: 'Z10 Z18 C25' },
-    { zone: 'Vish ke Talaab', art: 'naglok', land: 'flat', len: 30, pools: [8, 20], foes: 'E5 Z15 E25' },
+    {
+      zone: 'Vish ke Talaab',
+      ride: { kind: 'tiger', at: 2, len: 56 },
+      art: 'naglok',
+      land: 'flat',
+      len: 30,
+      pools: [8, 20],
+      foes: 'E5 Z15 E25',
+    },
     { zone: 'Gehri Utrai', art: 'naglok', land: 'pillars', rise: -7, len: 28, foes: 'C7^ Z13^ C19^' },
     {
       zone: 'Sarpraj ka Mandir',
@@ -465,7 +497,15 @@ const MAYA_NAGRI: CourseDef = {
   own: true,
   mods: { enemyHp: 1.1, enemyFire: 1.05, enemyDamage: 1.05, bossHp: 1.05, bossTempo: 1.05 },
   sections: [
-    { zone: 'Sabha ka Dwar', art: 'maya', land: 'flat', len: 24, stash: 20, loot: 'y8 +20^' },
+    {
+      zone: 'Sabha ka Dwar',
+      ride: { kind: 'bike', at: 4, len: 78 },
+      art: 'maya',
+      land: 'flat',
+      len: 24,
+      stash: 20,
+      loot: 'y8 +20^',
+    },
     { zone: 'Nakli Farsh', art: 'maya', land: 'illusion', len: 32, foes: 'A14 A26' },
     { zone: 'Darpan Gallery', art: 'maya', land: 'flat', len: 30, foes: 'X8 Q15 X22 Q27', loot: '+18^' },
     { zone: 'Sabha ka Baag', art: 'maya', land: 'flat', len: 22, cp: true, rest: true, loot: '+4 y16*' },
@@ -547,8 +587,23 @@ const SAMARPAN_MAIDAN: CourseDef = {
   mods: { enemyHp: 1.15, enemyFire: 1.1, enemyDamage: 1.1, bossHp: 1.1, bossTempo: 1.05 },
   sections: [
     { zone: 'Shankhnaad', art: 'ranbhoomi', land: 'flat', len: 22, stash: 18, loot: 'a8 +18^' },
-    { zone: 'Banon ki Barsat', art: 'ranbhoomi', land: 'flat', len: 30, foes: 'Ar12 Dr18 Ar24 Ar28' },
-    { zone: 'Gaj Sena', art: 'ranbhoomi', land: 'flat', len: 34, foes: 'Ga14 Ar22 Ga30', loot: '+8' },
+    {
+      zone: 'Banon ki Barsat',
+      ride: { kind: 'horse', at: 2, len: 26 },
+      art: 'ranbhoomi',
+      land: 'flat',
+      len: 30,
+      foes: 'Ar12 Dr18 Ar24 Ar28',
+    },
+    {
+      zone: 'Gaj Sena',
+      ride: { kind: 'elephant', at: 2, len: 30 },
+      art: 'ranbhoomi',
+      land: 'flat',
+      len: 34,
+      foes: 'Ga14 Ar22 Ga30',
+      loot: '+8',
+    },
     {
       zone: 'Rath ka Marg',
       art: 'ranbhoomi',
@@ -585,9 +640,17 @@ const CHAKRA_DURG: CourseDef = {
   tint: 250,
   own: true,
   vyuh: true,
-  mods: { enemyHp: 1.2, enemyFire: 1.12, enemyDamage: 1.12, bossHp: 1.1, bossTempo: 1.08 },
+  mods: { enemyHp: 1.2, enemyFire: 1.12, enemyDamage: 1.12, bossHp: 1.0, bossTempo: 1.08 },
   sections: [
-    { zone: 'Vyuh ka Dwar', art: 'chakra', land: 'flat', len: 22, stash: 18, loot: 'c8 +18^' },
+    {
+      zone: 'Vyuh ka Dwar',
+      ride: { kind: 'jeep', at: 4, len: 40 },
+      art: 'chakra',
+      land: 'flat',
+      len: 22,
+      stash: 18,
+      loot: 'c8 +18^',
+    },
     {
       zone: 'Pehla Chakra',
       art: 'chakra',
@@ -645,7 +708,7 @@ const DWAND_BHOOMI: CourseDef = {
   faction: 'demon',
   tint: 205,
   own: true,
-  mods: { enemyHp: 1.25, enemyFire: 1.12, enemyDamage: 1.15, bossHp: 1.1, bossTempo: 1.1 },
+  mods: { enemyHp: 1.25, enemyFire: 1.12, enemyDamage: 1.05, bossHp: 1.0, bossTempo: 1.1 },
   sections: [
     { zone: 'Akhade ka Dwar', art: 'dwand', land: 'flat', len: 22, stash: 18, loot: 'x8 +18^' },
     {
@@ -657,7 +720,16 @@ const DWAND_BHOOMI: CourseDef = {
       foes: 'Pw10 Sl20 Pw25',
     },
     { zone: 'Gada ki Gali', art: 'dwand', land: 'ascent', len: 30, foes: 'Gd9 Sl16^ Gd24', loot: '+14' },
-    { zone: 'Akhade ka Kuan', art: 'dwand', land: 'flat', len: 22, cp: true, rest: true, loot: '+4 x16*' },
+    {
+      zone: 'Akhade ka Kuan',
+      ride: { kind: 'bike', at: 14, len: 96 },
+      art: 'dwand',
+      land: 'flat',
+      len: 22,
+      cp: true,
+      rest: true,
+      loot: '+4 x16*',
+    },
     {
       zone: 'Doosra Akhada',
       art: 'dwand',
@@ -730,7 +802,15 @@ const MAHAYUDDH: CourseDef = {
       rest: true,
       loot: '+4 a16*',
     },
-    { zone: 'Nidrasur ki Neend', art: 'mahayuddh', land: 'flat', len: 36, foes: 'Kb18', loot: '+33' },
+    {
+      zone: 'Nidrasur ki Neend',
+      ride: { kind: 'baaz', at: 2, len: 81 },
+      art: 'mahayuddh',
+      land: 'flat',
+      len: 36,
+      foes: 'Kb18',
+      loot: '+33',
+    },
     { zone: 'Hansvimaan', art: 'mahayuddh', land: 'skyway', len: 50, foes: 'My20 My34' },
     {
       zone: 'Saptashir ki Sabha',
@@ -743,18 +823,203 @@ const MAHAYUDDH: CourseDef = {
   ],
 };
 
+/**
+ * The last stretch before each boss: a section with a terrain the stage has not used yet and a crowd of its own
+ * host, so the run to the boss is a climax and not a walk.
+ */
+const GAUNTLET: Partial<Record<SagaId, Section>> = {
+  'astra-1': {
+    zone: 'Angaar Tila',
+    art: 'inferno',
+    land: 'ascent',
+    len: 34,
+    foes: 'I6? B11^? W15? I20^? B24^? I29^?',
+    loot: '+18^',
+  },
+  'astra-2': {
+    zone: 'Toote Khambe',
+    art: 'sagar',
+    land: 'pillars',
+    len: 30,
+    foes: 'K5^? M10? K14^? N19^? M24? K26^?',
+  },
+  'astra-3': {
+    zone: 'Megh Stambh',
+    art: 'shikhar',
+    land: 'towers',
+    len: 34,
+    foes: 'Y7? L12? R17? Y22? L27? Y31?',
+    loot: '+20^',
+  },
+  'astra-4': {
+    zone: 'Saanpon ki Khaai',
+    art: 'naglok',
+    land: 'trench',
+    len: 32,
+    foes: 'Z5? C10? E14_? Z19_? C24? Z28?',
+  },
+  'astra-5': {
+    zone: 'Sheesh Burj',
+    art: 'maya',
+    land: 'towers',
+    len: 34,
+    foes: 'A6? X11? Q16? A21^? X26? Q31?',
+    loot: '+20^',
+  },
+  'astra-7': {
+    zone: 'Senapati ka Kot',
+    art: 'ranbhoomi',
+    land: 'rampart',
+    len: 34,
+    foes: 'Ar5? Dr10? Ga15_? Ar20^? Ar25^? Dr30?',
+    loot: '+22^',
+  },
+  'astra-8': {
+    zone: 'Chakra Burj',
+    art: 'chakra',
+    land: 'towers',
+    len: 34,
+    foes: 'Ck6? Rt11? Jl16? Rt21? Ck26? Rt31?',
+    loot: '+20^',
+  },
+  'astra-9': {
+    zone: 'Kushti ke Gaddhe',
+    art: 'dwand',
+    land: 'pits',
+    len: 34,
+    foes: 'Pw5? Gd11? Sl16? Pw22? Gd27? Sl31?',
+  },
+  'astra-10': {
+    zone: 'Jalta Setu',
+    art: 'mahayuddh',
+    land: 'bridge',
+    len: 34,
+    foes: 'Ms6? My11? Ms16? My21? Ms26? My31?',
+    loot: '+18',
+  },
+};
+
+/**
+ * A saga stage at full strength: every second and third foe brings an escort a few steps behind it (left out where
+ * there is nothing to stand on), the host hits harder and the bosses last longer, and the gauntlet stands before the
+ * boss (Bhasm Parvat, where the rising lava sets the pace, only hits harder). Stages were too short and too easy without it: a squad of computer players reached every boss in about a
+ * minute and never went down.
+ */
+/**
+ * A trial (pariksha) halfway through a stage, right after its rest stop: a stretch of a shape the stage has not used
+ * yet, crowded with the stage's own host, so the second half opens with a fight of its own before the gauntlet and
+ * the boss. No gates (several stages are built to have none). Not on the chase (Agnivan) or the lava climb (Bhasm
+ * Parvat), whose clocks already set the pace.
+ */
+const TRIAL: Partial<Record<SagaId, Section>> = {
+  'astra-2': {
+    zone: 'Machhuaron ka Ghaat',
+    art: 'sagar',
+    land: 'pits',
+    len: 30,
+    foes: 'K6 M10 N14 K18^ M22 K26',
+  },
+  'astra-3': {
+    zone: 'Toofan ki Ghati',
+    art: 'shikhar',
+    land: 'pillars',
+    len: 30,
+    foes: 'Y6 L10 R15 Y18 L22 Y26',
+  },
+  'astra-4': {
+    zone: 'Naag Mandap',
+    art: 'naglok',
+    land: 'catwalks',
+    len: 30,
+    foes: 'Z6 C10^ E14 Z18 C22^ Z26',
+  },
+  'astra-5': { zone: 'Sheesh Mahal', art: 'maya', land: 'steps', len: 30, foes: 'A6 X10 A14^ Q18 A22 X26' },
+  'astra-7': {
+    zone: 'Rann ka Dwaar',
+    art: 'ranbhoomi',
+    land: 'pits',
+    len: 32,
+    foes: 'Ar6 Dr10 Ga15 Ar20^ Ar25',
+  },
+  'astra-8': { zone: 'Surya Dwaar', art: 'chakra', land: 'steps', len: 30, foes: 'Ck6 Rt12 Ck19^ Jl24' },
+  'astra-9': {
+    zone: 'Bada Akhada',
+    art: 'dwand',
+    land: 'catwalks',
+    len: 30,
+    foes: 'Pw6 Sl10^ Gd16 Sl23^',
+  },
+  'astra-10': {
+    zone: 'Sena ka Ghera',
+    art: 'mahayuddh',
+    land: 'steps',
+    len: 30,
+    foes: 'Ms6 My10^ Ms14 My18 Ms23',
+  },
+};
+
+/** Stage n of ten: how much harder its host and its boss are than the first's (a steady climb, not a wall). */
+const CURVE = (n: number): { foe: number; hit: number; boss: number } => ({
+  foe: 1 + 0.02 * Math.min(n - 1, 6),
+  hit: 1 + 0.02 * Math.min(n - 1, 6),
+  boss: 1 + 0.02 * Math.min(n - 1, 6),
+});
+
+function fullStrength(def: CourseDef, climb = false): CourseDef {
+  const m = def.mods;
+  const r2 = (v: number): number => Math.round(v * 100) / 100;
+  const sections = def.sections.map((sec) => {
+    if (!sec.foes || climb) return sec;
+    const toks = sec.foes.split(/\s+/).filter(Boolean);
+    const out: string[] = [];
+    toks.forEach((tok, i) => {
+      out.push(tok);
+      const q = /^([A-Z][a-z]?)(\d+)([\^_]?)$/.exec(tok);
+      if (!q || i % 3 === 0) return;
+      const col = Number(q[2]);
+      const at = col + 3 < sec.len ? col + 3 : col - 3;
+      if (at >= 1) out.push(`${q[1]}${at}${q[3]}~`);
+    });
+    return { ...sec, foes: out.join(' ') };
+  });
+  const id = def.id as SagaId;
+  const gauntlet = GAUNTLET[id];
+  if (gauntlet) sections.splice(sections.length - 1, 0, gauntlet);
+  // the trial goes right after the stage's rest stop (or halfway, if it has none)
+  const trial = TRIAL[id];
+  if (trial) {
+    const rest = sections.findIndex((q) => q.rest);
+    const at = rest >= 0 ? rest + 1 : Math.ceil(sections.length / 2);
+    sections.splice(Math.min(at, sections.length - 2), 0, trial);
+  }
+  const k = CURVE(SAGA_IDS.indexOf(id) + 1);
+  return {
+    ...def,
+    sections,
+    mods: {
+      ...m,
+      enemyHp: r2(m.enemyHp * 1.15 * k.foe),
+      enemyFire: r2(m.enemyFire * 1.15 * k.foe),
+      enemyDamage: r2(m.enemyDamage * 1.25 * k.hit),
+      bossHp: r2(m.bossHp * 1.3 * k.boss),
+      bossTempo: r2(m.bossTempo * 1.05),
+    },
+  };
+}
+
 /** The stages as course data (the tests read them to check every stage keeps a shape of its own). */
 export const SAGA_COURSES: Record<SagaId, CourseDef> = {
-  'astra-1': withRests(AGNIVAN),
-  'astra-2': withRests(SAGAR_SETU),
-  'astra-3': withRests(VAYU_SHIKHAR),
-  'astra-4': withRests(NAAG_LOK),
-  'astra-5': withRests(MAYA_NAGRI),
-  'astra-6': withRests(BHASM_PARVAT),
-  'astra-7': withRests(SAMARPAN_MAIDAN),
-  'astra-8': withRests(CHAKRA_DURG),
-  'astra-9': withRests(DWAND_BHOOMI),
-  'astra-10': withRests(MAHAYUDDH),
+  'astra-1': withRests(fullStrength(AGNIVAN)),
+  'astra-2': withRests(fullStrength(SAGAR_SETU)),
+  'astra-3': withRests(fullStrength(VAYU_SHIKHAR)),
+  'astra-4': withRests(fullStrength(NAAG_LOK)),
+  'astra-5': withRests(fullStrength(MAYA_NAGRI)),
+  // the lava rising behind the climb already sets its pace: no escorts and no gauntlet slowing the squad into it
+  'astra-6': withRests(fullStrength(BHASM_PARVAT, true)),
+  'astra-7': withRests(fullStrength(SAMARPAN_MAIDAN)),
+  'astra-8': withRests(fullStrength(CHAKRA_DURG)),
+  'astra-9': withRests(fullStrength(DWAND_BHOOMI)),
+  'astra-10': withRests(fullStrength(MAHAYUDDH)),
 };
 
 export const SAGA_BUILDERS: Record<SagaId, () => LevelDef> = {
