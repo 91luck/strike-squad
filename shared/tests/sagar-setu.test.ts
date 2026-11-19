@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ATTACK, Autopilot, GAME_CONFIG, Sim, finalArena, getMission } from '../src';
+import { ATTACK, Autopilot, GAME_CONFIG, NEUTRAL_INPUT, Sim, finalArena, getMission } from '../src';
 
 /** Sagar Setu (saga stage 2), a stage of its own: sinking stones, the tide, a boat, sea rakshasas, Chhaya. */
 const T = GAME_CONFIG.tile;
@@ -224,5 +224,84 @@ describe('Sagar Setu end to end', () => {
       }
       expect(sim.result, `${n} soldiers`).toBe('won');
     }
+  });
+});
+
+describe('the boat never leaves anyone stranded', () => {
+  function atBoat(): {
+    sim: Sim;
+    me: ReturnType<Sim['addPlayer']>;
+    bot: ReturnType<Sim['addPlayer']>;
+    bi: number;
+  } {
+    const sim = new Sim({ seed: 5, settings: { difficulty: 'normal', mission: 'astra-2' } });
+    const me = sim.addPlayer({ id: 'me', name: 'Me', slot: 0, hero: 0 });
+    const bot = sim.addPlayer({ id: 'b', name: 'B', slot: 1, hero: 1 });
+    while (sim.phase === 'countdown') sim.step();
+    const bi = sim.level.plats.findIndex((d) => d.kind === 'boat');
+    const d = sim.level.plats[bi]!;
+    for (const q of [me, bot]) {
+      q.x = d.x0 - 60 - (q === me ? 0 : 20);
+      q.y = d.y;
+      q.vy = 0;
+      q.invulnUntil = 1e12;
+      q.lastSafeX = q.x;
+      q.lastSafeY = q.y;
+    }
+    for (const e of sim.enemies.values()) e.hp = 0;
+    return { sim, me, bot, bi };
+  }
+  const boatX = (sim: Sim, bi: number): number =>
+    (sim as unknown as { plats: { x0: number }[] }).plats[bi]!.x0;
+
+  it('waits at the near bank for a squadmate close behind (a few seconds), then sails', () => {
+    const { sim, bot, bi } = atBoat();
+    const ap = new Autopilot(1);
+    const x0 = sim.level.plats[bi]!.x0;
+    let left = -1;
+    for (let t = 0; t < 30 * 12 && left < 0; t++) {
+      sim.setInput('me', { ...NEUTRAL_INPUT });
+      sim.setInput('b', ap.decide(sim, bot));
+      sim.step();
+      if (boatX(sim, bi) > x0 + 2) left = t;
+    }
+    expect(left / 30).toBeGreaterThan(3.5); // it waited for the one standing on the shore
+    expect(left / 30).toBeLessThan(9);
+  });
+
+  it('at the far bank everyone steps ashore and it comes back for anyone behind', () => {
+    const { sim, bot, bi } = atBoat();
+    const ap = new Autopilot(1);
+    const d = sim.level.plats[bi]!;
+    let back = false;
+    let arrived = false;
+    for (let t = 0; t < 30 * 60 && !back; t++) {
+      sim.setInput('me', { ...NEUTRAL_INPUT });
+      sim.setInput('b', ap.decide(sim, bot));
+      sim.step();
+      if (boatX(sim, bi) >= d.to) arrived = true;
+      if (arrived && boatX(sim, bi) <= d.x0) back = true;
+    }
+    expect(arrived).toBe(true);
+    expect(back).toBe(true);
+  });
+
+  it('a soldier who falls in beside the boat under way is pulled back aboard', () => {
+    const { sim, me, bot, bi } = atBoat();
+    const ap = new Autopilot(1);
+    for (let t = 0; t < 30 * 8; t++) {
+      sim.setInput('me', { ...NEUTRAL_INPUT });
+      sim.setInput('b', ap.decide(sim, bot));
+      sim.step();
+    }
+    const pl = (sim as unknown as { plats: { x0: number; x1: number; y: number }[] }).plats[bi]!;
+    expect(pl.x0).toBeGreaterThan(sim.level.plats[bi]!.x0); // under way
+    me.x = (pl.x0 + pl.x1) / 2;
+    me.y = (sim.waterY() ?? pl.y) + 30;
+    me.vy = 0;
+    sim.setInput('me', { ...NEUTRAL_INPUT });
+    sim.step();
+    sim.step();
+    expect(Math.abs(me.y - pl.y)).toBeLessThan(4);
   });
 });

@@ -1366,9 +1366,17 @@ export interface MissionSettings {
   mission: MissionId;
 }
 
+/** The Sim's own default (the tests' sandbox); rooms and the menus start players on the saga (PLAYABLE_IDS). */
 export function defaultMissionSettings(): MissionSettings {
   return { difficulty: 'normal', mission: 'mission-1' };
 }
+
+/**
+ * The stages a player can choose: the Astra Saga. The six classic missions (mission-1..6) stay in the code (the
+ * tests exercise many mechanics on them) but are no longer offered anywhere: a request for one plays stage 1.
+ */
+export const PLAYABLE_IDS = SAGA_IDS;
+export const playable = (id: MissionId): MissionId => (isSagaId(id) ? id : 'astra-1');
 
 export const secondsToTicks = (sec: number, tickRate: number = GAME_CONFIG.tickRate): number =>
   Math.max(1, Math.round(sec * tickRate));

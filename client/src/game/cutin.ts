@@ -13,6 +13,9 @@ import { bigFrame3d } from './sprites3d';
 
 type Ctx = CanvasRenderingContext2D;
 
+/** Names of moves written in the cut-in (off: the game shows no shouted text during play). */
+const SHOW_TITLES = false as boolean;
+
 interface Cut {
   hero: number;
   title: string;
@@ -175,6 +178,8 @@ export class CutIn {
   }
 
   private title(ctx: Ctx, c: Cut, W: number, H: number, pop: number, px: number, dx = 0): void {
+    // the move's name is no longer written across the screen: the hero and the strike say it
+    if (!SHOW_TITLES) return;
     const bh = H * (c.small ? 0.2 : 0.3);
     const x = W * (c.small ? 0.62 : 0.64) + dx;
     const y = H * 0.5 - bh * 0.02;

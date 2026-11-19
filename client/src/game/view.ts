@@ -302,7 +302,7 @@ export class MatchView {
     private readonly sfx: Sfx,
     private readonly settings: () => Settings,
   ) {
-    this.renderer = new Renderer(canvas);
+    this.renderer = new Renderer(canvas, { allow3d: true });
     window.addEventListener('resize', () => this.renderer.resize());
     window.addEventListener('orientationchange', () => window.setTimeout(() => this.renderer.resize(), 150));
   }
@@ -771,6 +771,9 @@ export class MatchView {
     $('boss-intro-tip').textContent = tips.length ? tips.join(' · ') : info.tip;
     $('boss-name').textContent = title;
     const card = $('boss-intro');
+    // no title card: the boss's name sits on its health bar; the fight starts with the fight
+    card.hidden = true;
+    if (card.hidden) return;
     card.hidden = false;
     card.classList.remove('show');
     void card.offsetWidth; // restart the animation
@@ -831,7 +834,16 @@ export class MatchView {
     chip.classList.toggle('urgent', g.s === 0 && timed && (g.t ?? 99) <= 10);
   }
 
-  showBanner(text: string, bad = false): void {
+  /**
+   * Shouted text over the action is gone from play (no names, no "AREA CLEAR!", no "KNIFE KILL": the game says it
+   * with what happens, the radio's slim subtitle and the HUD). Kept as a no-op so the call sites document the
+   * moments; `forceBanner` still shows the few texts a test or a lesson needs.
+   */
+  showBanner(_text: string, _bad = false): void {
+    // intentionally silent
+  }
+
+  forceBanner(text: string, bad = false): void {
     const b = $('banner');
     const now = performance.now();
     const showing = b.classList.contains('show');
@@ -861,7 +873,7 @@ export class MatchView {
     window.clearTimeout(this.pumpTimer);
     this.pumpTimer = window.setTimeout(() => {
       const next = this.bannerQueue.shift();
-      if (next) this.showBanner(next.text, next.bad);
+      if (next) this.forceBanner(next.text, next.bad);
     }, ms);
   }
 
@@ -1057,7 +1069,9 @@ export class MatchView {
           rs > 0
             ? `🏹 YOU ARE FIGHTING IT: ${rs} ARROWS EACH VOLLEY · STOP FIRING`
             : '🙏 SAMARPAN · LOWER YOUR WEAPONS: STOP FIRING AND IT SPARES YOU';
-      else if (rule) box.textContent = `${BOSS_ASTRA_TEXT[rule].call} ${BOSS_ASTRA_TEXT[rule].tip}`;
+      // a boss's other astras speak for themselves (their tells): only Samarpan needs a word, it asks for the
+      // opposite of fighting
+      else if (rule) box.hidden = true;
       box.classList.toggle('resist', rule === 'samarpan' && rs > 0);
     }
     this.onStorm?.(rule === 'samarpan');

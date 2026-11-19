@@ -1,0 +1,122 @@
+{
+  "scale": 0.109,
+  "ss": 5,
+  "ground": 448,
+  "pieces": {
+    "head": [493, 30, 765, 173],
+    "torso": [546, 182, 782, 400],
+    "pelvis": [561, 415, 778, 622],
+    "pauldron": [844, 158, 969, 350],
+    "upper": [995, 364, 1108, 560],
+    "fore": [837, 370, 956, 578],
+    "thigh_n": [557, 575, 688, 754],
+    "thigh_f": [752, 575, 868, 747],
+    "shin_n": [580, 750, 687, 986],
+    "shin_f": [789, 750, 935, 978],
+    "cape": [1030, 161, 1337, 961],
+    "sword": [1357, 134, 1494, 756]
+  },
+  "parts": {
+    "head": {
+      "piece": "head",
+      "pivot": [695, 160],
+      "joint": "neck"
+    },
+    "torso": {
+      "piece": "torso",
+      "pivot": [665, 392],
+      "joint": "spine"
+    },
+    "pelvis": {
+      "piece": "pelvis",
+      "pivot": [668, 470],
+      "joint": "root"
+    },
+    "cape": {
+      "piece": "cape",
+      "pivot": [1215, 345],
+      "joint": "spine",
+      "shade": 0.92
+    },
+    "thigh_n": {
+      "piece": "thigh_n",
+      "pivot": [630, 590],
+      "joint": "thigh_n"
+    },
+    "thigh_f": {
+      "piece": "thigh_f",
+      "pivot": [812, 590],
+      "joint": "thigh_f",
+      "shade": 0.78
+    },
+    "shin_n": {
+      "piece": "shin_n",
+      "pivot": [632, 768],
+      "joint": "shin_n"
+    },
+    "shin_f": {
+      "piece": "shin_f",
+      "pivot": [842, 768],
+      "joint": "shin_f",
+      "shade": 0.78
+    },
+    "upper_n": {
+      "piece": ["upper", "pauldron"],
+      "at": {
+        "pauldron": [1, -80]
+      },
+      "pivot": [1058, 380],
+      "joint": "upper_n"
+    },
+    "upper_f": {
+      "piece": ["upper", "pauldron"],
+      "at": {
+        "pauldron": [1, -80]
+      },
+      "pivot": [1058, 380],
+      "joint": "upper_f",
+      "shade": 0.78
+    },
+    "fore_n": {
+      "piece": "fore",
+      "pivot": [880, 390],
+      "joint": "fore_n"
+    },
+    "fore_f": {
+      "piece": "fore",
+      "pivot": [880, 390],
+      "joint": "fore_f",
+      "shade": 0.78
+    },
+    "gun": {
+      "piece": "sword",
+      "pivot": [1395, 255],
+      "joint": "aim",
+      "rot": 90,
+      "zoom": 0.8
+    }
+  },
+  "joints": {
+    "root": [0, 0],
+    "spine": [0, -40],
+    "neck": [5, -232],
+    "aim": [200, -120],
+    "thigh_n": [-10, 55],
+    "thigh_f": [10, 55],
+    "shin_n": [-10, 230],
+    "shin_f": [10, 230],
+    "upper_n": [0, -165],
+    "upper_f": [10, -165],
+    "fore_n": [-23, 5],
+    "fore_f": [-13, 5]
+  },
+  "hands": {
+    "n": [22, 175],
+    "f": [32, 175]
+  },
+  "gun": {
+    "grip": [1395, 255],
+    "foregrip": [1395, 190],
+    "muzzle": [1488, 750]
+  }
+}

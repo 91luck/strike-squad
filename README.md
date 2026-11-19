@@ -86,7 +86,7 @@ The browser sends only **intentions** (left/right, up/down, jump, fire, dash, kn
 
 ## Docs
 
-[Astra Saga](docs/ASTRA_SAGA.md) · [CrazyGames](docs/CRAZYGAMES.md) · [Zip → live (Hinglish)](docs/PUBLISH_AND_DEPLOY_HINGLISH.md) · [Play on phone (Hinglish)](docs/PLAY_ON_PHONE_HINGLISH.md) · [Hinglish deploy guide](docs/DEPLOY_GUIDE_HINGLISH.md) · [Deployment](docs/DEPLOYMENT.md) · [Architecture](docs/ARCHITECTURE.md) · [Game rules](docs/GAME_RULES.md) · [Network protocol](docs/NETWORK_PROTOCOL.md) · [Testing](docs/TESTING.md) · [Security](docs/SECURITY.md) · [Troubleshooting](docs/TROUBLESHOOTING.md)
+[Production readiness](docs/PRODUCTION_READINESS.md) · [Astra Saga](docs/ASTRA_SAGA.md) · [CrazyGames](docs/CRAZYGAMES.md) · [Zip → live (Hinglish)](docs/PUBLISH_AND_DEPLOY_HINGLISH.md) · [Play on phone (Hinglish)](docs/PLAY_ON_PHONE_HINGLISH.md) · [Hinglish deploy guide](docs/DEPLOY_GUIDE_HINGLISH.md) · [Deployment](docs/DEPLOYMENT.md) · [Architecture](docs/ARCHITECTURE.md) · [Game rules](docs/GAME_RULES.md) · [Network protocol](docs/NETWORK_PROTOCOL.md) · [Testing](docs/TESTING.md) · [Security](docs/SECURITY.md) · [Troubleshooting](docs/TROUBLESHOOTING.md)
 
 ## Known limitations
 
@@ -95,6 +95,10 @@ The browser sends only **intentions** (left/right, up/down, jump, fire, dash, kn
 - Phones were tested by emulation (Pixel 7 profile, real multi-touch events), not on a physical device. Only Chromium is tested automatically. Sound could not be listened to in the test environment.
 - Cloudflare's free limits are **daily**; heavy use can hit them (online play then stops until 5:30 AM IST, solo training keeps working). One server instance holds all squads in memory, so a redeploy ends running missions.
 - Online squads are humans only; computer buddies exist only in solo training.
+
+## Production readiness
+
+This is a feature-rich release candidate, not yet commercially certified. Run `npm run release:preflight` for a fast repository/configuration check, then complete the full automated and physical-device/portal QA gates in [Production Readiness](docs/PRODUCTION_READINESS.md). Standalone hosting does not currently include ads or payments; monetisation is platform-dependent (CrazyGames SDK) and revenue is not guaranteed.
 
 ## Roadmap
 

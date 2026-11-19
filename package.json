@@ -39,7 +39,8 @@
     "test:url": "tsx scripts/test-url.ts",
     "publish:github": "tsx scripts/publish-github.ts",
     "build:crazygames": "npm run build:crazygames -w client",
-    "package:crazygames": "npm run build:crazygames && tsx scripts/package-crazygames.ts"
+    "package:crazygames": "npm run build:crazygames && tsx scripts/package-crazygames.ts",
+    "release:preflight": "node scripts/release-preflight.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261029.1",

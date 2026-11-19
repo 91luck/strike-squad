@@ -17,6 +17,9 @@ afterEach(async () => {
 async function room(names: string[]) {
   const r = await createRoom(ts, names);
   open.push(...r.clients);
+  // The mechanics below are measured on the classic mission-1 map (its arena, pits and boss). Players can no
+  // longer pick it (rooms start on the saga); the test sets it on the room directly.
+  ts.server.getRoom(r.code)!.settings.mission = 'mission-1';
   return r;
 }
 
@@ -588,14 +591,18 @@ describe('real-time loop', () => {
       const r = await createRoom(t2, ['A', 'B']);
       open.push(...r.clients);
       const [host, guest] = r.clients;
-      guest!.send({ t: 'setSettings', settings: { mission: 'mission-2' } });
+      guest!.send({ t: 'setSettings', settings: { mission: 'astra-2' } });
       expect((await guest!.next('error')).code).toBe('not_host');
+      // a classic mission is no longer offered: asking for one gets stage 1
       host!.send({ t: 'setSettings', settings: { mission: 'mission-3' } });
-      const room = await guest!.next((m) => m.t === 'room' && m.room.settings.mission === 'mission-3');
-      expect(room.room.settings.mission).toBe('mission-3');
+      const first = await guest!.next((m) => m.t === 'room' && m.room.settings.mission === 'astra-1');
+      expect(first.room.settings.mission).toBe('astra-1');
+      host!.send({ t: 'setSettings', settings: { mission: 'astra-3' } });
+      const room = await guest!.next((m) => m.t === 'room' && m.room.settings.mission === 'astra-3');
+      expect(room.room.settings.mission).toBe('astra-3');
       host!.send({ t: 'startMatch' });
       const ms = await guest!.next('matchStart');
-      expect(ms.levelId).toBe('mission-3');
+      expect(ms.levelId).toBe('astra-3');
     } finally {
       await t2.stop();
     }

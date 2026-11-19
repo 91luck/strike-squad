@@ -445,7 +445,7 @@ const NAAG_LOK: CourseDef = {
     {
       zone: 'Sarpraj ka Mandir',
       art: 'naglok',
-      land: 'flat',
+      land: 'towers',
       len: 22,
       cp: true,
       rest: true,
@@ -591,7 +591,7 @@ const SAMARPAN_MAIDAN: CourseDef = {
       zone: 'Banon ki Barsat',
       ride: { kind: 'horse', at: 2, len: 26 },
       art: 'ranbhoomi',
-      land: 'flat',
+      land: 'towers',
       len: 30,
       foes: 'Ar12 Dr18 Ar24 Ar28',
     },
@@ -662,7 +662,7 @@ const CHAKRA_DURG: CourseDef = {
     {
       zone: 'Ghoomta Ghera',
       art: 'chakra',
-      land: 'flat',
+      land: 'rampart',
       len: 30,
       field: { kind: 'belt', power: 80 },
       foes: 'Jl9 Rt16 Rt24',
@@ -724,7 +724,7 @@ const DWAND_BHOOMI: CourseDef = {
       zone: 'Akhade ka Kuan',
       ride: { kind: 'bike', at: 14, len: 96 },
       art: 'dwand',
-      land: 'flat',
+      land: 'steps',
       len: 22,
       cp: true,
       rest: true,
@@ -780,7 +780,7 @@ const MAHAYUDDH: CourseDef = {
     {
       zone: 'Jalti Nagri',
       art: 'mahayuddh',
-      land: 'flat',
+      land: 'towers',
       len: 32,
       foes: 'Ms10 My16 Ms24 My28',
       loot: '+30',
@@ -958,11 +958,15 @@ const TRIAL: Partial<Record<SagaId, Section>> = {
   },
 };
 
-/** Stage n of ten: how much harder its host and its boss are than the first's (a steady climb, not a wall). */
+/**
+ * Stage n of ten: how much harder its host and its boss are than the first's. A steady climb, not a wall, but a real
+ * one: playtests had a lone computer soldier losing barely a life a stage and players clearing stages without a
+ * scratch. From stage 7 on, foes take about a quarter more to put down and hit about a fifth harder.
+ */
 const CURVE = (n: number): { foe: number; hit: number; boss: number } => ({
-  foe: 1 + 0.02 * Math.min(n - 1, 6),
-  hit: 1 + 0.02 * Math.min(n - 1, 6),
-  boss: 1 + 0.02 * Math.min(n - 1, 6),
+  foe: 1 + 0.045 * Math.min(n - 1, 6),
+  hit: 1 + 0.035 * Math.min(n - 1, 6),
+  boss: 1 + 0.04 * Math.min(n - 1, 6),
 });
 
 function fullStrength(def: CourseDef, climb = false): CourseDef {
@@ -992,7 +996,10 @@ function fullStrength(def: CourseDef, climb = false): CourseDef {
     const at = rest >= 0 ? rest + 1 : Math.ceil(sections.length / 2);
     sections.splice(Math.min(at, sections.length - 2), 0, trial);
   }
-  const k = CURVE(SAGA_IDS.indexOf(id) + 1);
+  // Chakra Durg and Dwand Bhoomi are already the hardest fights of the saga (the turning rings, the duels): they
+  // climb only as far as stage 4 does, or a lone soldier could not get through them
+  const n = SAGA_IDS.indexOf(id) + 1;
+  const k = CURVE(id === 'astra-8' || id === 'astra-9' ? 4 : n);
   return {
     ...def,
     sections,

@@ -3,6 +3,7 @@ import {
   NEUTRAL_INPUT,
   Sim,
   defaultMissionSettings,
+  playable,
   type BoardEntry,
   type SettingsPatch,
   type ErrorCode,
@@ -43,7 +44,7 @@ export interface RoomDeps {
 export class Room {
   phase: RoomPhase = 'lobby';
   hostId: string;
-  settings: MissionSettings = defaultMissionSettings();
+  settings: MissionSettings = { ...defaultMissionSettings(), mission: 'astra-1' };
   readonly players = new Map<string, RoomPlayer>();
   sim: Sim | null = null;
   lastActivity: number;
@@ -171,7 +172,7 @@ export class Room {
     if (id !== this.hostId) return fail('not_host', 'Only the host can change mission options.');
     if (this.phase !== 'lobby') return fail('bad_state', 'Options can only be changed in the lobby.');
     if (patch.difficulty !== undefined) this.settings.difficulty = patch.difficulty;
-    if (patch.mission !== undefined) this.settings.mission = patch.mission;
+    if (patch.mission !== undefined) this.settings.mission = playable(patch.mission);
     this.touch();
     this.broadcastRoom();
     return OK;

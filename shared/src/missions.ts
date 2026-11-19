@@ -122,7 +122,7 @@ export function missionInfo(id: string): MissionInfo {
       place: s.place,
       stars: s.stars,
       brief: s.brief,
-      advanced: true,
+      advanced: false,
     };
   return MISSIONS[0] as MissionInfo;
 }

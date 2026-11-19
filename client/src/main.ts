@@ -1,4 +1,5 @@
-import { HD, HD_CENTER, HD_FEET, hdCanvases } from './game/hero-hd';
+import { HD, hdCanvases } from './game/hero-hd';
+import { blitRig, preloadRigs, RigDraw } from './game/rig';
 import '@fontsource/russo-one/latin-400.css';
 import '@fontsource/chakra-petch/latin-400.css';
 import '@fontsource/chakra-petch/latin-600.css';
@@ -32,9 +33,9 @@ import { Sfx } from './audio/sfx';
 import { inviteLink, httpBase } from './env';
 import { OnlineMatch } from './game/online';
 import { SoloMatch, type SoloOptions } from './game/practice';
-import { Renderer } from './game/renderer';
-import { charFrame, heroLook, RUN_FRAMES, CENTER_X, FEET_Y } from './game/sprites';
-import { BIG, bigFrame3d, preloadHeroSprites } from './game/sprites3d';
+import { Renderer, setGraphics3d } from './game/renderer';
+import { charFrame, heroLook, RUN_FRAMES } from './game/sprites';
+import { preloadHeroSprites } from './game/sprites3d';
 import { CHAPTERS, GOAL_TEXT } from './story';
 import { MatchView } from './game/view';
 import { InputController } from './input/input';
@@ -1065,7 +1066,7 @@ function renderBoard(board: BoardEntry[], meId: string | undefined): void {
 /** The mission (and difficulty) of the squad or solo run that just ended. */
 function currentMission(): { id: MissionId; difficulty: Difficulty } {
   if (room) return { id: room.settings.mission, difficulty: room.settings.difficulty };
-  return { id: practiceOpts?.mission ?? 'mission-1', difficulty: practiceOpts?.difficulty ?? 'normal' };
+  return { id: practiceOpts?.mission ?? 'astra-1', difficulty: practiceOpts?.difficulty ?? 'normal' };
 }
 
 /** The mission after this one in the campaign, if any. */
@@ -1336,34 +1337,19 @@ $('btn-share').addEventListener('click', async () => {
 
 // ---------------------------------------------------------------- missions
 
-/** Fill every mission menu from the campaign list: number, name, place, toughness, and a tick once completed. */
+/** Fill every mission menu with the Astra Saga stages (the classic missions are no longer offered). */
 function fillMissionSelects(): void {
   for (const sel of document.querySelectorAll<HTMLSelectElement>('select.mission-select')) {
     const keep = sel.value;
-    const campaign = el(
-      'optgroup',
-      { attrs: { label: 'Campaign' } },
-      ...MISSIONS.map((m) => {
-        const done = progress.get(m.id);
-        const stars = '★'.repeat(m.stars) + '☆'.repeat(Math.max(0, 5 - m.stars));
-        return el('option', {
-          text: `${m.num} · ${m.name} — ${m.place} ${stars}${m.advanced ? ' · ADVANCED' : ''}${done ? ' ✓' : ''}`,
-          attrs: { value: m.id },
-        });
-      }),
-    );
-    const saga = el(
-      'optgroup',
-      { attrs: { label: 'Astra Saga' } },
+    sel.replaceChildren(
       ...SAGA.map((m) =>
         el('option', {
-          text: `Astra ${m.num} · ${m.name} — ${m.astraName}${progress.get(m.id) ? ' ✓' : ''}`,
+          text: `Stage ${m.num} · ${m.name} — ${m.astraName}${progress.get(m.id) ? ' ✓' : ''}`,
           attrs: { value: m.id },
         }),
       ),
     );
-    sel.replaceChildren(campaign, saga);
-    sel.value = isMissionId(keep) ? keep : 'mission-1';
+    sel.value = isSagaId(keep) ? keep : 'astra-1';
   }
 }
 fillMissionSelects();
@@ -1551,7 +1537,7 @@ $('btn-practice-go').addEventListener('click', () => {
   const mission = ($('practice-mission') as HTMLSelectElement).value;
   startPractice({
     name: currentName(),
-    mission: isMissionId(mission) ? mission : 'mission-1',
+    mission: isSagaId(mission) ? mission : 'astra-1',
     difficulty,
     buddies: [0, 1, 3].includes(buddies) ? buddies : 1,
     hero: settings.value.hero,
@@ -1567,6 +1553,8 @@ function syncSettingsUi(): void {
   ($('set-music') as HTMLInputElement).checked = s.music;
   music.setEnabled(s.music);
   ($('set-autofire') as HTMLInputElement).checked = s.autoFire;
+  ($('set-3d') as HTMLInputElement).checked = s.graphics3d;
+  setGraphics3d(s.graphics3d);
   ($('set-reduce') as HTMLInputElement).checked = s.reduceMotion;
   ($('set-fps') as HTMLInputElement).checked = s.showStats;
   ($('set-sens') as HTMLInputElement).value = String(s.touchSensitivity);
@@ -1585,12 +1573,16 @@ function syncSettingsUi(): void {
 settings.onChange(syncSettingsUi);
 syncSettingsUi();
 
-const bindCheck = (id: string, key: 'muted' | 'reduceMotion' | 'showStats' | 'autoFire' | 'music'): void => {
+const bindCheck = (
+  id: string,
+  key: 'muted' | 'reduceMotion' | 'showStats' | 'autoFire' | 'music' | 'graphics3d',
+): void => {
   $(id).addEventListener('change', (e) => settings.update({ [key]: (e.target as HTMLInputElement).checked }));
 };
 bindCheck('set-mute', 'muted');
 bindCheck('set-music', 'music');
 bindCheck('set-autofire', 'autoFire');
+bindCheck('set-3d', 'graphics3d');
 bindCheck('set-reduce', 'reduceMotion');
 bindCheck('set-fps', 'showStats');
 $('set-volume').addEventListener('input', (e) =>
@@ -1682,50 +1674,85 @@ if (platform.ownsUrl) registerPwa($('btn-install'));
 
 // ---------------------------------------------------------------- heroes (menu showcase + lobby picker)
 
-/** The hero on the menu stage: runs, stops, fires a burst - a living character select. */
+/** The menu showcase uses the same assembled skeletal character as the live match (not a flat portrait/frame). */
 let heroRaf = 0;
 const heroCanvas = $('hero-canvas') as HTMLCanvasElement;
+const showcaseRig = new RigDraw();
+preloadRigs(HEROES.map((h) => `h${h.id}`));
 function heroFrame(t: number): void {
   const g = heroCanvas.getContext('2d');
   if (!g) return;
   const id = settings.value.hero;
-  const look = heroLook(id);
-  const cycle = settings.value.reduceMotion ? 0 : t % 4000;
-  const running = cycle < 1800;
-  const firing = cycle > 2300 && cycle < 3400;
-  const pose = running ? 'run' : 'idle';
-  const frame = running ? Math.floor(t / 75) % RUN_FRAMES : Math.floor(t / 450) % 2;
-  const aim = cycle > 3000 && cycle < 3400 ? 'uf' : 'f';
-  // the rendered showcase frames (3x the game's HD frames) once they have loaded, else the game frame blown up
-  const big = bigFrame3d(id, pose, frame, aim);
-  const f = big ?? charFrame(`h${id}`, look, pose, frame, aim);
-  const S = 3;
+  const cycle = settings.value.reduceMotion ? 2400 : t % 4800;
+  const running = cycle < 1900;
+  const firing = cycle > 2750 && cycle < 3900;
+  const aimUp = cycle > 3450 && cycle < 3900;
+  // the canvas has twice the pixels of its CSS box (crisp on phones and HiDPI): draw in CSS px
+  const ox = heroCanvas.width / 4;
+  const oy = heroCanvas.height / 2 - 15;
   g.clearRect(0, 0, heroCanvas.width, heroCanvas.height);
-  g.imageSmoothingEnabled = false;
-  const ox = heroCanvas.width / 2 - 6;
-  const oy = heroCanvas.height - 10;
-  g.fillStyle = 'rgba(0,0,0,0.35)';
+  g.save();
+  g.setTransform(2, 0, 0, 2, 0, 0);
+  // Soft stage lighting and a grounded shadow make the full-body model read clearly.
+  // the rig is authored at gameplay scale (~45 px tall): blown up to fill the showcase
+  const S = 3.1;
+  const halo = g.createRadialGradient(ox, oy - 80, 4, ox, oy - 80, 105);
+  halo.addColorStop(0, `${heroOf(id).color}55`);
+  halo.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = halo;
+  g.fillRect(0, 0, heroCanvas.width / 2, oy);
+  g.fillStyle = 'rgba(0,0,0,.42)';
   g.beginPath();
-  g.ellipse(ox, oy - 2, 34, 7, 0, 0, Math.PI * 2);
+  g.ellipse(ox, oy - 2, 37, 8, 0, 0, Math.PI * 2);
   g.fill();
-  // A high-definition frame (hero-hd.ts) has twice the pixels and its own anchor: draw it at half the scale.
-  const hd = hdCanvases.has(f.img);
-  const k = big ? S / BIG : hd ? S / HD : S;
-  const ax = big ? HD_CENTER * 3 : hd ? HD_CENTER : CENTER_X;
-  const ay = big ? HD_FEET * 3 : hd ? HD_FEET : FEET_Y;
-  g.imageSmoothingEnabled = !!big;
-  g.imageSmoothingQuality = 'high';
-  g.drawImage(f.img, ox - ax * k, oy - ay * k, f.img.width * k, f.img.height * k);
-  if (firing && Math.floor(t / 60) % 2 === 0) {
-    const mx = ox + f.muzzleX * S;
-    const my = oy + f.muzzleY * S;
-    const glow = g.createRadialGradient(mx, my, 0, mx, my, 16);
-    glow.addColorStop(0, '#ffffff');
-    glow.addColorStop(0.35, '#ffd166');
-    glow.addColorStop(1, 'rgba(255,200,80,0)');
-    g.fillStyle = glow;
-    g.fillRect(mx - 16, my - 16, 32, 32);
+  const rf = showcaseRig.draw({
+    id: `menu-showcase-${id}`,
+    key: `h${id}`,
+    x: t * 0.08,
+    vx: running ? 180 : 0,
+    vy: 0,
+    ground: true,
+    crouch: false,
+    slide: false,
+    dash: false,
+    melee: 0,
+    airJumps: 1,
+    aimX: 1,
+    aimY: aimUp ? -0.65 : 0,
+    hurt: false,
+    down: false,
+    nowMs: t,
+    fire: firing && Math.floor(t / 75) % 2 === 0,
+  });
+  g.translate(ox, oy);
+  if (rf) {
+    g.scale(S, S);
+    blitRig(g, rf, 0, 0, 1);
+    g.scale(1 / S, 1 / S);
+    if (firing && Math.floor(t / 75) % 2 === 0) {
+      const mx = rf.muzzleX * S;
+      const my = rf.muzzleY * S;
+      const glow = g.createRadialGradient(mx, my, 0, mx, my, 19);
+      glow.addColorStop(0, '#fff');
+      glow.addColorStop(0.25, '#ffe28a');
+      glow.addColorStop(1, 'rgba(255,150,40,0)');
+      g.fillStyle = glow;
+      g.fillRect(mx - 20, my - 20, 40, 40);
+    }
+  } else {
+    // Assets may still be loading on first paint; retain the existing art as a graceful fallback.
+    const look = heroLook(id);
+    const f = charFrame(
+      `h${id}`,
+      look,
+      running ? 'run' : 'idle',
+      running ? Math.floor(t / 75) % RUN_FRAMES : 0,
+      'f',
+    );
+    const k = hdCanvases.has(f.img) ? S / HD : S;
+    g.drawImage(f.img, (-f.img.width * k) / 2, -f.img.height * k, f.img.width * k, f.img.height * k);
   }
+  g.restore();
   if (!settings.value.reduceMotion) heroRaf = requestAnimationFrame(heroFrame);
 }
 
@@ -1765,6 +1792,51 @@ $('btn-hero-prev').addEventListener('click', () => stepHero(-1));
 $('btn-hero-next').addEventListener('click', () => stepHero(1));
 showHeroMeta();
 
+const cardRig = new RigDraw();
+function drawHeroCardModel(canvas: HTMLCanvasElement, hero: number): void {
+  const g = canvas.getContext('2d');
+  if (!g) return;
+  g.clearRect(0, 0, canvas.width, canvas.height);
+  const glow = g.createRadialGradient(64, 65, 4, 64, 65, 65);
+  glow.addColorStop(0, `${heroOf(hero).color}38`);
+  glow.addColorStop(1, 'rgba(0,0,0,0)');
+  g.fillStyle = glow;
+  g.fillRect(0, 0, canvas.width, canvas.height);
+  g.fillStyle = 'rgba(0,0,0,.28)';
+  g.beginPath();
+  g.ellipse(64, 130, 27, 5, 0, 0, Math.PI * 2);
+  g.fill();
+  const frame = cardRig.draw({
+    id: `hero-card-${hero}`,
+    key: `h${hero}`,
+    x: 0,
+    vx: 0,
+    vy: 0,
+    ground: true,
+    crouch: false,
+    slide: false,
+    dash: false,
+    melee: 0,
+    airJumps: 1,
+    aimX: 1,
+    aimY: 0,
+    hurt: false,
+    down: false,
+    nowMs: performance.now(),
+  });
+  if (frame) {
+    g.save();
+    g.translate(64, 130);
+    g.scale(1.22, 1.22);
+    blitRig(g, frame, 0, 0, 1);
+    g.restore();
+  } else {
+    Renderer.drawIcon(canvas, hero);
+    // The rig atlases load asynchronously. Replace the portrait with the full assembled model once ready.
+    window.setTimeout(() => drawHeroCardModel(canvas, hero), 180);
+  }
+}
+
 function renderHeroGrid(selected: number): void {
   const grid = $('hero-grid');
   if (grid.childElementCount !== HEROES.length) {
@@ -1775,8 +1847,9 @@ function renderHeroGrid(selected: number): void {
           attrs: { type: 'button', role: 'radio', 'data-hero': String(h.id), 'data-testid': `hero-${h.id}` },
         });
         b.style.setProperty('--c', h.color);
-        const icon = el('canvas', { attrs: { width: '44', height: '44', 'aria-hidden': 'true' } });
-        Renderer.drawIcon(icon, h.id);
+        const icon = el('canvas', { attrs: { width: '128', height: '144', 'aria-hidden': 'true' } });
+        icon.className = 'hero-card-model';
+        drawHeroCardModel(icon, h.id);
         b.append(icon, el('b', { text: h.name }), el('small', { text: h.tagline }));
         b.addEventListener('click', () => pickHero(h.id));
         return b;
@@ -1788,6 +1861,8 @@ function renderHeroGrid(selected: number): void {
     const open = profile.heroOpen(id);
     b.setAttribute('aria-checked', String(id === selected));
     b.classList.toggle('locked', !open);
+    b.classList.toggle('selected', id === selected);
+    b.setAttribute('aria-label', `${heroOf(id).name}${open ? '' : `, locked until level ${HERO_UNLOCK_LEVEL[id]}`}${id === selected ? ', selected' : ''}`);
     const small = b.querySelector('small');
     const perk = heroOf(id).perk;
     if (small)

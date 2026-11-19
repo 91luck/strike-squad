@@ -211,8 +211,10 @@ strength (`saga.ts` `fullStrength`):
   Machhuaron ka Ghaat, Toofan ki Ghati, Naag Mandap, Sheesh Mahal, Rann ka Dwaar, Surya Dwaar, Bada Akhada, Sena ka
   Ghera. Not on Agnivan (the chase) or Bhasm Parvat (the lava): their clocks set the pace. No gates (several stages
   are built to have none).
-- **A climbing curve.** Stage n's host hits 2% harder than the first's per stage (up to stage 7) and its boss has 2%
-  more health per stage, on top of the full-strength multipliers, so stage 10 is felt to be the last.
+- **A climbing curve.** Each stage after the first, foes have 4.5% more health and fire, hit 3.5% harder and the
+  boss has 4% more health, on top of the full-strength multipliers: by stage 10 foes take about 40% more to put down
+  and hit about a quarter harder (the climb stops after stage 7). Chakra Durg and Dwand Bhoomi, already the hardest
+  fights, climb only as far as stage 4. Playtests before this had a lone computer soldier losing barely a life a stage.
 - **Bhasm Parvat** keeps its length and its foes (the rising lava sets its pace) and only hits harder.
 
 Measured with the computer squad (1 and 2 bots, 3 seeds each): about twice the enemies of the first version, the boss

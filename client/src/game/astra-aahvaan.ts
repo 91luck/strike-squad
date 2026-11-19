@@ -3,6 +3,7 @@ import { CINE_COLOR } from './astra-cine';
 import { HD_CENTER, HD_FEET } from './hero-hd';
 import { bigFrame3d } from './sprites3d';
 import { bowShape } from './astra-art';
+import { drawImpact } from './astra-impact';
 
 /**
  * Astra aahvaan: how an astra is called, told the way the old epics are told on screen.
@@ -144,7 +145,11 @@ export class AstraShow {
       }
       if (c.shook === 1 && t >= 0.95) {
         c.shook = 2;
-        s = Math.max(s, 14);
+        s = Math.max(s, 20);
+      }
+      if (c.shook === 2 && t >= 1.2) {
+        c.shook = 3;
+        s = Math.max(s, 8);
       }
     }
     return s;
@@ -258,8 +263,23 @@ export class AstraShow {
         this.storm(ctx, c, t, k, sky, land, col.core, col.glow, nowMs, hq, camY);
       }
 
-      // 4. prahaar: the dome of light where it lands
+      // 4. prahaar: the dome of light where it lands, and the blow itself (astra-impact.ts)
       const hit = span(t, 0.9, DUR);
+      drawImpact(
+        ctx,
+        c.kind,
+        land.x,
+        land.y,
+        span(t, 0.92, DUR),
+        k,
+        col.core,
+        col.glow,
+        c.seed + 11,
+        nowMs,
+        hq,
+        camY,
+      );
+      ctx.globalCompositeOperation = 'lighter';
       if (hit > 0 && hit < 1) {
         const a = 1 - hit;
         const R = (60 + 230 * ease(hit)) * k;

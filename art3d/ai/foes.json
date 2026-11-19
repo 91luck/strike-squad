@@ -1,0 +1,225 @@
+{
+  "crab": {
+    "box": [234, 684, 425, 792],
+    "h": 26,
+    "right": false
+  },
+  "makar": {
+    "box": [816, 686, 1017, 793],
+    "h": 30,
+    "right": true
+  },
+  "harpy": {
+    "box": [1062, 242, 1278, 410],
+    "h": 40,
+    "right": true,
+    "fly": true
+  },
+  "bat": {
+    "box": [636, 684, 844, 791],
+    "h": 22,
+    "right": true,
+    "fly": true
+  },
+  "serpent": {
+    "box": [324, 512, 480, 673],
+    "h": 34,
+    "right": false
+  },
+  "spitter": {
+    "box": [1025, 685, 1132, 796],
+    "h": 34,
+    "right": true
+  },
+  "treant": {
+    "box": [1109, 510, 1258, 674],
+    "h": 54,
+    "right": true
+  },
+  "elephant": {
+    "box": [282, 250, 527, 408],
+    "h": 64,
+    "right": true
+  },
+  "pehlwan": {
+    "sheet": "kits1.png",
+    "s": 1,
+    "box": [330, 605, 490, 862],
+    "h": 56,
+    "right": true,
+    "fly": false,
+    "grabcut": 1,
+    "minfrac": 0.3,
+    "ring": 3
+  },
+  "gadadhar": {
+    "sheet": "kits1.png",
+    "s": 1,
+    "box": [16, 40, 130, 278],
+    "h": 56,
+    "right": true,
+    "fly": false,
+    "grabcut": 1,
+    "minfrac": 0.3,
+    "ring": 3,
+    "seed": [
+      [0.66, 0.03, 0.8, 0.19],
+      [0.3, 0.2, 0.48, 0.3]
+    ]
+  },
+  "rathi": {
+    "sheet": "kits1.png",
+    "s": 1,
+    "box": [35, 325, 160, 590],
+    "h": 54,
+    "right": true,
+    "fly": false,
+    "grabcut": 1,
+    "minfrac": 0.3,
+    "ring": 3
+  },
+  "golem": {
+    "sheet": "kits2.png",
+    "s": 1,
+    "box": [612, 325, 800, 590],
+    "h": 56,
+    "right": true,
+    "fly": false,
+    "grabcut": 1,
+    "minfrac": 0.3,
+    "ring": 3
+  },
+  "mayavi": {
+    "sheet": "kits1.png",
+    "s": 1,
+    "box": [398, 330, 590, 590],
+    "h": 54,
+    "right": true,
+    "fly": false,
+    "grabcut": 1,
+    "minfrac": 0.3,
+    "ring": 3
+  },
+  "pret": {
+    "sheet": "kits1.png",
+    "s": 1,
+    "box": [625, 328, 792, 572],
+    "h": 52,
+    "right": true,
+    "fly": true,
+    "grabcut": 1,
+    "minfrac": 0.3,
+    "ring": 3
+  },
+  "dancer": {
+    "sheet": "kits1.png",
+    "s": 1,
+    "box": [340, 48, 488, 282],
+    "h": 52,
+    "right": true,
+    "fly": false,
+    "grabcut": 1,
+    "minfrac": 0.3,
+    "ring": 3
+  },
+  "netter": {
+    "sheet": "kits2.png",
+    "s": 1,
+    "box": [935, 42, 1068, 280],
+    "h": 54,
+    "right": true,
+    "fly": false,
+    "grabcut": 1,
+    "minfrac": 0.3,
+    "ring": 3
+  },
+  "chakri": {
+    "sheet": "kits2.png",
+    "s": 1,
+    "box": [350, 335, 470, 585],
+    "h": 54,
+    "right": true,
+    "fly": false,
+    "grabcut": 1,
+    "minfrac": 0.3,
+    "ring": 3
+  },
+  "slinger": {
+    "sheet": "kits1.png",
+    "s": 1,
+    "box": [905, 320, 1065, 592],
+    "h": 54,
+    "right": true,
+    "fly": false,
+    "grabcut": 1,
+    "minfrac": 0.3,
+    "ring": 3,
+    "recolor": [
+      {
+        "hue": [330, 25],
+        "sat": 0.35,
+        "shift": 185
+      }
+    ]
+  },
+  "archer": {
+    "sheet": "kits1.png",
+    "s": 1,
+    "box": [612, 628, 800, 858],
+    "h": 52,
+    "right": true,
+    "fly": false,
+    "grabcut": 1,
+    "minfrac": 0.3
+  },
+  "drummer": {
+    "sheet": "kits1.png",
+    "s": 1,
+    "box": [910, 625, 1070, 858],
+    "h": 46,
+    "right": true,
+    "fly": false,
+    "grabcut": 1,
+    "minfrac": 0.3
+  },
+  "conch": {
+    "sheet": "kits1.png",
+    "s": 1,
+    "box": [612, 45, 780, 282],
+    "h": 52,
+    "right": true,
+    "fly": false,
+    "grabcut": 1,
+    "minfrac": 0.3
+  },
+  "mashaal": {
+    "sheet": "kits1.png",
+    "s": 1,
+    "box": [905, 50, 1062, 282],
+    "h": 52,
+    "right": true,
+    "fly": false,
+    "grabcut": 1,
+    "minfrac": 0.3
+  },
+  "lantern": {
+    "sheet": "kits2.png",
+    "s": 1,
+    "box": [640, 45, 800, 285],
+    "h": 44,
+    "right": true,
+    "fly": false,
+    "grabcut": 1,
+    "minfrac": 0.3
+  },
+  "imp": {
+    "sheet": "kits2.png",
+    "s": 1,
+    "box": [340, 45, 502, 285],
+    "h": 40,
+    "right": true,
+    "fly": false,
+    "grabcut": 1,
+    "minfrac": 0.3
+  }
+}

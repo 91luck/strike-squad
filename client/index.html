@@ -109,9 +109,10 @@
           </nav>
           <p class="credit" data-testid="credit">Developed by Lokesh Mahadule · © 2026 All rights reserved</p>
         </div>
-        <aside class="hero-stage" aria-label="Your hero">
+        <aside class="hero-stage" aria-label="Your selected operative">
+          <div class="hero-stage-kicker"><span class="hero-live-dot"></span> ACTIVE OPERATIVE</div>
           <div class="hero-spot" aria-hidden="true"></div>
-          <canvas id="hero-canvas" width="168" height="175" aria-hidden="true"></canvas>
+          <canvas id="hero-canvas" width="640" height="640" aria-hidden="true"></canvas>
           <div class="hero-pick">
             <button id="btn-hero-prev" class="round-btn" type="button" aria-label="Previous hero">‹</button>
             <div class="hero-meta">
@@ -939,6 +940,10 @@
           <label class="check"
             ><input id="set-autofire" type="checkbox" data-testid="set-autofire" /> Auto-fire on touch
             screens</label
+          >
+          <label class="check"
+            ><input id="set-3d" type="checkbox" data-testid="set-3d" /> 3D graphics (stages that have
+            them)</label
           >
           <label class="check"
             ><input id="set-reduce" type="checkbox" data-testid="set-reduce" /> Reduce motion (no screen

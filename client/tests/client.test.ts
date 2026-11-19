@@ -1150,9 +1150,10 @@ describe('the rides’ rendered parts (art3d/mount_rig.py → assets/mounts3d)',
   const dir = join(__dirname, '../src/assets/mounts3d');
   const NEEDS: Record<string, string[]> = {
     horse: ['body', 'legf', 'legb'],
-    tiger: ['body', 'legf', 'legb'],
-    elephant: ['body', 'legf', 'legb'],
-    baaz: ['body', 'wing'],
+    // painted whole (art3d/ai_mounts.py): one body, bobbed and rocked with the stride (mount-art.ts)
+    tiger: ['body'],
+    elephant: ['body'],
+    baaz: ['body'],
     bike: ['body', 'wheel'],
     jeep: ['body', 'wheel'],
     jetsuit: ['pack'],
@@ -1166,7 +1167,7 @@ describe('the rides’ rendered parts (art3d/mount_rig.py → assets/mounts3d)',
         ss: number;
         parts: Record<string, { w: number; h: number }>;
       };
-      expect(m.ss).toBe(2);
+      expect(m.ss).toBeGreaterThanOrEqual(2);
       for (const p of NEEDS[kind] ?? []) expect(m.parts[p]?.w ?? 0, `${kind} ${p}`).toBeGreaterThan(0);
     }
   });

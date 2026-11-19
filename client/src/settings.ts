@@ -19,6 +19,8 @@ export interface Settings {
   hand: 'right' | 'left';
   /** Background music (sound effects follow `muted` and `volume` only). */
   music: boolean;
+  /** Draw the stages in 3D where a 3D look exists (needs WebGL; off draws everything in 2D). */
+  graphics3d: boolean;
 }
 
 const KEY = 'strikesquad.settings.v1';
@@ -40,6 +42,7 @@ export function defaultSettings(): Settings {
     coachSeen: false,
     hand: 'right',
     music: true,
+    graphics3d: true,
   };
 }
 
@@ -69,6 +72,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     coachSeen: r.coachSeen === true,
     hand: r.hand === 'left' ? 'left' : 'right',
     music: typeof r.music === 'boolean' ? r.music : d.music,
+    graphics3d: typeof r.graphics3d === 'boolean' ? r.graphics3d : d.graphics3d,
   };
 }
 

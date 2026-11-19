@@ -1,0 +1,96 @@
+{
+  "vriksha": {
+    "sheet": "villains.jpg",
+    "s": 1,
+    "box": [932, 543, 1208, 1004],
+    "tol": 90,
+    "minfrac": 0.3,
+    "keep": ["crown"],
+    "blank": ["crown"],
+    "holes": 150
+  },
+  "chhaya": {
+    "sheet": "villains.jpg",
+    "s": 1,
+    "box": [748, 37, 1008, 483],
+    "tol": 90,
+    "minfrac": 0.12,
+    "keep": [],
+    "holes": 150
+  },
+  "aandhi": {
+    "sheet": "villains.jpg",
+    "s": 1,
+    "box": [707, 1081, 983, 1516],
+    "tol": 90,
+    "minfrac": 0.3,
+    "keep": ["sage", "boulder"]
+  },
+  "vishdhar": {
+    "sheet": "villains.jpg",
+    "s": 1,
+    "box": [1382, 569, 1659, 1004],
+    "tol": 90,
+    "minfrac": 0.3,
+    "keep": [],
+    "holes": 150
+  },
+  "darpan": {
+    "sheet": "villains.jpg",
+    "s": 1,
+    "box": [692, 549, 938, 1004],
+    "tol": 90,
+    "minfrac": 0.3,
+    "keep": []
+  },
+  "raakhasur": {
+    "sheet": "villains.jpg",
+    "s": 1,
+    "box": [10, 1041, 328, 1516],
+    "tol": 140,
+    "minfrac": 0.12,
+    "keep": [],
+    "holes": 150
+  },
+  "maniyodha": {
+    "sheet": "villains.jpg",
+    "s": 1,
+    "box": [10, 569, 328, 1004],
+    "tol": 90,
+    "minfrac": 0.3,
+    "keep": []
+  },
+  "suryakavach": {
+    "sheet": "villains.jpg",
+    "s": 1,
+    "box": [16, 45, 348, 496],
+    "tol": 90,
+    "minfrac": 0.3,
+    "keep": ["gate"],
+    "holes": 150,
+    "erase": [[0.7, 0.0, 1.0, 0.15]]
+  },
+  "jodasur": {
+    "sheet": "villains.jpg",
+    "s": 1,
+    "box": [1382, 1065, 1659, 1516],
+    "tol": 90,
+    "minfrac": 0.12,
+    "keep": ["boulder"],
+    "holes": 150
+  },
+  "saptashir": {
+    "sheet": "villains.jpg",
+    "s": 1,
+    "box": [1372, 41, 1731, 502],
+    "tol": 90,
+    "minfrac": 0.12,
+    "keep": ["arm", "head", "stump"],
+    "headless": 0.15,
+    "th": 232,
+    "blank": ["arm"],
+    "head_from_figure": true,
+    "head_x": [0.62, 0.85],
+    "holes": 150
+  }
+}

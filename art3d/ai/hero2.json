@@ -1,0 +1,117 @@
+{
+  "scale": 0.101,
+  "ss": 5,
+  "ground": 487,
+  "pieces": {
+    "head": [657, 27, 814, 178],
+    "torso": [652, 194, 850, 404],
+    "pelvis": [645, 416, 874, 730],
+    "thigh_n": [594, 590, 717, 744],
+    "thigh_f": [812, 588, 929, 742],
+    "shin_n": [595, 754, 691, 987],
+    "shin_f": [839, 752, 1000, 986],
+    "upper_n": [534, 183, 639, 337],
+    "upper_f": [886, 184, 980, 335],
+    "fore_n": [517, 355, 603, 580],
+    "fore_f": [916, 362, 1008, 580],
+    "cape": [1019, 370, 1312, 955],
+    "spear": [1336, 31, 1475, 988]
+  },
+  "parts": {
+    "head": {
+      "piece": "head",
+      "pivot": [732, 170],
+      "joint": "neck"
+    },
+    "torso": {
+      "piece": "torso",
+      "pivot": [755, 395],
+      "joint": "spine"
+    },
+    "pelvis": {
+      "piece": "pelvis",
+      "pivot": [760, 462],
+      "joint": "root"
+    },
+    "cape": {
+      "piece": "cape",
+      "pivot": [1215, 520],
+      "joint": "spine",
+      "shade": 0.92
+    },
+    "thigh_n": {
+      "piece": "thigh_n",
+      "pivot": [655, 600],
+      "joint": "thigh_n"
+    },
+    "thigh_f": {
+      "piece": "thigh_f",
+      "pivot": [870, 600],
+      "joint": "thigh_f",
+      "shade": 0.8
+    },
+    "shin_n": {
+      "piece": "shin_n",
+      "pivot": [643, 772],
+      "joint": "shin_n"
+    },
+    "shin_f": {
+      "piece": "shin_f",
+      "pivot": [905, 772],
+      "joint": "shin_f",
+      "shade": 0.8
+    },
+    "upper_n": {
+      "piece": "upper_n",
+      "pivot": [590, 215],
+      "joint": "upper_n"
+    },
+    "upper_f": {
+      "piece": "upper_f",
+      "pivot": [935, 220],
+      "joint": "upper_f",
+      "shade": 0.8
+    },
+    "fore_n": {
+      "piece": "fore_n",
+      "pivot": [560, 372],
+      "joint": "fore_n"
+    },
+    "fore_f": {
+      "piece": "fore_f",
+      "pivot": [955, 375],
+      "joint": "fore_f",
+      "shade": 0.8
+    },
+    "gun": {
+      "piece": "spear",
+      "pivot": [1388, 380],
+      "joint": "aim",
+      "rot": 90,
+      "zoom": 0.45
+    }
+  },
+  "joints": {
+    "root": [0, 0],
+    "spine": [0, -35],
+    "neck": [-10, -225],
+    "aim": [200, -120],
+    "thigh_n": [-12, 100],
+    "thigh_f": [12, 100],
+    "shin_n": [-12, 270],
+    "shin_f": [12, 270],
+    "upper_n": [-5, -185],
+    "upper_f": [8, -185],
+    "fore_n": [-5, -68],
+    "fore_f": [8, -75]
+  },
+  "hands": {
+    "n": [-5, 105],
+    "f": [8, 95]
+  },
+  "gun": {
+    "grip": [1388, 380],
+    "foregrip": [1388, 250],
+    "muzzle": [1345, 985]
+  }
+}

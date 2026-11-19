@@ -139,7 +139,15 @@ export function drawRide(ctx: Ctx, r: RideState): void {
     part(ctx, kind, 'legb', legs.b[0] + 3, -legs.b[1], air ? 0.55 : legA(Math.PI), 0.38);
     part(ctx, kind, 'legf', legs.f[0] + 3, -legs.f[1], air ? -0.6 : legA(Math.PI + 1.2), 0.38);
     // a bob in the body with the stride
-    const bob = moving && r.ground ? Math.abs(Math.sin(ph)) * (kind === 'elephant' ? 1.5 : 2.5) : 0;
+    // (a ride painted whole has no leg parts: the body itself bobs and rocks with the stride)
+    const whole = !atlas(kind)?.meta.parts.legf;
+    const bob =
+      moving && r.ground ? Math.abs(Math.sin(ph)) * (whole ? 4 : kind === 'elephant' ? 1.5 : 2.5) : 0;
+    if (whole) {
+      part(ctx, kind, 'body', 0, -bob, moving && r.ground ? Math.sin(ph) * 0.035 : air ? -0.12 : 0);
+      ctx.restore();
+      return;
+    }
     part(ctx, kind, 'body', 0, -bob);
     part(ctx, kind, 'legb', legs.b[0], -legs.b[1], air ? 0.55 : legA(0));
     part(ctx, kind, 'legf', legs.f[0], -legs.f[1], air ? -0.6 : legA(1.2));

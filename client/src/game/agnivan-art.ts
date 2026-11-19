@@ -404,7 +404,8 @@ export function drawVriksha(ctx: Ctx, x: number, y: number, nowMs: number, p: Vr
   // aerial roots hanging from the boughs
   ctx.strokeStyle = p.dead ? '#3f3f46' : '#4a2e1c';
   ctx.lineWidth = 3;
-  for (let i = 0; i < 9; i++) {
+  // (the painted warrior has no boughs: the roots, the burning crown and the fruit are the tree's)
+  for (let i = 0; i < (bossReady('vriksha') && !p.dead ? 0 : 9); i++) {
     const rx = x - 40 - i * 38;
     const ry = y - 230 + (i % 3) * 18;
     ctx.beginPath();
@@ -567,8 +568,8 @@ export function drawVriksha(ctx: Ctx, x: number, y: number, nowMs: number, p: Vr
     [-220, -235, 36],
   ];
   if (r3) drawPart(ctx, 'vriksha', 'crown', x, y + sway);
-  blobs.forEach(([dx, dy, r], i) => crown(x + dx, y + dy + sway, r, i));
-  if (swell > 0 && !p.dead) {
+  if (!r3) blobs.forEach(([dx, dy, r], i) => crown(x + dx, y + dy + sway, r, i));
+  if (swell > 0 && !p.dead && !r3) {
     for (let i = 0; i < 7; i++) {
       const fx3 = x - 180 + i * 40;
       const fy3 = y - 250 + (i % 2) * 30;
@@ -579,7 +580,7 @@ export function drawVriksha(ctx: Ctx, x: number, y: number, nowMs: number, p: Vr
       glow(ctx, fx3, fy3, 14 * swell, 'rgba(255,90,40,0.7)');
     }
   }
-  if (!p.dead) glow(ctx, x - 40, y - 290, 150, 'rgba(255,110,30,0.25)');
+  if (!p.dead) glow(ctx, x - 40, y - (r3 ? 200 : 290), 150, 'rgba(255,110,30,0.25)');
   else {
     // burnt out: smoke curling off it
     ctx.fillStyle = 'rgba(120,113,108,0.35)';

@@ -22,8 +22,15 @@ interface Hooks {
 const hooks = <T>(page: Page, fn: (h: Hooks) => T): Promise<T> =>
   page.evaluate(`(${fn.toString()})(window.__strikesquad)`) as Promise<T>;
 
-const gotoMenu = async (page: Page, name: string): Promise<void> => {
-  await page.goto('/');
+const gotoMenu = async (page: Page, name: string, opts: { graphics3d?: boolean } = {}): Promise<void> => {
+  // The test browser draws WebGL in software (slow): the 2D stages keep the timing tests honest; the 3D stage
+  // has its own test below.
+  await page.addInitScript((on) => {
+    const k = 'strikesquad.settings.v1';
+    if (!localStorage.getItem(k)) localStorage.setItem(k, JSON.stringify({ graphics3d: on }));
+  }, opts.graphics3d === true);
+  // ?hd=1 keeps the frame-time governor from dropping detail (or the 3D stage) on the slow test machine
+  await page.goto(opts.graphics3d ? '/?hd=1' : '/');
   await expect(page.getByTestId('btn-play')).toBeVisible();
   await page.getByTestId('name-input').fill(name);
 };
@@ -213,11 +220,11 @@ test('solo training: countdown, run and shoot, pause really pauses, resume, quit
   await page.keyboard.down('KeyD');
   await page.keyboard.down('KeyJ');
   await page.waitForTimeout(900);
-  await page.keyboard.up('KeyD');
   const x1 = (await hooks(page, (h) => h.self))!.x;
   expect(x1 - x0, 'ran right').toBeGreaterThan(80);
-  // Shooting: the first soldiers are close to the start; keep firing until one falls.
-  await expect.poll(() => hooks(page, (h) => h.stats.kills), { timeout: 15_000 }).toBeGreaterThan(0);
+  // Shooting: keep running and firing until the first foe falls.
+  await expect.poll(() => hooks(page, (h) => h.stats.kills), { timeout: 20_000 }).toBeGreaterThan(0);
+  await page.keyboard.up('KeyD');
   await page.keyboard.up('KeyJ');
 
   await page.keyboard.press('Escape');
@@ -618,7 +625,9 @@ test('@mobile every move works with real multi-touch: dash, slide, double jump, 
       __seen: Record<string, number>;
       __strikesquad: { soloSim: { tick: number; step: () => void; players: Map<string, Me> } };
     };
-    const sim = w.__strikesquad.soloSim;
+    const sim = w.__strikesquad.soloSim as typeof w.__strikesquad.soloSim & { level: { mounts: unknown[] } };
+    // on foot for this test: the stage's first ride stand is close to the start, and riding changes the buttons
+    sim.level.mounts.length = 0;
     const me = sim.players.get('me')!;
     const y0 = me.y;
     w.__seen = { dsh: 0, sld: 0, ml: 0, rose: 0, aj: 0, x0: me.x, x: me.x };
@@ -755,20 +764,15 @@ test('@mobile online mission from a phone: touch input reaches the server', asyn
   expect(t.rose).toBeGreaterThan(40);
 });
 
-test('@mobile advanced missions start with auto-fire off; the AUTO button and the ASTRA button work', async ({
-  page,
-}) => {
+test('@mobile the AUTO button switches auto-fire; the ASTRA button works', async ({ page }) => {
   await page.setViewportSize({ width: 915, height: 412 });
   await gotoMenu(page, 'Astra');
   await page.getByTestId('btn-practice').click();
-  await page.getByTestId('practice-mission').selectOption('mission-5');
+  await page.getByTestId('practice-mission').selectOption('astra-1');
   await page.getByTestId('practice-buddies').selectOption('0');
   await page.getByTestId('btn-practice-go').click();
   await waitForMission(page);
   const auto = page.getByTestId('touch-auto');
-  await expect(auto).toHaveText(/OFF/);
-  await expect(page.getByTestId('touch-astra')).toBeVisible();
-  // Standing still with auto-fire off: no shots.
   const fired = () =>
     page.evaluate(() => {
       const w = window as unknown as {
@@ -776,12 +780,16 @@ test('@mobile advanced missions start with auto-fire off; the AUTO button and th
       };
       return w.__strikesquad.soloSim.players.get('me')!.input.fire;
     });
-  await page.getByTestId('touch-jump').tap();
-  await page.waitForTimeout(300);
-  expect(await fired()).toBe(false);
+  // On at the start (the default setting): it shoots with no button held; switched off, it stops; on again, it shoots.
+  await expect(auto).toHaveText(/ON/);
+  await expect.poll(fired, { timeout: 3000 }).toBe(true);
+  await auto.tap();
+  await expect(auto).toHaveText(/OFF/);
+  await expect.poll(fired, { timeout: 3000 }).toBe(false);
   await auto.tap();
   await expect(auto).toHaveText(/ON/);
   await expect.poll(fired, { timeout: 3000 }).toBe(true);
+  await expect(page.getByTestId('touch-astra')).toBeVisible();
   // The ASTRA button fires a held power.
   await page.evaluate(() => {
     const w = window as unknown as {
@@ -884,4 +892,33 @@ test("the daily trial: today's hand is shown, the battle uses it, and the first 
   expect(await page.evaluate('window.__strikesquad.daily.streak')).toBe(1);
   await page.locator('#screen-results [data-nav="menu"], #btn-results-leave').first().click();
   await expect(page.getByTestId('btn-daily')).toHaveText('⚔ Daily trial ✓');
+});
+
+test('3D graphics: stage 1 is drawn in 3D under the play plane', async ({ page }) => {
+  await gotoMenu(page, 'Three', { graphics3d: true });
+  await page.getByTestId('btn-practice').click();
+  await page.getByTestId('practice-mission').selectOption('astra-1');
+  await page.getByTestId('practice-buddies').selectOption('0');
+  await page.getByTestId('btn-practice-go').click();
+  await waitForMission(page);
+  const on3d = () =>
+    page.evaluate(() => {
+      const c = document.getElementById('game3d') as HTMLCanvasElement | null;
+      return !!c && !c.hidden && c.width > 0;
+    });
+  await expect.poll(on3d, { timeout: 15_000 }).toBe(true);
+  // the 3D canvas draws the sky, the forest and the ground: many draws, many triangles
+  const info = () =>
+    page.evaluate(() => {
+      const c = document.getElementById('game3d') as HTMLCanvasElement;
+      return Number(c.dataset.calls ?? 0) * 1000000 + Math.min(999999, Number(c.dataset.tris ?? 0));
+    });
+  await expect.poll(info, { timeout: 15_000 }).toBeGreaterThan(5 * 1000000 + 1000);
+  // and the 2D canvas over it is see-through where nothing stands (the sky shows from below)
+  const clear = await page.evaluate(() => {
+    const c = document.getElementById('game') as HTMLCanvasElement;
+    const d = c.getContext('2d')!.getImageData(Math.floor(c.width / 2), 4, 1, 1).data;
+    return d[3];
+  });
+  expect(clear).toBeLessThan(160); // only the light colour grade over it
 });

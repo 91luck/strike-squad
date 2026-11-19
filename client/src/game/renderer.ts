@@ -97,6 +97,37 @@ import { AstraCinema } from './astra-cine';
 import { CutIn } from './cutin';
 import { AstraShow, CLOSE } from './astra-aahvaan';
 import { drawRide, drawRideBar, drawStand, seatOf, warmRide } from './mount-art';
+import { THEME_IDS } from '../game3d/theme-ids';
+import type { World3D } from '../game3d/world3d';
+
+/**
+ * A real GPU behind WebGL? Software WebGL (SwiftShader, llvmpipe: no graphics driver, some old PCs, VMs) draws the 3D
+ * stage at a few frames a second, so those get the 2D stage (`?hd=1` forces 3D anyway, for testing). Asked once.
+ */
+let gpu: boolean | null = null;
+function gpuOk(force: boolean): boolean {
+  if (force) return true;
+  if (gpu !== null) return gpu;
+  gpu = false;
+  try {
+    const gl = document.createElement('canvas').getContext('webgl');
+    if (gl) {
+      const ext = gl.getExtension('WEBGL_debug_renderer_info');
+      const name = String(ext ? gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
+      gpu = !/swiftshader|llvmpipe|software|softpipe/i.test(name);
+      gl.getExtension('WEBGL_lose_context')?.loseContext();
+    }
+  } catch {
+    gpu = false;
+  }
+  return gpu;
+}
+
+/** The player's "3D graphics" setting (settings.ts graphics3d); a renderer that allows 3D reads it per stage. */
+let graphics3d = true;
+export function setGraphics3d(on: boolean): void {
+  graphics3d = on;
+}
 import { drawSkyEvent } from './sky-events';
 import { drawGoal } from './goal-art';
 import { GOAL_TEXT } from '../story';
@@ -217,6 +248,40 @@ import { cloudHD, drawSunShafts, shadeLayer } from './backdrop-hd';
 import { propHD } from './prop-hd';
 import { BLOCK, TILE_HD_LIP, groundTileHD, platformTileHD, scale2x } from './tile-hd';
 import { HD, HD_CENTER, HD_FEET, hdCanvases } from './hero-hd';
+import { blitRig, preloadRigs, RigDraw } from './rig';
+
+/** Foes drawn as modelled asura warriors (art3d/villain_rig.py); the kinds that aim at you; that strike up close;
+ * that report the ticks since their last attack in their snapshot's `p`. */
+const VILLAINS = new Set<string>([
+  'archer',
+  'drummer',
+  'chakri',
+  'rathi',
+  'netter',
+  'pehlwan',
+  'gadadhar',
+  'slinger',
+  'conch',
+  'dancer',
+  'mashaal',
+  'mayavi',
+  'lantern',
+  'imp',
+]);
+const RANGED = new Set<string>([
+  'archer',
+  'chakri',
+  'netter',
+  'slinger',
+  'conch',
+  'mayavi',
+  'mashaal',
+  'lantern',
+]);
+const MELEE = new Set<string>(['rathi', 'pehlwan', 'gadadhar', 'dancer', 'drummer', 'imp']);
+const SINCE = new Set<string>(['archer', 'drummer', 'netter', 'slinger']);
+import { drawPainted, PAINTED, preloadPainted } from './painted';
+import { drawGuardShell, drawOpenMark, drawShellBreak, GUARDED, WEAK_POINT } from './boss-tells';
 import { ASURA_LOOKS, drawAsuraFlyer, drawAsuraKing, drawAsuraWalker, type AsuraLook } from './asura-art';
 import {
   RULE_COLOR,
@@ -491,6 +556,15 @@ export class Renderer {
   /** The team paramastra's four movements (paramastra-art.ts). */
   private paramastra = new Paramastra();
   private trails: Trail[] = [];
+  /** The heroes' skeletal animation (rig.ts). */
+  private rigs = new RigDraw();
+  /** Villains: where each was last frame (to walk them), and the soldiers they aim at. */
+  private villainSeen = new Map<number, { x: number; y: number; t: number; vx: number }>();
+  private aimAt: { x: number; y: number }[] = [];
+  /** Saga bosses: open now, when they opened, when last struck (boss-tells.ts). */
+  private bossOpen = new Map<number, boolean>();
+  private bossOpenAt = new Map<number, number>();
+  private bossHitAt = new Map<number, number>();
   private slashes: Slash[] = [];
   private lastTrail = new Map<string, number>();
   private airJumpsSeen = new Map<string, number>();
@@ -508,13 +582,16 @@ export class Renderer {
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
-    private readonly opts: { maxDpr?: number } = {},
+    private readonly opts: { maxDpr?: number; allow3d?: boolean } = {},
   ) {
-    const ctx = canvas.getContext('2d', { alpha: false });
+    // see-through when the stage is drawn in 3D underneath (world3d.ts)
+    const ctx = canvas.getContext('2d', { alpha: !!opts.allow3d });
     if (!ctx) throw new Error('Canvas 2D is not supported in this browser.');
     this.ctx = ctx;
     this.fx.load();
     preloadHeroSprites(HEROES.map((h) => h.id));
+    preloadRigs([...HEROES.map((h) => `h${h.id}`), ...[...VILLAINS].map((k) => `v-${k}`)]);
+    preloadPainted();
     this.props = buildProps(this.lvl);
     this.resize();
   }
@@ -543,6 +620,7 @@ export class Renderer {
     this.props = buildProps(level);
     warmBackdrop3d(zoneAt(level, 0));
     terrain3d(zoneAt(level, 0));
+    this.start3d(level, zoneAt(level, 0));
     this.queueWarm();
     this.ambient = [];
     this.reset();
@@ -840,9 +918,9 @@ export class Renderer {
     for (const g of this.glowBurst) this.glow(g.x, g.y, 70 * ((g.until - now) / 260), g.color);
   }
 
-  floatText(x: number, y: number, text: string, color: string): void {
-    this.floats.push({ x, y, text, color, life: 1.1 });
-    if (this.floats.length > 30) this.floats.shift();
+  /** Words over the action (score pops, "INCOMING!") are gone from play; the call sites stay as documentation. */
+  floatText(_x: number, _y: number, _text: string, _color: string): void {
+    // intentionally silent
   }
 
   flash(color: string, strength = 0.25): void {
@@ -855,6 +933,40 @@ export class Renderer {
   }
 
   // ------------------------------------------------------------ layout
+
+  // ------------------------------------------------------------ the 3D stage (world3d.ts)
+
+  private w3d: World3D | null = null;
+  /** 3D is on for this stage (its look exists, WebGL works, the player wants it) and has been built. */
+  private w3dOn = false;
+  private w3dFailed = false;
+
+  /** Draws this stage in 3D when it can: three.js is loaded only now, the first time a 3D stage starts. */
+  private start3d(level: LevelDef, art: string): void {
+    this.w3dOn = false;
+    if (!this.opts.allow3d || !graphics3d || this.w3dFailed || !THEME_IDS.has(art) || !gpuOk(this.forceHd)) {
+      if (this.w3d) this.w3d.canvas.hidden = true;
+      return;
+    }
+    void import('../game3d/world3d')
+      .then(({ World3D }) => {
+        if (this.lvl !== level) return; // another stage started meanwhile
+        if (!this.w3d) {
+          const host = this.canvas.parentElement;
+          if (!host) return;
+          const phone = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+          this.w3d = new World3D(host, { shadows: !this.lowDetail && !phone });
+        }
+        this.w3d.canvas.hidden = false;
+        this.w3d.setLevel(level, art);
+        this.w3dOn = true;
+        this.resize();
+      })
+      .catch(() => {
+        // no WebGL (or the chunk failed to load): the 2D stage it is
+        this.w3dFailed = true;
+      });
+  }
 
   resize(): void {
     const max = this.opts.maxDpr ?? 2;
@@ -870,6 +982,7 @@ export class Renderer {
     this.scale = this.canvas.height / this.viewH;
     this.viewW = this.canvas.width / this.scale;
     this.ctx.imageSmoothingEnabled = false;
+    if (this.w3dOn) this.w3d?.resize(w, h, this.dpr);
     const k = this.scale >= HD_FROM && !this.lowDetail ? 2 : 1;
     if (k !== this.bgK) {
       this.bgK = k;
@@ -1019,6 +1132,13 @@ export class Renderer {
     this.slowFor = this.frameMs > 26 ? this.slowFor + d : 0;
     if (this.slowFor < 2000) return;
     this.slowFor = 0;
+    if (this.w3dOn && this.w3d) {
+      // too slow for the 3D stage on this device: the 2D one, for the rest of the session
+      this.w3dOn = false;
+      this.w3dFailed = true;
+      this.w3d.canvas.hidden = true;
+      return;
+    }
     this.quality = (this.quality + 1) as 1 | 2;
     if (this.quality === 2 && !this.lowDetail) {
       this.lowDetail = true;
@@ -1133,6 +1253,7 @@ export class Renderer {
             : p,
         )
       : s.players;
+    this.aimAt = players.filter((p) => p.st === 0);
     const me = players.find((p) => p.id === o.meId);
     this.updateCamera(me, players, dt, s);
     this.spawnShotEffects(s);
@@ -1143,7 +1264,12 @@ export class Renderer {
     this.shakeMag *= Math.pow(0.002, dt);
 
     ctx.imageSmoothingEnabled = false;
-    this.drawBackdrop(o.nowMs);
+    if (this.w3dOn && this.w3d) {
+      // the sky, the scenery and the ground in 3D underneath; this canvas carries everything on the play plane
+      this.w3d.render(this.camX - sx, this.camY - sy, this.viewW, this.viewH, o.nowMs, s.wy);
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+    } else this.drawBackdrop(o.nowMs);
     ctx.setTransform(
       this.scale,
       0,
@@ -1159,7 +1285,7 @@ export class Renderer {
       );
     if (this.paramastra.active) this.paramastra.drawBack(this.ctx, o.nowMs, this.camY);
     if (this.lvl.fields.length) drawFields(ctx, this.lvl.fields, this.camX, this.viewW, o.nowMs);
-    this.drawProps(false);
+    if (!this.w3dOn) this.drawProps(false);
     this.drawTiles(s, o.nowMs);
     if (this.agni) this.drawAgnivanPieces(o.nowMs);
     if (this.lvl.fields.length) this.drawPoisonPools(o.nowMs);
@@ -1702,6 +1828,7 @@ export class Renderer {
         if (t === Tile.Empty) continue;
         const x = c * T;
         const y = r * T;
+        if ((t === Tile.Solid || t === Tile.OneWay) && this.w3dOn) continue; // built in 3D
         if (t === Tile.Solid) {
           const top = r > 0 && tileAt(L, c, r - 1) !== Tile.Solid;
           const v = (c * 7 + r * 3) % 4;
@@ -1866,7 +1993,7 @@ export class Renderer {
         ctx.arc(cp.x + 14, cp.y - 74, 26, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
-      } else this.label('CHECKPOINT', cp.x + 14, cp.y - 100, '#fde68a', 11);
+      }
     }
   }
 
@@ -1903,7 +2030,7 @@ export class Renderer {
       });
     const near = s.players.some((p) => p.st === 0 && Math.abs(p.x - x) < 9 * T);
     if (!near) return;
-    this.label('🗝 SECRET', x, y - 40 + Math.sin(nowMs / 200) * 4, '#fde047', 12);
+
     // the last jump: from the step ledge (four rows under the perch, three tiles to its left) up to the perch
     ctx.save();
     ctx.strokeStyle = `rgba(253,224,71,${0.35 + 0.3 * pulse})`;
@@ -1927,9 +2054,7 @@ export class Renderer {
       if (pk.secret) this.secretHint(pk.x, pk.y, s, nowMs);
       if (isPowerKind(pk.kind)) {
         const yy = pk.y - (pk.respawn ? 6 : 0) + Math.round(Math.sin(nowMs / 300 + pk.id) * 3);
-        drawPowerPickup(ctx, pk.kind, pk.x, yy, pk.respawn, nowMs, (t, x, y, c, sz) =>
-          this.label(t, x, y, c, sz),
-        );
+        drawPowerPickup(ctx, pk.kind, pk.x, yy, pk.respawn, nowMs, () => undefined);
         continue;
       }
       const y = pk.y + Math.round(Math.sin(nowMs / 300 + pk.id) * 3);
@@ -1944,12 +2069,10 @@ export class Renderer {
       if (pk.kind === 'medkit') {
         const img = medkitSprite();
         ctx.drawImage(img, pk.x - img.width / 2, y - img.height / 2);
-        this.label('MED-KIT', pk.x, y - 22, '#bbf7d0', 10);
       } else if (!isPowerKind(pk.kind)) {
         const w = GAME_CONFIG.weapons[pk.kind];
         const img = weaponCrate(w.letter, '#991b1b');
         ctx.drawImage(img, pk.x - img.width / 2, y - img.height / 2);
-        this.label(w.label, pk.x, y - 22, '#fde68a', 10);
       }
     }
   }
@@ -2115,6 +2238,28 @@ export class Renderer {
     const { pose, frame } = this.poseOf(p, nowMs);
     const aim = p.ax === 0 && p.ay === 0 ? 'f' : aimFrom(p.ax, p.ay);
     const f = charFrame(`h${hero.id}`, look, pose, frame, aim);
+    // the skeletal hero (rig.ts): every movement continuous; the old frames until its parts have loaded
+    const rf = this.rigs.draw({
+      id: p.id,
+      key: `h${hero.id}`,
+      x: p.x,
+      vx: p.vx,
+      vy: p.vy,
+      ground: p.g === 1,
+      crouch: p.c === 1,
+      slide: p.sld > 0,
+      dash: p.dsh > 0,
+      melee: p.ml,
+      airJumps: p.aj,
+      aimX: p.ax,
+      aimY: p.ay,
+      hurt: p.iv === 1,
+      down: false,
+      nowMs,
+      fire: p.fi === 1 && p.ml === 0,
+    });
+    const muzzleX = rf ? rf.muzzleX : f.muzzleX;
+    const muzzleY = rf ? rf.muzzleY : f.muzzleY;
     // Dash / slide after-images.
     if ((p.dsh > 0 || p.sld > 0) && !this.reduce) {
       const last = this.lastTrail.get(p.id) ?? 0;
@@ -2159,7 +2304,8 @@ export class Renderer {
     }
     const blink = p.iv === 1 && Math.floor(nowMs / 80) % 2 === 0;
     if (blink) ctx.globalAlpha = 0.45;
-    this.blit(f.img, p.x, p.y, p.f);
+    if (rf) blitRig(ctx, rf, p.x, p.y, p.f);
+    else this.blit(f.img, p.x, p.y, p.f);
     ctx.globalAlpha = 1;
 
     if (p.dsh > 0) this.glow(p.x, p.y - 17, 12, hero.color);
@@ -2167,8 +2313,8 @@ export class Renderer {
     if (p.ml > 0) this.drawSlashArc(p.x, p.y - 22, p.f, p.ml, hero.color);
     // muzzle flash while firing
     if (p.fi === 1 && p.ml === 0 && Math.floor(nowMs / 55) % 2 === 0) {
-      const mx = p.x + f.muzzleX * p.f;
-      const my = p.y + f.muzzleY;
+      const mx = p.x + muzzleX * p.f;
+      const my = p.y + muzzleY;
       const mc = p.od === 1 ? '#ff6b1a' : WEAPON_KINDS[p.w] === 'laser' ? '#5ee7ff' : '#ffd166';
       this.glow(mx, my, 5, mc);
       // a flame tongue out of the barrel (the sprite points up: turn it to face the way the hero aims)
@@ -2335,7 +2481,7 @@ export class Renderer {
   private eliteAura(e: EnemySnapshot, color: string, nowMs: number): void {
     const pulse = 0.75 + 0.25 * Math.sin(nowMs / 140 + e.id);
     this.glow(e.x, e.y - 22, 34 * pulse, `${color}88`);
-    this.label('★ ELITE', e.x, e.y - 58, '#fde047', 10);
+
     if (!this.reduce && Math.random() < 0.3)
       this.add({
         x: e.x + (Math.random() - 0.5) * 24,
@@ -2364,9 +2510,82 @@ export class Renderer {
     ctx.restore();
   }
 
+  /** A villain from its parts: walking as it moves, aiming at the nearest soldier, swinging when it strikes. */
+  private drawVillain(e: EnemySnapshot, nowMs: number, flash: boolean): boolean {
+    const key = `v-${e.k}`;
+    const prev = this.villainSeen.get(e.id);
+    const dt = prev ? Math.max(1, nowMs - prev.t) / 1000 : 0.016;
+    const vx = prev ? (e.x - prev.x) / dt : 0;
+    const vy = prev ? (e.y - prev.y) / dt : 0;
+    this.villainSeen.set(e.id, { x: e.x, y: e.y, t: nowMs, vx: prev ? prev.vx * 0.7 + vx * 0.3 : 0 });
+    const svx = this.villainSeen.get(e.id)?.vx ?? 0;
+    // aim at the nearest soldier (ranged kinds); melee kinds keep their weapon level
+    let ax = 0;
+    let ay = 0;
+    if (RANGED.has(e.k)) {
+      let best = 1e9;
+      for (const p of this.aimAt) {
+        const d = Math.abs(p.x - e.x) + Math.abs(p.y - e.y);
+        if (d < best && d < 700) {
+          best = d;
+          const dx = (p.x - e.x) * e.f;
+          const dy = p.y - 20 - (e.y - 30);
+          const a = Math.atan2(-dy, Math.max(1, dx));
+          ax = 1;
+          ay = -Math.tan(Math.max(-1.2, Math.min(1.2, a)));
+        }
+      }
+      if (e.k === 'archer') ay = Math.min(ay, -0.8); // they loft their arrows
+    }
+    // a swing: just after an attack (the kinds that report the time since it)
+    const since = SINCE.has(e.k) ? e.p : 999;
+    const swing = since < 14 ? 0.6 + (since / 14) * 0.4 : since > 999 ? 0 : 0;
+    const lunge = e.k === 'rathi' && e.p === 2;
+    const crouch = e.k === 'rathi' && e.p === 1;
+    const rf = this.rigs.draw({
+      id: `e${e.id}`,
+      key,
+      x: e.x,
+      vx: Math.abs(svx) > 8 ? svx : 0,
+      vy,
+      ground: Math.abs(vy) < 40,
+      crouch,
+      slide: false,
+      dash: lunge || ((e.k === 'pehlwan' || e.k === 'gadadhar') && e.p === 1),
+      melee: 0,
+      airJumps: 1,
+      aimX: ax,
+      aimY: ay,
+      hurt: flash,
+      down: false,
+      nowMs,
+      swing: MELEE.has(e.k) ? (swing > 0 ? swing : 0) : 0,
+    });
+    if (!rf) return false;
+    const ctx = this.ctx;
+    const fade = e.k === 'dancer' && e.p === 1 ? 0.25 : 1;
+    ctx.save();
+    ctx.globalAlpha *= fade;
+    if (flash) ctx.filter = 'brightness(2.2)';
+    blitRig(ctx, rf, e.x, e.y, e.f);
+    ctx.restore();
+    return true;
+  }
+
   private drawEnemyBody(e: EnemySnapshot, nowMs: number): void {
     const ctx = this.ctx;
     const flash = e.h === 1;
+    // the asura warriors (villain_rig.py → rig.ts): modelled and animated; the old drawing until their parts load
+    // creatures painted whole (painted.ts): a hop, a breath or a wing beat; the old drawing until the atlas has loaded
+    if (PAINTED.has(e.k)) {
+      const px = this.enemyPrevX.get(e.id) ?? e.x;
+      const py = this.enemyPrevY.get(e.id) ?? e.y;
+      this.enemyPrevX.set(e.id, e.x);
+      this.enemyPrevY.set(e.id, e.y);
+      const moving = Math.hypot(e.x - px, e.y - py) > 0.05;
+      if (drawPainted(ctx, e.k, e.x, e.y, e.f, nowMs, e.id, moving, flash)) return;
+    }
+    if (VILLAINS.has(e.k) && this.drawVillain(e, nowMs, flash)) return;
     if (e.k === 'mashaal') {
       drawMashaal(ctx, e.x, e.y, e.f, nowMs, e.id, e.p, flash);
       return;
@@ -2842,6 +3061,9 @@ export class Renderer {
       else lights.push({ x: e.x, y: e.y - 14, r: 22 });
     }
     for (const pk of this.lvl.pickups) lights.push({ x: pk.x, y: pk.y, r: 40 });
+    if (this.w3dOn && this.w3d)
+      for (const l of this.w3d.lights())
+        if (l.x > this.camX - 200 && l.x < this.camX + this.viewW + 200) lights.push(l);
     const sc = this.scale;
     drawDark(
       this.ctx,
@@ -2850,7 +3072,8 @@ export class Renderer {
       lights,
       (x, y) => [(x - this.camX) * sc, (y - this.camY) * sc],
       sc,
-      dim ? 0.94 : 0.86,
+      // the 3D cavern is lit by its own lamps and crystals: the veil can be a little thinner over it
+      (dim ? 0.94 : 0.86) - (this.w3dOn ? 0.08 : 0),
     );
     void nowMs;
   }
@@ -2910,7 +3133,11 @@ export class Renderer {
         start = -1;
       }
     }
+    // with the 3D sea underneath, this one is a thin veil: enough to show where the water is, not a blue box
+    const a = this.w3dOn ? 0.38 : 1;
+    this.ctx.globalAlpha = a;
     drawSea(this.ctx, runs, wy, levelHeight(L) + 40, nowMs);
+    this.ctx.globalAlpha = 1;
   }
 
   private drawAgnivanPieces(nowMs: number): void {
@@ -3397,7 +3624,6 @@ export class Renderer {
       ctx.fill();
     });
     if (dead) {
-      this.label('DESTROYED', e.x, top + 40, '#a8a29e', 14);
       return;
     }
     if (ph >= 2 && !this.reduce && Math.random() < 0.25)
@@ -3521,7 +3747,7 @@ export class Renderer {
         ctx.globalAlpha = on ? 1 : 0.55;
         for (const p of players)
           if (p.st === 0 && p.x > x0 && p.x < x1)
-            this.label(low ? '▲ JUMP!' : '▼ DUCK!', p.x, p.y - 64, low ? '#fde047' : '#7dd3fc', 15);
+            this.label(low ? '▲' : '▼', p.x, p.y - 64, low ? '#fde047' : '#7dd3fc', 18);
         ctx.globalAlpha = 1;
       } else if (t < wind + BEAM_SEC) {
         const flick = 0.85 + Math.random() * 0.15;
@@ -3794,9 +4020,8 @@ export class Renderer {
   }
 
   /** "PARRY!", "KNIFE KILL"… popping over the action. */
-  styleText(x: number, y: number, text: string, mine: boolean): void {
-    this.styleFloats.push({ x, y: y - 10, text, life: 1, mine });
-    if (this.styleFloats.length > 12) this.styleFloats.shift();
+  styleText(_x: number, _y: number, _text: string, _mine: boolean): void {
+    // the style kills show as the hit itself (spark, shake, sound), not as words
   }
 
   /** Astra Saga projectiles (either side). Returns false for everything else. */
@@ -3829,6 +4054,26 @@ export class Renderer {
         if (kind) drawBossCast(this.ctx, kind, cx, cy, e.rt / 30, e.rs === 1, nowMs, this.viewW, this.camX);
       }
       if (e.im === 1) drawImmune(this.ctx, e.k === 'boss' ? e.x - w / 4 : e.x, e.y, w, h, nowMs);
+      // guarded or open (boss-tells.ts): the fight shows when shots will tell
+      if (GUARDED.has(e.k) && e.hp > 0) {
+        const bx = e.x;
+        const by = e.y - h * 0.5;
+        const r = Math.max(w, h) * 0.5;
+        const wy = e.y - h * (WEAK_POINT[e.k] ?? 0.5);
+        const open = e.sn === 1 && e.k !== 'vishdhar';
+        const was = this.bossOpen.get(e.id);
+        if (open && !was) this.bossOpenAt.set(e.id, nowMs);
+        this.bossOpen.set(e.id, open);
+        const since = (nowMs - (this.bossOpenAt.get(e.id) ?? -1e9)) / 1000;
+        drawShellBreak(this.ctx, bx, by, r, since / 0.5);
+        if (open) drawOpenMark(this.ctx, bx, wy, Math.min(r * 0.75, 70), since, nowMs);
+        else {
+          if (e.h === 1) this.bossHitAt.set(e.id, nowMs);
+          const flare = Math.max(0, 1 - (nowMs - (this.bossHitAt.get(e.id) ?? -1e9)) / 180);
+          drawGuardShell(this.ctx, bx, by, w * 0.62, h * 0.6, flare, nowMs);
+        }
+        continue;
+      }
       if (e.sn === 1) drawDazed(this.ctx, e.k === 'boss' ? e.x - w / 2 : e.x, e.y - h - 12, nowMs);
     }
   }

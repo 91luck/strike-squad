@@ -803,6 +803,10 @@ export class Sim {
   private platStand: number[] = [];
   private platDx: number[] = [];
   private boatGo: boolean[] = [];
+  /** Ticks a boat has had someone aboard at the near bank (it waits a little for the rest). */
+  private boatWait: number[] = [];
+  /** Ticks a boat has stood at its far bank with someone still aboard. */
+  private boatAshore: number[] = [];
   chaseOn = false;
   private chaseStart = 0;
   private events: SimEvent[] = [];
@@ -846,6 +850,8 @@ export class Sim {
     this.platStand = this.plats.map(() => 0);
     this.platDx = this.plats.map(() => 0);
     this.boatGo = this.plats.map(() => false);
+    this.boatWait = this.plats.map(() => 0);
+    this.boatAshore = this.plats.map(() => 0);
     if (this.plats.length) this.world.plats = this.plats;
     this.surprises = this.planSurprises(opts.seed ?? 1);
     this.goal = this.planGoal(opts.seed ?? 1);
@@ -1737,8 +1743,31 @@ export class Sim {
         pl.on = sink < S.goneBelow && (wy === null || pl.y < wy + 10);
       } else {
         // Boards and sails; once at the far bank and left empty for a while it sails back for anyone behind.
-        if (players.length) this.boatGo[i] = true;
+        // It waits at the near bank (up to a few seconds) for squadmates close behind, so nobody is left on the
+        // shore watching it go.
+        const home = oldDx <= 0;
+        if (players.length && !this.boatGo[i]) {
+          const near = [...this.players.values()].some(
+            (q) => q.state === 'alive' && !players.includes(q) && q.x > d.x0 - 14 * T && q.x < d.x0 + 4,
+          );
+          this.boatWait[i] = home ? (this.boatWait[i] as number) + 1 : 0;
+          if (!home || !near || (this.boatWait[i] as number) > this.ticks(4)) this.boatGo[i] = true;
+        } else if (!players.length) this.boatWait[i] = 0;
         const there = d.x0 + oldDx >= d.to;
+        // at the far bank everyone steps ashore after a moment (so it can go back for anyone left behind: a
+        // squadmate waiting on deck must never keep it from coming back)
+        this.boatAshore[i] = there && players.length ? (this.boatAshore[i] as number) + 1 : 0;
+        if ((this.boatAshore[i] as number) > this.ticks(1.2)) {
+          const x = pl.x1 + 24;
+          const top = this.groundTopAt(x);
+          if (top < levelHeight(this.level) - T)
+            for (const b of players) {
+              b.x = x + (players.indexOf(b) % 3) * 10;
+              b.y = top;
+              b.vy = 0;
+            }
+          this.boatAshore[i] = 0;
+        }
         this.platStand[i] = there && !players.length ? (this.platStand[i] as number) + 1 : 0;
         if ((this.platStand[i] as number) > this.ticks(2)) this.boatGo[i] = false;
         const goal = this.boatGo[i] ? d.to - d.x0 : 0;
@@ -1754,6 +1783,16 @@ export class Sim {
       const ddx = (this.platDx[i] as number) - oldDx;
       const sailing =
         (d.kind === 'boat' || d.kind === 'chariot' || d.kind === 'vimana') && pl.x0 > d.x0 && pl.x0 < d.to;
+      // a soldier who fell in beside a boat under way is pulled back aboard (the boatman's hand)
+      if (sailing && pl.on && wy !== null)
+        for (const p of this.players.values()) {
+          if (p.state !== 'alive' || riders.includes(p) || p.ride >= 0) continue;
+          if (p.x < pl.x0 - 12 || p.x > pl.x1 + 12 || p.y < pl.y + 16 || p.y > wy + 3 * T) continue;
+          p.x = Math.max(pl.x0 + p.w / 2 + 2, Math.min(pl.x1 - p.w / 2 - 2, p.x));
+          p.y = pl.y;
+          p.vy = 0;
+          p.onGround = true;
+        }
       for (const b of riders) {
         if (!pl.on) continue;
         b.y = pl.y;

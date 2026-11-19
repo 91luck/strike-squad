@@ -4,7 +4,9 @@ All numbers live in `shared/src/config.ts` and are the single source of truth fo
 
 ## Missions
 
-Six missions, each harder than the last, each in its own world. Pick one in **Play with friends** (the host can change it in the lobby), in **Solo training**, or press **Next mission** after a win. A ✓ in the menu marks missions you have completed on this device.
+**The game is the Astra Saga: ten stages** (`docs/ASTRA_SAGA.md`). Every menu (Play with friends, Play now, Solo training, Stages) offers only those; a request for anything else plays stage 1 (`PLAYABLE_IDS`, `playable()` in `shared/src/config.ts`).
+
+The six classic missions below are **retired from play** (they repeated each other too much). They stay in the code because many tests measure core mechanics on their maps (arenas, pits, bosses), and the server tests set them on a room directly.
 
 | #   | Mission                    | Place           | Length    | Arenas (ambush · boss)                                                                                                     | Toughness (troop health · fire rate · damage · boss health · boss pace) |
 | --- | -------------------------- | --------------- | --------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |

@@ -1,0 +1,41 @@
+{
+  "extends": "hero2.json",
+  "sheets": {
+    "atlas": "art3d/ai/atlas.png",
+    "wpn": "art3d/ai/weapons_flat.png"
+  },
+  "pieces": {
+    "weapon": {
+      "box": [335, 648, 540, 775],
+      "sheet": "wpn"
+    }
+  },
+  "parts": {
+    "gun": {
+      "piece": "weapon",
+      "pivot": [480, 705],
+      "joint": "aim",
+      "rot": -6,
+      "zoom": 2.1,
+      "flipx": true
+    }
+  },
+  "gun": {
+    "grip": [480, 705],
+    "foregrip": [400, 705],
+    "muzzle": [343, 690]
+  },
+  "recolor": [
+    {
+      "hue": [338, 9],
+      "sat": 0.6,
+      "shift": 205
+    },
+    {
+      "hue": [29, 64],
+      "sat": 0.55,
+      "shift": 205
+    }
+  ],
+  "recoil": 3.5
+}

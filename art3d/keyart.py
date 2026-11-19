@@ -163,7 +163,9 @@ def embers(rng):
 def place_hero(hid, pose, frame, aim, loc, turn, heroes, flash=False):
     H = next(h for h in heroes if h['id'] == hid)
     before = set(bpy.data.objects)
-    R = HR.build(H)
+    import style2
+
+    R = style2.build_hero(H)
     HR.pose(R, pose, frame, aim)
     R.turn.location = loc
     R.turn.rotation_euler = (0, 0, math.radians(turn))

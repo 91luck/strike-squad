@@ -113,7 +113,8 @@ describe('astra saga registry', () => {
 
   it('gives saga stages menu info, and keeps them out of the campaign list', () => {
     expect(missionInfo('astra-7').name).toBe('Samarpan Maidan');
-    expect(missionInfo('astra-7').advanced).toBe(true);
+    // the saga is the whole game now: auto-fire follows the player's own setting (on by default), not forced off
+    expect(missionInfo('astra-7').advanced).toBe(false);
     expect(MISSIONS.some((m) => m.id.startsWith('astra-'))).toBe(false);
   });
 

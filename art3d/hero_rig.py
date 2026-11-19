@@ -343,6 +343,37 @@ def build(hero):
     R.arm_len = (0.27, 0.27)
     R.sh_y = SH_Y
 
+    if not enemy:
+        # --- the heroes' armour: plated shoulders with a glowing trim, a chest plate with the hero's light running
+        # through it, knee guards, bracers, and a long scarf in the hero's colour streaming back from the collar
+        plate = mat('plate', '#2c3038', rough=0.3, metal=0.85)
+        plate_f = mat('plate_f', '#1c1f25', rough=0.35, metal=0.8)
+        glow = mat('glowline', H['accent'], rough=0.2, emit=H['accent'])
+        for side, y in (('n', -SH_Y), ('f', SH_Y)):
+            far = side == 'f'
+            up, fo = R.upper[side], R.fore[side]
+            ball(f'pauldron_{side}', 0.125, (0.0, y, SH_Z + 0.03), plate_f if far else plate, (1.15, 1.05, 0.72), up)
+            box(f'ptrim_{side}', (0.2, 0.02, 0.025), (0.02, y + (0.11 if far else -0.11), SH_Z - 0.02), glow, 0.005, up)
+            box(f'bracer_{side}', (0.15, 0.15, 0.12), (0.0, y, SH_Z - 0.4), plate_f if far else plate, 0.035, fo)
+            box(f'btrim_{side}', (0.155, 0.155, 0.02), (0.0, y, SH_Z - 0.36), glow, 0.005, fo)
+        for side, y in (('n', -LEG_Y), ('f', LEG_Y)):
+            far = side == 'f'
+            box(f'kneeguard_{side}', (0.07, 0.12, 0.1), (0.07, y, KNEE_Z - 0.01), plate_f if far else plate, 0.03, R.shin[side])
+            box(f'bootline_{side}', (0.28, 0.155, 0.018), (0.055, y, ANKLE_Z + 0.04), glow, 0.005, R.shin[side])
+        box('chestplate', (0.2, 0.34, 0.24), (0.11, 0, 1.0), plate, 0.06, R.spine)
+        box('chestglow', (0.205, 0.02, 0.16), (0.115, -0.05, 1.0), glow, 0.005, R.spine)
+        box('chestglow2', (0.205, 0.02, 0.16), (0.115, 0.05, 1.0), glow, 0.005, R.spine)
+        # the scarf: a knot at the collar and two tails streaming back
+        sc = mat('scarf', H['color'], rough=0.7)
+        sc_d = mat('scarf_d', H['shade'], rough=0.7)
+        ball('scarfknot', 0.1, (-0.06, 0, NECK_Z - 0.04), sc, (1.2, 1.4, 0.8), R.spine)
+        pts = [(-0.08, 0.04, NECK_Z - 0.04), (-0.24, 0.05, NECK_Z - 0.05), (-0.39, 0.06, NECK_Z - 0.12), (-0.52, 0.07, NECK_Z - 0.24)]
+        for i in range(3):
+            tube(f'scarf{i}', 0.06 - i * 0.012, pts[i], pts[i + 1], sc if i % 2 == 0 else sc_d, R.spine, r2=0.05 - i * 0.012, verts=12)
+        pts2 = [(-0.08, 0.0, NECK_Z - 0.06), (-0.2, 0.0, NECK_Z - 0.12), (-0.3, 0.0, NECK_Z - 0.24)]
+        for i in range(2):
+            tube(f'scarfb{i}', 0.045 - i * 0.01, pts2[i], pts2[i + 1], sc_d, R.spine, r2=0.035 - i * 0.01, verts=12)
+
     # --- the rifle on its aim pivot (between the shoulders, a little forward)
     R.aim = joint('aim', (0.08, -0.05, 1.0), R.spine)
     g = R.aim
@@ -522,11 +553,16 @@ def rot(e, deg):
     e.rotation_euler = (0, -math.radians(deg), 0)
 
 
+def _dz(R):
+    """How much higher this body's hips stand than the first generation's (pose heights are written for 0.78)."""
+    return getattr(R, 'root_rest', 0.78) - 0.78
+
+
 def reset_pose(R):
     for o in R.turn.children_recursive:
         if o.type == 'EMPTY':
             o.rotation_euler = (0, 0, 0)
-    R.root.location.z = 0.78
+    R.root.location.z = getattr(R, 'root_rest', 0.78)
     R.root.location.x = 0
     R.turn.rotation_euler = (0, 0, 0)
 
@@ -548,7 +584,7 @@ def ik_arm(R, side, target):
     down = par @ Vector((0, 0, -1))
     rest = math.atan2(down.z, down.x)
     S = world2(up)
-    a, b = 0.27, 0.27
+    a, b = getattr(R, 'arm_len', (0.27, 0.27))
     T = Vector(target)
     d = T - S
     L = max(0.05, min(a + b - 1e-3, d.length))
@@ -575,7 +611,7 @@ def pose(R, name, frame, aim):
     lean = 0.0
     if name == 'idle':
         breathe = 0.01 if frame else 0.0
-        R.root.location.z = 0.78 - breathe
+        R.root.location.z = 0.78 - breathe + _dz(R)
         rot(R.thigh['n'], 6)
         rot(R.shin['n'], -4)
         rot(R.thigh['f'], -6)
@@ -591,7 +627,7 @@ def pose(R, name, frame, aim):
             # knee bends most as the leg swings forward through the air
             bend = max(0, -math.cos(ph + (0 if k > 0 else math.pi))) * 75 + 8
             rot(R.shin[side], -bend)
-        R.root.location.z = 0.78 - 0.02 + abs(c) * 0.035
+        R.root.location.z = 0.78 - 0.02 + abs(c) * 0.035 + _dz(R)
         lean = 9
     elif name == 'jump':
         rot(R.thigh['n'], 55)
@@ -606,7 +642,7 @@ def pose(R, name, frame, aim):
         rot(R.shin['f'], -35)
         lean = -3
     elif name == 'crouch':
-        R.root.location.z = 0.5
+        R.root.location.z = 0.5 + _dz(R)
         rot(R.thigh['n'], 85)
         rot(R.shin['n'], -120)
         rot(R.thigh['f'], 60)
@@ -614,7 +650,7 @@ def pose(R, name, frame, aim):
         R.root.location.x = -0.06
         lean = 14
     elif name == 'slide':
-        R.root.location.z = 0.32
+        R.root.location.z = 0.32 + _dz(R)
         rot(R.thigh['n'], 80)
         rot(R.shin['n'], -5)
         rot(R.thigh['f'], 40)
@@ -633,7 +669,7 @@ def pose(R, name, frame, aim):
         rot(R.shin['f'], -10)
         lean = 10 if frame else 2
     elif name == 'flip':
-        R.root.location.z = 0.9
+        R.root.location.z = 0.9 + _dz(R)
         rot(R.thigh['n'], 110)
         rot(R.shin['n'], -140)
         rot(R.thigh['f'], 95)
@@ -641,7 +677,7 @@ def pose(R, name, frame, aim):
         lean = 35
         a = -20
     elif name == 'down':
-        R.root.location.z = 0.2
+        R.root.location.z = 0.2 + _dz(R)
         R.root.location.x = 0.42
         rot(R.root, -88)
         rot(R.thigh['n'], 15)
@@ -739,6 +775,7 @@ def main():
     ap.add_argument('--out', default='art3d/out')
     ap.add_argument('--only', default='')
     ap.add_argument('--samples', type=int, default=48)
+    ap.add_argument('--style', type=int, default=2, help='2: the current heroes (style2.py); 1: the first generation')
     ap.add_argument(
         '--mode',
         default='sprites',
@@ -756,7 +793,13 @@ def main():
         hero = next(h for h in heroes if h['id'] == a.hero)
     sc = reset()
     sc.cycles.samples = a.samples
-    R = build(hero)
+    if a.style == 2 and not a.look:
+        import style2
+
+        sc.view_settings.exposure = 0.55
+        R = style2.build_hero(hero)
+    else:
+        R = build(hero)
     cam = stage(R)
     name = f"h{hero['id']}" if not a.look else a.look
     size = [HD_W, HD_H]
@@ -770,7 +813,7 @@ def main():
         sc.render.resolution_x = 128 * SS
         sc.render.resolution_y = 128 * SS
         cam.data.ortho_scale = 0.95
-        cam.location = (0.06, -12, 1.36)
+        cam.location = (0.06, -12, getattr(R, 'portrait_z', 1.36))
         size = [128, 128]
         name += '-face'
     out = os.path.join(a.out, name)
